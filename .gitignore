@@ -1,5 +1,6 @@
-# Private user data & caches — never commit
-data/
+# Private user data & caches — never commit (README documents the layout)
+data/*
+!data/README.md
 
 __pycache__/
 *.pyc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -305,3 +306,540 @@ def test_save_draft_writes_parse_metadata(tmp_path):
     # the plan-shaped part (everything but _parse) must still validate
     plan_only = {k: v for k, v in data.items() if k != "_parse"}
     Plan.model_validate(plan_only)
+
+
+# --------------------------------------------------------------------------- #
+# Real Texas EFL corpus regression tests (tests/fixtures/efl_texts/real/*.txt)
+# --------------------------------------------------------------------------- #
+# Ground truth below was hand-verified by reading each `pdftotext -layout`
+# dump (see the "components" table each EFL discloses). Oncor's standard TDU
+# tariff throughout this July-2026 batch is $4.06/month + 6.1196c/kWh, quoted
+# by each REP under a variety of labels; that figure is not asserted directly
+# here since it is not stored on the Plan schema (see core/models.py -- the
+# engine looks up TDU tariffs from tdu/oncor.yaml, not from the EFL parse).
+def _rate_pairs(draft: DraftPlan) -> list[tuple[float, Optional[dict]]]:
+    return [(r["rate_ckwh"], r["window"]) for r in draft.plan_dict["energy_rates"]]
+
+
+class TestCorpusAeTexasSmartSecure36:
+    """AE Texas Smart Secure 36 (36mo fixed, Oncor). pdftotext -layout mangles
+    this particular PDF's font: a handful of glyphs (only B, capital E, s, b,
+    y) come out as invisible Unicode Private-Use-Area codepoints instead of
+    their real letters, so "Energy Charge" reads as "\\ue001nerg\\ue006e
+    Charge" etc. -- but the literal word "Charge" itself is never one of the
+    corrupted letters, so the generic '<label>Charge ... per <unit>'
+    fallback scan still finds: Energy Charge $0.0649/kWh, Base Charge $0.00,
+    TDU Delivery Charge $4.23/mo + 6.1196c/kWh (all pass-through, not
+    bundled). Confidence lands below 0.8 (fallback layer) so needs_review is
+    correctly True -- a human should double check the corrupted-source
+    numbers even though they happen to be right here.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("AE_TEXAS_Smart_Secure_36_34636.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.49)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 36
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        # corrupted-font PDF -> low-confidence fallback extraction path
+        assert draft.plan_dict["needs_review"] is True
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusApGasTrueClassic11:
+    """AP Gas & Electric TrueClassic 11 (11mo fixed, Oncor): numbered-list
+    style disclosure -- "1) Energy Rate (c) per kWh: 6.274c", "2) Base
+    Charge ($) per month: $0.00", "3) Energy Delivery Charges: 6.1196c per
+    kWh and $4.06 per month" (combined TDU line)."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("AP_GAS_ELECTRIC_TX_LLC_TrueClassic_11_33631.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.274)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 11
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusApGasTrueClassic36:
+    """Same AP Gas & Electric TrueClassic numbered-list style, 36mo term,
+    different (higher) rate/ETF."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("AP_GAS_ELECTRIC_TX_LLC_TrueClassic_36_33453.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(7.174)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 36
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusAbundanceConfidentRenter12:
+    """Abundance Energy Confident Renter 12 (12mo fixed, Oncor): standard
+    'Energy Charge 6.22c Per kWh (c)' / 'Base Charge $0.00 Per Billing Cycle
+    ($)' layout -- already parsed cleanly before this hardening pass. Flagged
+    needs_review because of a genuinely ambiguous disclosure-chart line
+    ("Does REP purchase excess distributed renewable generation? Yes, for
+    solar buyback plans only...") that mentions "solar buyback" without
+    giving a rate; that's correctly low-confidence, not a parser bug."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Abundance_Energy_Confident_Renter_12_34695.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.22)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        # ambiguous "solar buyback plans" mention with no stated rate
+        assert draft.plan_dict["needs_review"] is True
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusBkvDaisy11:
+    """BKV Energy Daisy 11 (11mo fixed, Oncor): 'Energy Charge: 7.034c per
+    kWh' / 'Base Charge: $0 per month' plain layout."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("BKV_Energy_Daisy_11_34777.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(7.034)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 11
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusBkvDaisy13:
+    """BKV Energy Daisy 13 (13mo fixed, Oncor): same layout, different rate."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("BKV_Energy_Daisy_13_34683.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(7.216)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 13
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusBudgetPowerNoGimmicks12:
+    """Budget Power No Gimmicks 12 (12mo fixed, Oncor): 'Fixed Energy Charge
+    5.512c per kWh' / 'Base Charge $0 per billing cycle'."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Budget_Power_No_Gimmicks_12_34399.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(5.512)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusBudgetPowerNoGimmicks24:
+    """Budget Power No Gimmicks 24 (24mo fixed, Oncor): same layout, higher
+    rate."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Budget_Power_No_Gimmicks_24_34398.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.212)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 24
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusChariotBrightNights12:
+    """Chariot Energy Bright Nights 12 (12mo fixed, Oncor): brand-prefixed
+    TOU table -- 'Chariot Energy Daytime Energy Charge 6.78c per kWh' +
+    'Chariot Energy Bright Nights Energy Charge 0c per kWh' +
+    'Chariot Energy Base Monthly Charge $9.95 per billing cycle' + 'Oncor
+    Delivery Charges $4.06 per billing cycle' / '6.1196c per kWh'. The EFL
+    separately states "Bright Nights hours are 11:00 PM to 06:00 AM." so the
+    free-night window is [23,0,1,2,3,4,5] (11pm-6am), not the generic
+    assumed 9pm-6am fallback. This is a heuristic multi-tier reconstruction
+    (arbitrary brand-prefixed labels, not the standard On/Off-Peak
+    vocabulary) so confidence is kept below 0.8 and needs_review is True."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("CHARIOT_ENERGY_Bright_Nights_12_34727.txt")
+
+    def test_energy_rates_two_tier(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 2
+        night_rate, day_rate = rates
+        assert night_rate[0] == pytest.approx(0.0)
+        assert night_rate[1] == {"hours": [23, 0, 1, 2, 3, 4, 5]}
+        assert day_rate[0] == pytest.approx(6.78)
+        assert day_rate[1] is None  # catch-all default must be last
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(9.95)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        # heuristic brand-prefixed multi-tier reconstruction -> flagged
+        assert draft.plan_dict["needs_review"] is True
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusEnergyTexasNoBull12:
+    """Energy Texas No Bull 12 (12mo fixed, Oncor): 'Energy Charge: 6.024c
+    per kWh' / 'Base Charge: $0 per month' plain layout."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Energy_Texas_No_Bull_12_34904.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.024)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusJustEnergyBasicsPtc24:
+    """Just Energy Basics PTC 24 (24mo fixed, Oncor): bullet-form disclosure
+    -- '• Energy Charge: 9.4c/kWh' and '• Pass-Through TDSP
+    Distribution Charge: 6.1196c/kWh' / '• Pass-Through TDSP Customer
+    Charge: $4.06 per month'. No base/monthly REP charge is listed anywhere
+    in the EFL, so base_charge_usd correctly defaults to 0.0 with
+    needs_review True (we can't be certain there's truly no base charge vs.
+    it being omitted for some other reason -- a human should confirm)."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("JUST_ENERGY_Basics_PTC_24_33606.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(9.4)
+        assert rates[0][1] is None
+
+    def test_base_charge_defaults_to_zero(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 24
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is True
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusProntoPower:
+    """Pronto Power (Summer Energy LLC dba Pronto Power), Power To Choose /
+    prepaid variable plan, 1-month term. No labeled 'Energy Charge' line at
+    all -- the rate is only stated in prose ("included in variable rate of
+    17.9 cents") and via a flat repeated avg-price table row (ONCOR 17.9c
+    17.9c 17.9c 17.9c). "Daily Customer Fee (DCF) $0.39 cents per day" is
+    converted to an approximate monthly base charge: 0.39 * 365 / 12 =
+    11.8625 -> rounded to $11.86. "TDSP recurring (pass-through) charges:
+    $0, included in variable rate of 17.9 cents" means delivery is bundled
+    into the energy rate, so tdu_passthrough is False."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("PRONTO_POWER_Power_To_Choose_33671.txt")
+
+    def test_energy_rate_variable(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(17.9)
+        assert rates[0][1] is None
+        assert draft.plan_dict["rate_type"] == "variable"
+
+    def test_base_charge_derived_from_daily_fee(self, draft):
+        # $0.39/day * 365 / 12, rounded to cents
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(11.86)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 1
+
+    def test_tdu_bundled(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is False
+
+    def test_needs_review(self, draft):
+        # prepaid/variable plan with several low-confidence derived fields
+        assert draft.plan_dict["needs_review"] is True
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusThinkEnergyThinkClean12:
+    """Think Energy Think Clean 12 (12mo fixed, Oncor): 'Energy Charge 7.8c
+    Per kWh (c)' / 'Base Charge $4.95 Per Billing Cycle ($)'."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Think_Energy_Think_Clean_12_34475.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(7.8)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(4.95)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusThinkEnergyThinkClean12Thermostat:
+    """Think Energy Think Clean 12 with Smart Thermostat Connected variant:
+    same base layout plus a 'Think Smart Credit $10.00 Per Billing Cycle'
+    line (a flat monthly bill credit, not a usage-tier bill credit, so it's
+    intentionally not picked up by the usage-tier bill_credits extractor)."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected_34706.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(7.8)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(4.95)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusThinkEnergyThinkClean24:
+    """Think Energy Think Clean 24 (24mo fixed, Oncor): same layout, higher
+    rate."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("Think_Energy_Think_Clean_24_34491.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(8.4)
+        assert rates[0][1] is None
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(4.95)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 24
+
+    def test_tdu_passthrough(self, draft):
+        assert draft.plan_dict["tdu_passthrough"] is True
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+def test_corpus_all_real_fixtures_present_and_schema_valid():
+    """Sanity check: every PDF-derived .txt fixture under real/ parses to a
+    schema-valid Plan (never crashes), regardless of confidence -- this is
+    the "genuinely impossible extraction must still be schema-valid +
+    needs_review" guarantee from ARCHITECTURE.md Sec 8."""
+    real_files = sorted(REAL_FIXTURES.glob("*.txt"))
+    assert len(real_files) == 15
+    for path in real_files:
+        draft = _real_draft(path.name)
+        Plan.model_validate(draft.plan_dict)
