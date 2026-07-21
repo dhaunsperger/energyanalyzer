@@ -267,7 +267,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | engine | #3 | DONE | simulate()/rank() implemented per §6; validated against real CSV (see open Q below re: TDU during free windows) |
 | prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
 | eflparse | #5 | DONE | static regex/heuristic parser + 6 fixtures (pulse.txt real + 5 synthetic), 40 tests green |
-| app + excel | #6 | TODO | |
+| app + excel | #6 | DONE | Streamlit app (Home + 4 pages) + report/excel.py; 3 tests green in tests/test_excel.py; validated end-to-end against real data/IntervalData.csv + plans/*.yaml (pulse_current=$1031.37, txu_solar_bb=$1211.37, gmtn_pollution_free_nights=$1264.87 -- all within a few cents of report benchmarks) |
 | integration/validation | #7 | TODO | lead |
 
 ## 11. Open questions / decisions log
@@ -279,3 +279,43 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
   for engine validation; live shopping requires refreshed EFLs.
 - Battery simulation: out of scope v1. Taxes: excluded by design.
+
+## 12. Running the app
+
+```
+pip install -e ".[dev]"           # if not already done
+streamlit run src/energyanalyzer/app/Home.py
+```
+
+Opens at `http://localhost:8501`. Pages (left sidebar): Home, Usage, Plans,
+Compare, Export -- see §9 for what each does.
+
+Data files (all gitignored, all local-only):
+
+- `data/IntervalData*.csv` or `data/GreenButton*.xml` -- your SMT/Green Button
+  interval export(s). Upload via the **Usage** page (writes into `data/` and
+  reloads automatically), or drop the file(s) in by hand before launching.
+  `data/intervals.parquet` is an auto-managed cache; delete it to force a
+  re-parse.
+- `data/ercot/` -- ERCOT RTM settlement price files (XLSX or 12301 CSV), only
+  needed for RTW-indexed plans (see §7). `data/ercot/<zone>.parquet` is the
+  cache. The Home page shows whether prices for the configured zone
+  (`data/config.yaml`'s `load_zone`, default `LZ_NORTH`) are present.
+- `data/ptc/` -- Power to Choose CSV snapshots (Plans page, "Load Power to
+  Choose snapshot" section).
+- `data/efl/` -- downloaded/uploaded EFL PDFs (Plans page, "Import from EFL
+  PDF" and PTC download-EFLs button).
+- `plans/*.yaml` -- the plan database (git-versioned); `plans/drafts/*.yaml`
+  holds unpromoted EFL-parser drafts.
+
+The app never requires network access: every fetcher (ERCOT prices, Power to
+Choose CSV, EFL downloads) degrades to a clear manual-download message
+(surfaced in the UI) if network calls fail or the relevant files aren't
+present yet -- only RTW-indexed plans are skipped (with a warning) when
+ERCOT prices are unavailable; everything else works from the interval CSV
+and plan YAMLs alone.
+
+Excel export (`report/excel.py`, `build_workbook`) is dependency-light
+(xlsxwriter only, no Streamlit import) and unit-tested directly in
+`tests/test_excel.py` -- it can also be called from a plain Python script
+without running the app at all.

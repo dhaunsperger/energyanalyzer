@@ -1,0 +1,331 @@
+"""Plans page (ARCHITECTURE.md §9): plan table, detail view, add/edit form,
+EFL PDF import, and Power to Choose snapshot loading."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+import yaml
+
+_SRC_ROOT = Path(__file__).resolve().parents[3]
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
+
+from energyanalyzer.app.common import (  # noqa: E402
+    EFL_DIR,
+    PTC_DIR,
+    get_draft_plans,
+    get_plans,
+    invalidate_plans_cache,
+    plan_summary_row,
+    render_missing_data_help,
+)
+from energyanalyzer.core.models import Plan  # noqa: E402
+from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, save_plan  # noqa: E402
+
+st.set_page_config(page_title="EnergyAnalyzer - Plans", page_icon="⚡", layout="wide")
+st.title("Plans")
+
+plans = get_plans()
+
+# --------------------------------------------------------------------------- #
+# Overview table
+# --------------------------------------------------------------------------- #
+st.subheader("Plan database")
+if plans:
+    table = pd.DataFrame([plan_summary_row(p) for p in plans])
+    st.dataframe(table.drop(columns=["id"]), width="stretch", hide_index=True)
+else:
+    st.info(f"No plans found in {PLANS_DIR}.")
+
+draft_paths = get_draft_plans()
+if draft_paths:
+    st.caption(f"{len(draft_paths)} unpromoted draft(s) in {DRAFTS_DIR}: " + ", ".join(p.stem for p in draft_paths))
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Select-a-plan detail view
+# --------------------------------------------------------------------------- #
+st.subheader("Plan detail")
+if plans:
+    plan_labels = {f"{p.retailer} — {p.name} ({p.id})": p.id for p in plans}
+    label = st.selectbox("Select a plan", list(plan_labels.keys()), key="detail_select")
+    selected_plan = next(p for p in plans if p.id == plan_labels[label])
+    if selected_plan.needs_review:
+        st.warning("⚠️ NEEDS REVIEW")
+    yaml_text = yaml.safe_dump(
+        selected_plan.model_dump(mode="json", exclude_none=True), sort_keys=False, allow_unicode=True
+    )
+    st.code(yaml_text, language="yaml")
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Add / Edit plan form
+# --------------------------------------------------------------------------- #
+st.subheader("Add / edit plan")
+
+edit_choices = ["-- New plan --"] + [f"{p.retailer} — {p.name} ({p.id})" for p in plans]
+edit_label = st.selectbox("Create new, or edit existing:", edit_choices, key="edit_select")
+editing_plan: Plan | None = None
+if edit_label != "-- New plan --":
+    edit_id = edit_label.rsplit("(", 1)[-1].rstrip(")")
+    editing_plan = next((p for p in plans if p.id == edit_id), None)
+
+form_key_suffix = editing_plan.id if editing_plan else "__new__"
+
+
+def _default_yaml(obj) -> str:
+    return yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
+
+
+if editing_plan is not None:
+    dump = editing_plan.model_dump(mode="json", exclude_none=True)
+    defaults = dict(
+        id=editing_plan.id,
+        retailer=editing_plan.retailer,
+        name=editing_plan.name,
+        term_months=editing_plan.term_months,
+        tdu=editing_plan.tdu,
+        base_charge_usd=editing_plan.base_charge_usd,
+        tdu_passthrough=editing_plan.tdu_passthrough,
+        etf_usd=editing_plan.etf_usd,
+        etf_per_month_remaining=editing_plan.etf_per_month_remaining,
+        rate_type=editing_plan.rate_type,
+        renewable_pct=editing_plan.renewable_pct or 0.0,
+        source=editing_plan.source,
+        efl_url=editing_plan.efl_url or "",
+        notes=editing_plan.notes,
+        needs_review=editing_plan.needs_review,
+    )
+    energy_rates_default = _default_yaml(dump.get("energy_rates", []))
+    buyback_default = _default_yaml(dump.get("buyback", {"kind": "none"}))
+    bill_credits_default = _default_yaml(dump.get("bill_credits", []))
+else:
+    defaults = dict(
+        id="",
+        retailer="",
+        name="",
+        term_months=12,
+        tdu="ONCOR",
+        base_charge_usd=0.0,
+        tdu_passthrough=True,
+        etf_usd=0.0,
+        etf_per_month_remaining=False,
+        rate_type="fixed",
+        renewable_pct=0.0,
+        source="manual",
+        efl_url="",
+        notes="",
+        needs_review=False,
+    )
+    energy_rates_default = _default_yaml([{"rate_ckwh": 12.0}])
+    buyback_default = _default_yaml({"kind": "none"})
+    bill_credits_default = _default_yaml([])
+
+with st.form(f"plan_form_{form_key_suffix}"):
+    c1, c2 = st.columns(2)
+    with c1:
+        f_id = st.text_input("Plan ID (filename-safe, unique)", value=defaults["id"])
+        f_retailer = st.text_input("Retailer", value=defaults["retailer"])
+        f_name = st.text_input("Plan name", value=defaults["name"])
+        f_term = st.number_input("Term (months)", min_value=1, max_value=60, value=int(defaults["term_months"]))
+        f_tdu = st.text_input("TDU", value=defaults["tdu"])
+        f_base = st.number_input(
+            "Base charge $/mo", min_value=0.0, value=float(defaults["base_charge_usd"]), step=0.01, format="%.2f"
+        )
+        f_passthrough = st.checkbox("TDU passthrough (delivery billed separately)", value=defaults["tdu_passthrough"])
+    with c2:
+        f_etf = st.number_input("ETF $", min_value=0.0, value=float(defaults["etf_usd"]), step=1.0)
+        f_etf_per_month = st.checkbox("ETF is per-month-remaining", value=defaults["etf_per_month_remaining"])
+        f_rate_type = st.selectbox(
+            "Rate type",
+            ["fixed", "variable", "indexed"],
+            index=["fixed", "variable", "indexed"].index(defaults["rate_type"]),
+        )
+        f_renewable = st.number_input(
+            "Renewable %", min_value=0.0, max_value=100.0, value=float(defaults["renewable_pct"])
+        )
+        f_source = st.text_input("Source", value=defaults["source"])
+        f_efl_url = st.text_input("EFL URL", value=defaults["efl_url"])
+        f_needs_review = st.checkbox("Needs review", value=defaults["needs_review"])
+    f_notes = st.text_area("Notes", value=defaults["notes"], height=68)
+
+    st.markdown(
+        "**Energy rates** -- YAML list of `{rate_ckwh | rtw, window, label, tdu_exempt}`. "
+        "First matching window wins; the last entry must have no `window` (catch-all)."
+    )
+    f_energy_rates = st.text_area(
+        "energy_rates", value=energy_rates_default, height=160, label_visibility="collapsed"
+    )
+
+    st.markdown("**Buyback** -- YAML dict: `kind: none|fixed|rtw|windows`, plus its fields.")
+    f_buyback = st.text_area("buyback", value=buyback_default, height=140, label_visibility="collapsed")
+
+    st.markdown("**Bill credits** -- YAML list of `{min_kwh, max_kwh, credit_usd}` (optional).")
+    f_bill_credits = st.text_area(
+        "bill_credits", value=bill_credits_default, height=80, label_visibility="collapsed"
+    )
+
+    f_save_target = st.radio(
+        "Save to", ["Active plans (plans/)", "Drafts (plans/drafts/)"], horizontal=True
+    )
+    submitted = st.form_submit_button("Validate & save")
+
+if submitted:
+    try:
+        plan_dict = dict(
+            id=f_id.strip(),
+            retailer=f_retailer.strip(),
+            name=f_name.strip(),
+            term_months=int(f_term),
+            tdu=f_tdu.strip(),
+            base_charge_usd=float(f_base),
+            tdu_passthrough=f_passthrough,
+            etf_usd=float(f_etf),
+            etf_per_month_remaining=f_etf_per_month,
+            rate_type=f_rate_type,
+            renewable_pct=(f_renewable or None),
+            source=f_source.strip(),
+            efl_url=(f_efl_url.strip() or None),
+            notes=f_notes,
+            needs_review=f_needs_review,
+            energy_rates=yaml.safe_load(f_energy_rates) or [],
+            buyback=yaml.safe_load(f_buyback) or {"kind": "none"},
+            bill_credits=yaml.safe_load(f_bill_credits) or [],
+        )
+        plan = Plan.model_validate(plan_dict)
+        target_dir = PLANS_DIR if f_save_target.startswith("Active") else DRAFTS_DIR
+        path = save_plan(plan, directory=target_dir)
+        invalidate_plans_cache()
+        st.success(f"Saved {path}")
+        st.rerun()
+    except Exception as exc:  # noqa: BLE001 -- surface any validation/YAML error to the user
+        st.error(f"Could not save plan: {exc}")
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Import from EFL PDF
+# --------------------------------------------------------------------------- #
+st.subheader("Import from EFL PDF")
+st.caption(
+    "Runs the static EFL parser (no network / no LLM calls). Extracted fields are shown "
+    "with confidence scores and source evidence for review before saving."
+)
+uploaded_pdf = st.file_uploader("Upload EFL PDF", type=["pdf"], key="efl_pdf_uploader")
+if uploaded_pdf is not None:
+    EFL_DIR.mkdir(parents=True, exist_ok=True)
+    efl_path = EFL_DIR / uploaded_pdf.name
+    efl_path.write_bytes(uploaded_pdf.getvalue())
+    st.caption(f"Saved to {efl_path}")
+    if st.button("Parse EFL", key="parse_efl_btn"):
+        try:
+            # Lazy import: eflparse is being finished by another agent; degrade
+            # gracefully if the module/signature isn't ready yet.
+            from energyanalyzer.eflparse.parser import parse_efl  # noqa: PLC0415
+
+            draft = parse_efl(efl_path)
+            st.session_state["efl_draft"] = draft
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"EFL parsing failed (parser may still be in progress): {exc}")
+
+draft = st.session_state.get("efl_draft")
+if draft is not None:
+    st.markdown("**Extracted fields**")
+    confidence = getattr(draft, "confidence", {}) or {}
+    evidence = getattr(draft, "evidence", {}) or {}
+    rows = [
+        {"field": field, "confidence": conf, "evidence": evidence.get(field, "")}
+        for field, conf in sorted(confidence.items())
+    ]
+    if rows:
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    unparsed = getattr(draft, "unparsed_notes", []) or []
+    if unparsed:
+        with st.expander(f"{len(unparsed)} unparsed note(s)"):
+            for n in unparsed:
+                st.caption(f"- {n}")
+
+    st.markdown("**Edit before saving**")
+    plan_dict_default = getattr(draft, "plan_dict", {}) or {}
+    edited_yaml = st.text_area(
+        "Draft plan YAML",
+        value=yaml.safe_dump(plan_dict_default, sort_keys=False, allow_unicode=True),
+        height=300,
+        key="efl_draft_yaml",
+    )
+    efl_save_target = st.radio(
+        "Save to", ["Active plans (plans/)", "Drafts (plans/drafts/)"], horizontal=True, key="efl_save_target"
+    )
+    if st.button("Validate & save", key="efl_save_btn"):
+        try:
+            edited_dict = yaml.safe_load(edited_yaml)
+            plan = Plan.model_validate(edited_dict)
+            target_dir = PLANS_DIR if efl_save_target.startswith("Active") else DRAFTS_DIR
+            path = save_plan(plan, directory=target_dir)
+            invalidate_plans_cache()
+            st.success(f"Saved {path}")
+            del st.session_state["efl_draft"]
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not save: {exc}")
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Power to Choose snapshot
+# --------------------------------------------------------------------------- #
+st.subheader("Power to Choose snapshot")
+st.caption(
+    "Load a previously-downloaded Power to Choose CSV snapshot (data/ptc/), or fetch a new one."
+)
+
+if st.button("Fetch new snapshot from powertochoose.org", key="fetch_ptc_btn"):
+    try:
+        from energyanalyzer.fetchers.ptc import fetch_ptc_csv  # noqa: PLC0415
+
+        path = fetch_ptc_csv(PTC_DIR)
+        st.success(f"Saved {path}")
+        st.rerun()
+    except RuntimeError as exc:
+        render_missing_data_help(exc, title="Power to Choose download failed")
+
+snapshots = sorted(PTC_DIR.glob("*.csv")) if PTC_DIR.exists() else []
+if snapshots:
+    chosen_name = st.selectbox(
+        "Snapshot", [p.name for p in snapshots], index=len(snapshots) - 1, key="ptc_snapshot_select"
+    )
+    if st.button("Load snapshot", key="load_ptc_btn"):
+        try:
+            from energyanalyzer.fetchers.ptc import filter_plans, load_ptc  # noqa: PLC0415
+
+            df_ptc = load_ptc(PTC_DIR / chosen_name)
+            df_ptc = filter_plans(df_ptc, tdu="ONCOR")
+            st.session_state["ptc_df"] = df_ptc
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not load snapshot: {exc}")
+else:
+    st.info(f"No snapshots found in {PTC_DIR} yet.")
+
+ptc_df = st.session_state.get("ptc_df")
+if ptc_df is not None:
+    st.dataframe(ptc_df, width="stretch", height=300)
+    dl_limit = st.number_input("Max EFLs to download", min_value=1, max_value=500, value=20, key="efl_dl_limit")
+    if st.button("Download EFLs for listed plans", key="download_efls_btn"):
+        try:
+            from energyanalyzer.fetchers.ptc import download_efls  # noqa: PLC0415
+
+            summary = download_efls(ptc_df, dest=EFL_DIR, limit=int(dl_limit))
+            st.success(
+                f"Downloaded {len(summary['downloaded'])}, skipped {len(summary['skipped'])}, "
+                f"failed {len(summary['failed'])}"
+            )
+            if summary["failed"]:
+                st.json(summary["failed"][:10])
+        except Exception as exc:  # noqa: BLE001
+            render_missing_data_help(exc, title="EFL download failed")
