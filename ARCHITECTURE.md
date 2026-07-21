@@ -261,7 +261,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | core models + plans_io + seeds | #1 | DONE (lead) | schema is the contract |
 | ingest | #2 | TODO | |
 | engine | #3 | TODO | |
-| prices + fetchers | #4 | TODO | |
+| prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
 | eflparse | #5 | TODO | |
 | app + excel | #6 | TODO | |
 | integration/validation | #7 | TODO | lead |
