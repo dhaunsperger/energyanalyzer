@@ -430,11 +430,12 @@ class TestCorpusApGasTrueClassic36:
 class TestCorpusAbundanceConfidentRenter12:
     """Abundance Energy Confident Renter 12 (12mo fixed, Oncor): standard
     'Energy Charge 6.22c Per kWh (c)' / 'Base Charge $0.00 Per Billing Cycle
-    ($)' layout -- already parsed cleanly before this hardening pass. Flagged
-    needs_review because of a genuinely ambiguous disclosure-chart line
-    ("Does REP purchase excess distributed renewable generation? Yes, for
-    solar buyback plans only...") that mentions "solar buyback" without
-    giving a rate; that's correctly low-confidence, not a parser bug."""
+    ($)' layout. The disclosure-chart line ("Does REP purchase excess
+    distributed renewable generation? Yes, for solar buyback plans only...
+    please inquire for more details") reads as a marketing disclaimer, not a
+    genuinely unresolved rate -- hedge-language detection in
+    _extract_buyback() resolves this confidently as "no rate disclosed"
+    rather than flagging it as low-confidence."""
 
     @staticmethod
     @pytest.fixture(scope="class")
@@ -457,8 +458,8 @@ class TestCorpusAbundanceConfidentRenter12:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        # ambiguous "solar buyback plans" mention with no stated rate
-        assert draft.plan_dict["needs_review"] is True
+        # hedge-language disclaimer confidently resolved as no stated rate
+        assert draft.plan_dict["needs_review"] is False
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
@@ -665,10 +666,11 @@ class TestCorpusJustEnergyBasicsPtc24:
     """Just Energy Basics PTC 24 (24mo fixed, Oncor): bullet-form disclosure
     -- '• Energy Charge: 9.4c/kWh' and '• Pass-Through TDSP
     Distribution Charge: 6.1196c/kWh' / '• Pass-Through TDSP Customer
-    Charge: $4.06 per month'. No base/monthly REP charge is listed anywhere
-    in the EFL, so base_charge_usd correctly defaults to 0.0 with
-    needs_review True (we can't be certain there's truly no base charge vs.
-    it being omitted for some other reason -- a human should confirm)."""
+    Charge: $4.06 per month'. Texas EFLs must itemize every price
+    component in this list; since it has an Energy Charge line and only
+    TDSP-marked lines besides, _extract_base_charge_absent_from_itemized_list
+    confidently resolves base_charge_usd to 0.0 rather than flagging it as
+    a low-confidence guess."""
 
     @staticmethod
     @pytest.fixture(scope="class")
@@ -691,7 +693,7 @@ class TestCorpusJustEnergyBasicsPtc24:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        assert draft.plan_dict["needs_review"] is True
+        assert draft.plan_dict["needs_review"] is False
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)

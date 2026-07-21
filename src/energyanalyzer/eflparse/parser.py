@@ -462,11 +462,25 @@ def _extract_rate_type(text: str) -> Optional[Extraction]:
 def _extract_base_charge(text: str) -> Optional[Extraction]:
     patterns = [
         (
+            # Allows a stray repeated unit symbol between value and "per",
+            # e.g. two-column table artifacts like "Base Charge $0.00 $ per
+            # bill month"
             re.compile(
-                r"Base\s*Charge\**\s*[:\-]?\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*(?:billing\s*cycle|month)",
+                r"Base\s*(?:Charge|Fee)\**\s*[:\-]?\s*\$\s*(\d+(?:\.\d+)?)\s*\$?\s*per\s*"
+                r"(?:billing\s*cycle|bill\s*month|month)",
                 re.I,
             ),
             0.95,
+            lambda m: float(m.group(1)),
+        ),
+        (
+            # Reversed unit/value order, e.g. "Base Charge per month: $0.00" or
+            # "Base Charge: Per Month ($) $9.95"
+            re.compile(
+                r"Base\s*Charge\**\s*:?\s*Per\s*Month\s*\(?\$?\)?\s*:?\s*\$?\s*(\d+(?:\.\d+)?)",
+                re.I,
+            ),
+            0.85,
             lambda m: float(m.group(1)),
         ),
         (
@@ -674,7 +688,7 @@ def _extract_avg_prices(text: str) -> dict[str, float]:
 # Energy charge / free-windows / TOU
 # --------------------------------------------------------------------------- #
 _ENERGY_LINE = re.compile(
-    r"(?:^|\n)\s*(?:\d+[.\)]\s*)?(?:[•*\-]\s*)?([A-Za-z][A-Za-z\-]{0,20}\s+)?"
+    r"(?:^|\n|:\s)\s*(?:\d+[.\)]\s*)?(?:[•*\-]\s*)?((?:[A-Za-z][A-Za-z\-]{0,20}[ \t]+){0,3})?"
     r"Energy\s*(?:Charge|Rate)\**\s*[:\-]?\s*([^\n]{0,80})",
     re.I,
 )
@@ -854,12 +868,15 @@ def _generic_charge_rows(text: str) -> list[dict]:
 
 def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
     """Prepaid plans sometimes state a per-day customer/base fee instead of a
-    monthly base charge, e.g. 'Daily Customer Fee (DCF) $0.39 cents per day'.
-    Convert to an approximate monthly figure: fee * 365 / 12, rounded to
-    cents. Confidence is capped at 0.7 -- this is a derived, not stated,
-    monthly figure."""
+    monthly base charge, e.g. 'Daily Customer Fee (DCF) $0.39 cents per day'
+    or plainly 'Daily Charge $0.00 per day'. Convert to an approximate
+    monthly figure: fee * 365 / 12, rounded to cents. Confidence is capped
+    at 0.7 for a nonzero fee -- this is a derived, not stated, monthly
+    figure -- but a stated $0 daily fee converts to an exact $0 monthly
+    figure with no rounding error, so it gets a higher confidence."""
     m = re.search(
-        r"Daily\s*Customer\s*Fee[^\n$]{0,45}\$\s*(\d+(?:\.\d+)?)\s*(?:cents?)?\s*per\s*day",
+        r"Daily\s*(?:Customer\s*)?(?:Charge|Fee)(?:\s*\([^)]*\))?[^\n$]{0,45}"
+        r"\$\s*(\d+(?:\.\d+)?)\s*(?:cents?)?\s*per\s*day",
         text,
         re.I,
     )
@@ -867,7 +884,44 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
         return None
     daily = float(m.group(1))
     monthly = round(daily * 365 / 12, 2)
-    return monthly, 0.65, _snippet(m)
+    conf = 0.9 if daily == 0 else 0.65
+    return monthly, conf, _snippet(m)
+
+
+_PRICE_COMPONENTS_ANCHOR = re.compile(
+    r"(?:based\s*on\s*the\s*following|following\s*components?\s*of\s*the\s*price"
+    r"|includes\s*the\s*energy\s*charge\s*and\s*(?:tdu|tdsp)?\s*deliver\w*\s*charges?)\s*:?",
+    re.I,
+)
+_CHARGE_LINE = re.compile(r"^.{0,80}\b(?:Charge|Fee)\b.{0,80}$", re.I | re.M)
+
+
+def _extract_base_charge_absent_from_itemized_list(text: str) -> Optional[Extraction]:
+    """Some EFLs (e.g. Companion Energy, Frontier Utilities, Gexa Energy,
+    Just Energy) itemize every price component in a short list right after
+    the average-price table -- 'This price disclosure is based on the
+    following: Energy Charge X per kWh / TDU Delivery Charges ...'. Texas
+    EFLs must disclose all price components in this list, so if it has an
+    Energy Charge line and only TDU/TDSP line(s) besides -- no separate REP
+    base or customer charge line -- the REP genuinely charges no base fee,
+    rather than the parser having simply failed to find one."""
+    anchor = _PRICE_COMPONENTS_ANCHOR.search(text)
+    if not anchor:
+        return None
+    window = text[anchor.end() : anchor.end() + 500]
+    lines = _CHARGE_LINE.findall(window)
+    if not lines:
+        return None
+    rep_lines = [ln for ln in lines if not re.search(_TDU_MARK, ln, re.I)]
+    if not rep_lines:
+        return None
+    has_energy_charge = any(re.search(r"Energy\s*Charge", ln, re.I) for ln in rep_lines)
+    has_base_or_customer = any(
+        re.search(r"\b(?:Base|Customer|Monthly\s*Service)\b", ln, re.I) for ln in rep_lines
+    )
+    if has_energy_charge and not has_base_or_customer:
+        return 0.0, 0.8, anchor.group(0) + " " + " / ".join(rep_lines[:3])
+    return None
 
 
 def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
@@ -979,6 +1033,12 @@ _BUYBACK_LABEL = re.compile(
 )
 
 
+_BUYBACK_HEDGE = re.compile(
+    r"please\s*(?:inquire|contact|call|visit)|may\s*be\s*available|eligib(?:le|ility)|enrolled",
+    re.I,
+)
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
@@ -1029,7 +1089,17 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
             offset_scope = "energy_only"
         return {"kind": "fixed", "rate_ckwh": rate, "offset_scope": offset_scope}, 0.85, evidence
 
-    return {"kind": "none"}, 0.3, fallback_evidence
+    # None of the candidates yielded a rate. If they read like a marketing
+    # disclaimer ("Solar Buyback may be available -- please contact Customer
+    # Care", "Yes, for solar buy-back plans only, please inquire for more
+    # details") rather than a genuine unresolved rate, that's a confident
+    # signal this EFL itself doesn't disclose a buyback rate -- not a low-
+    # confidence guess.
+    hedged = any(
+        _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]) for m in candidates
+    )
+    conf = 0.85 if hedged else 0.3
+    return {"kind": "none"}, conf, fallback_evidence
 
 
 # --------------------------------------------------------------------------- #
@@ -1226,6 +1296,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 f"(fee * 365 / 12, rounded to cents)"
             )
         else:
+            absent_ext = _extract_base_charge_absent_from_itemized_list(text)
             generic_month_rows = [
                 r for r in _generic_charge_rows(text) if r["kind"] == "month" and not r["is_tdu"]
             ]
@@ -1233,6 +1304,12 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 r = generic_month_rows[0]
                 base_charge = record("base_charge", (r["value"], 0.6, r["evidence"]))
                 notes.append("base charge derived from a generic '<label> Charge ... per month' table-line scan")
+            elif absent_ext is not None:
+                base_charge = record("base_charge", absent_ext)
+                notes.append(
+                    "base charge inferred as $0.00: itemized price-components list has no "
+                    "REP base/customer charge line"
+                )
             else:
                 notes.append("base charge not found; defaulting to 0.0")
                 base_charge = 0.0
