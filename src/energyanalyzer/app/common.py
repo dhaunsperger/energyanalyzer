@@ -27,6 +27,7 @@ DATA_DIR = REPO_ROOT / "data"
 ERCOT_DIR = DATA_DIR / "ercot"
 PTC_DIR = DATA_DIR / "ptc"
 EFL_DIR = DATA_DIR / "efl"
+METERPLAN_DIR = DATA_DIR / "meterplan"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
 DEFAULT_LOAD_ZONE = "LZ_NORTH"
@@ -203,6 +204,7 @@ def refresh_market_data(
     drafts_dir: Path = DRAFTS_DIR,
     efl_dir: Path = EFL_DIR,
     ptc_dir: Path = PTC_DIR,
+    meterplan_dir: Path = METERPLAN_DIR,
     tdu: str = "ONCOR",
     language: Optional[str] = "English",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -213,10 +215,11 @@ def refresh_market_data(
     Orchestrates, in order:
 
     1. **Delete** stale auto-imported data: plans in `plans_dir` whose
-       `source` starts with `"ptc"` or `"efl:"` (never `"manual"`,
-       never a `"report-*"` seed, never `CURRENT_PLAN_ID`); every draft in
-       `drafts_dir`; every PDF in `efl_dir`; every PTC snapshot in `ptc_dir`
-       except the newest (kept as a fallback).
+       `source` starts with `"ptc"`, `"efl:"`, or is exactly `"meterplan"`
+       (never `"manual"`, never a `"report-*"` seed, never
+       `CURRENT_PLAN_ID`); every draft in `drafts_dir`; every PDF in
+       `efl_dir`; every PTC snapshot in `ptc_dir` except the newest (kept as
+       a fallback).
     2. **Fetch** a fresh PTC snapshot (`fetchers.ptc.fetch_ptc_csv`) unless
        `fetch=False`. If the live fetch raises `RuntimeError` (network
        blocked), falls back to the newest snapshot kept in step 1 and notes
@@ -226,15 +229,28 @@ def refresh_market_data(
        language)`).
     4. **Download** EFLs for the filtered plans (`download_efls`).
     5. **Parse** every downloaded EFL into a draft (`parse_downloaded_efls`).
-    6. **Auto-promote** drafts the parser was confident about: `needs_review`
-       is `False` on the draft AND every load-bearing field
-       (`eflparse.parser.LOAD_BEARING_KEYS`) it saw a confidence score for
-       scored >= 0.8 (a draft with no confidence data at all is treated
-       conservatively -- left for manual review, not auto-promoted).
-       Promoted plans are validated via `Plan.model_validate`, stamped with
-       `retrieved = today` (and `source` defaulted to `"ptc"` if somehow
-       unset), saved via `plans_io.save_plan`, and their draft file deleted.
-       A single bad draft cannot abort the batch.
+    6. **Meterplan**: fetch a fresh meterplan.com solar buyback plan index
+       snapshot (`fetchers.meterplan.fetch_meterplan`) unless `fetch=False`;
+       on failure (or `fetch=False`), falls back to the newest snapshot in
+       `meterplan_dir` and notes it -- if neither is available, this stage
+       is skipped (noted) rather than aborting the run. The snapshot is
+       loaded + filtered to `tdu` (`load_meterplan` + `filter_meterplan`)
+       and turned into drafts (`fetchers.meterplan.meterplan_to_drafts`),
+       deduped against every plan still present in `plans_dir` after step 1
+       (so a plan already in the database by retailer/name/term isn't
+       re-drafted). Simple plans (fixed import, fixed/none export, no
+       free-hours name) come out with `needs_review=False` and
+       high-confidence load-bearing fields -- eligible for the same
+       auto-promote gate as EFL drafts below; anything else is left flagged.
+    7. **Auto-promote** drafts (EFL- and meterplan-sourced alike) the parser
+       was confident about: `needs_review` is `False` on the draft AND every
+       load-bearing field (`eflparse.parser.LOAD_BEARING_KEYS`) it saw a
+       confidence score for scored >= 0.8 (a draft with no confidence data
+       at all is treated conservatively -- left for manual review, not
+       auto-promoted). Promoted plans are validated via `Plan.model_validate`,
+       stamped with `retrieved = today` (and `source` defaulted to `"ptc"`
+       if somehow unset), saved via `plans_io.save_plan`, and their draft
+       file deleted. A single bad draft cannot abort the batch.
 
     `progress_callback`, if given, is called after every item in every stage
     as `progress_callback(stage_done, stage_total, "<stage>: <item>")` so a
@@ -243,16 +259,26 @@ def refresh_market_data(
     Returns a summary dict: `{'deleted_plans': [id, ...], 'deleted_drafts':
     int, 'deleted_efls': int, 'deleted_snapshots': int, 'fetched': bool,
     'snapshot_path': str | None, 'downloaded': <download_efls() summary>,
-    'parsed': <parse_downloaded_efls() summary>, 'promoted': [plan_id, ...],
-    'needing_review': [draft_stem, ...], 'notes': [str, ...]}`.
+    'parsed': <parse_downloaded_efls() summary>, 'meterplan': {'fetched':
+    bool, 'snapshot_path': str | None, 'imported': [id, ...],
+    'skipped_battery': int, 'skipped_existing': int, 'flagged_for_review':
+    int}, 'promoted': [plan_id, ...], 'needing_review': [draft_stem, ...],
+    'notes': [str, ...]}`.
     """
     from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
+    from energyanalyzer.fetchers.meterplan import (
+        fetch_meterplan,
+        filter_meterplan,
+        load_meterplan,
+        meterplan_to_drafts,
+    )
     from energyanalyzer.fetchers.ptc import download_efls, fetch_ptc_csv, filter_plans, load_ptc
 
     plans_dir = Path(plans_dir)
     drafts_dir = Path(drafts_dir)
     efl_dir = Path(efl_dir)
     ptc_dir = Path(ptc_dir)
+    meterplan_dir = Path(meterplan_dir)
 
     notes: list[str] = []
     summary: dict = {
@@ -264,6 +290,14 @@ def refresh_market_data(
         "snapshot_path": None,
         "downloaded": {"downloaded": [], "skipped": [], "failed": []},
         "parsed": {"parsed": [], "skipped": [], "failed": []},
+        "meterplan": {
+            "fetched": False,
+            "snapshot_path": None,
+            "imported": [],
+            "skipped_battery": 0,
+            "skipped_existing": 0,
+            "flagged_for_review": 0,
+        },
         "promoted": [],
         "needing_review": [],
         "notes": notes,
@@ -284,7 +318,7 @@ def refresh_market_data(
             except Exception:  # noqa: BLE001 -- unreadable plan file, leave it alone
                 continue
             src = str(raw.get("source") or "")
-            if src.startswith("ptc") or src.startswith("efl:"):
+            if src.startswith("ptc") or src.startswith("efl:") or src == "meterplan":
                 plan_paths_to_delete.append(p)
 
     draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
@@ -338,31 +372,89 @@ def refresh_market_data(
     if snapshot_path is None:
         notes.append(
             "No Power to Choose snapshot available (live fetch failed/skipped and none on "
-            "disk) -- download/parse/promote stages skipped."
+            "disk) -- PTC download/parse stages skipped."
         )
-        return summary
+    else:
+        summary["snapshot_path"] = str(snapshot_path)
 
-    summary["snapshot_path"] = str(snapshot_path)
+        # --- 3. load + filter ------------------------------------------#
+        df_raw = load_ptc(snapshot_path)
+        df = filter_plans(df_raw, tdu=tdu, language=language)
 
-    # --- 3. load + filter --------------------------------------------------#
-    df_raw = load_ptc(snapshot_path)
-    df = filter_plans(df_raw, tdu=tdu, language=language)
+        # --- 4. download EFLs -------------------------------------------#
+        summary["downloaded"] = download_efls(
+            df, dest=efl_dir, progress_callback=lambda d, t, n: _report("download", d, t, n)
+        )
 
-    # --- 4. download EFLs ---------------------------------------------- #
-    summary["downloaded"] = download_efls(
-        df, dest=efl_dir, progress_callback=lambda d, t, n: _report("download", d, t, n)
+        # --- 5. parse downloaded EFLs into drafts ------------------------#
+        pdf_paths = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+        summary["parsed"] = parse_downloaded_efls(
+            pdf_paths,
+            drafts_dir=drafts_dir,
+            plans_dir=plans_dir,
+            progress_callback=lambda d, t, n: _report("parse", d, t, n),
+        )
+
+    # --- 6. meterplan.com solar buyback plan index --------------------------#
+    # Independent of the PTC stages above (runs even if PTC's live fetch/disk
+    # snapshot was unavailable) -- it's a different site, covering solar
+    # buyback plans PTC's export lacks. Same fetch-or-fallback-to-newest-disk-
+    # snapshot pattern as PTC; tolerated gracefully (noted, not raised) if
+    # neither a live fetch nor an existing snapshot is available.
+    mp_snapshot_paths = sorted(meterplan_dir.glob("*.md")) if meterplan_dir.exists() else []
+    mp_newest_snapshot = (
+        max(mp_snapshot_paths, key=lambda p: p.stat().st_mtime) if mp_snapshot_paths else None
     )
+    mp_snapshot_path = None
+    if fetch:
+        _report("meterplan-fetch", 0, 1, "contacting meterplan.com")
+        try:
+            mp_snapshot_path = fetch_meterplan(meterplan_dir)
+            summary["meterplan"]["fetched"] = True
+            _report("meterplan-fetch", 1, 1, f"saved {mp_snapshot_path.name}")
+        except RuntimeError as exc:
+            notes.append(f"Live meterplan.com fetch failed, falling back to existing snapshot: {exc}")
+            mp_snapshot_path = mp_newest_snapshot
+            _report("meterplan-fetch", 1, 1, "fetch failed -- using existing snapshot")
+    else:
+        mp_snapshot_path = mp_newest_snapshot
+        notes.append(
+            "fetch=False -- using existing meterplan.com snapshot without contacting meterplan.com"
+        )
 
-    # --- 5. parse downloaded EFLs into drafts --------------------------- #
-    pdf_paths = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
-    summary["parsed"] = parse_downloaded_efls(
-        pdf_paths,
-        drafts_dir=drafts_dir,
-        plans_dir=plans_dir,
-        progress_callback=lambda d, t, n: _report("parse", d, t, n),
-    )
+    if mp_snapshot_path is None:
+        notes.append(
+            "No meterplan.com snapshot available (live fetch failed/skipped and none on disk) "
+            "-- solar buyback plan index import skipped."
+        )
+    else:
+        summary["meterplan"]["snapshot_path"] = str(mp_snapshot_path)
+        try:
+            mp_df_raw = load_meterplan(mp_snapshot_path)
+            mp_df = filter_meterplan(mp_df_raw, tdu=tdu)
 
-    # --- 6. auto-promote confident drafts -------------------------------- #
+            try:
+                surviving_plans = load_plans(plans_dir)
+            except Exception:  # noqa: BLE001 -- defensive; dedupe just degrades to "no matches"
+                surviving_plans = []
+            existing_plan_keys = {
+                (p.retailer.strip().lower(), p.name.strip().lower(), p.term_months)
+                for p in surviving_plans
+            }
+
+            mp_summary = meterplan_to_drafts(mp_df, drafts_dir, existing_plan_keys)
+            summary["meterplan"].update(mp_summary)
+            _report(
+                "meterplan",
+                1,
+                1,
+                f"imported {len(mp_summary['imported'])}, flagged {mp_summary['flagged_for_review']}",
+            )
+        except Exception as exc:  # noqa: BLE001 -- a bad/corrupt snapshot mustn't abort the run
+            notes.append(f"Could not parse meterplan.com snapshot {mp_snapshot_path.name}: {exc!r}")
+            _report("meterplan", 1, 1, "snapshot parse failed")
+
+    # --- 7. auto-promote confident drafts (EFL- and meterplan-sourced) -----#
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
     promote_total = len(current_draft_paths)
     for i, draft_path in enumerate(current_draft_paths, start=1):

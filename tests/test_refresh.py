@@ -20,9 +20,11 @@ import yaml
 from energyanalyzer.app import common as app_common
 from energyanalyzer.core.models import EnergyRate, Plan, TduTariff
 from energyanalyzer.eflparse import parser as eflparser
+from energyanalyzer.fetchers import meterplan as meterplan_module
 from energyanalyzer.fetchers import ptc as ptc_module
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ptc_sample.csv"
+METERPLAN_FIXTURE = Path(__file__).parent / "fixtures" / "meterplan_sample.md"
 
 
 def _write_plan_yaml(path: Path, id_: str, source: str) -> None:
@@ -44,9 +46,10 @@ def refresh_dirs(tmp_path: Path):
     drafts_dir = plans_dir / "drafts"
     efl_dir = tmp_path / "efl"
     ptc_dir = tmp_path / "ptc"
-    for d in (plans_dir, drafts_dir, efl_dir, ptc_dir):
+    meterplan_dir = tmp_path / "meterplan"
+    for d in (plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir):
         d.mkdir(parents=True)
-    return plans_dir, drafts_dir, efl_dir, ptc_dir
+    return plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir
 
 
 class _FakeResponse:
@@ -98,7 +101,7 @@ def _fake_parse_efl(pdf_path) -> eflparser.DraftPlan:
 
 
 def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
-    plans_dir, drafts_dir, efl_dir, ptc_dir = refresh_dirs
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
 
     _write_plan_yaml(plans_dir / "manual_plan.yaml", "manual_plan", "manual")
     _write_plan_yaml(plans_dir / "report_plan.yaml", "report_plan", "report-2026-07")
@@ -124,6 +127,14 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
 
     monkeypatch.setattr(ptc_module, "fetch_ptc_csv", _boom_fetch)
 
+    # meterplan.com is a separate site/network call -- also blocked here, and
+    # no local snapshot exists, so this test stays scoped to the PTC/EFL path
+    # (the dedicated meterplan-stage tests below cover it in isolation).
+    def _boom_meterplan_fetch(dest_dir, timeout=30.0):
+        raise RuntimeError("network blocked")
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+
     import httpx
 
     monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
@@ -135,6 +146,7 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
         drafts_dir=drafts_dir,
         efl_dir=efl_dir,
         ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
         progress_callback=lambda d, t, n: calls.append((d, t, n)),
     )
 
@@ -173,30 +185,47 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
     assert len(summary["needing_review"]) == 5
     assert len(list(drafts_dir.glob("*.yaml"))) == 5  # rejected drafts stay for manual review
 
+    # --- meterplan.com stage: also blocked/no snapshot, tolerated gracefully ---
+    assert summary["meterplan"]["fetched"] is False
+    assert summary["meterplan"]["snapshot_path"] is None
+    assert summary["meterplan"]["imported"] == []
+    assert any("meterplan.com fetch failed" in n.lower() for n in summary["notes"])
+
     assert calls, "progress_callback should have been invoked"
     assert all(isinstance(c[2], str) and ":" in c[2] for c in calls), "labels should be 'stage: item'"
 
 
 def test_refresh_market_data_no_snapshot_available_is_graceful(refresh_dirs, monkeypatch):
-    plans_dir, drafts_dir, efl_dir, ptc_dir = refresh_dirs
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
 
     def _boom_fetch(dest_dir, timeout=30.0):
         raise RuntimeError("network blocked")
 
     monkeypatch.setattr(ptc_module, "fetch_ptc_csv", _boom_fetch)
 
+    def _boom_meterplan_fetch(dest_dir, timeout=30.0):
+        raise RuntimeError("network blocked")
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+
     summary = app_common.refresh_market_data(
-        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir, ptc_dir=ptc_dir
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
     )
     assert summary["snapshot_path"] is None
     assert summary["downloaded"] == {"downloaded": [], "skipped": [], "failed": []}
     assert summary["parsed"] == {"parsed": [], "skipped": [], "failed": []}
     assert summary["promoted"] == []
     assert any("no power to choose snapshot available" in n.lower() for n in summary["notes"])
+    assert summary["meterplan"]["imported"] == []
+    assert any("no meterplan.com snapshot available" in n.lower() for n in summary["notes"])
 
 
 def test_refresh_market_data_fetch_false_skips_network(refresh_dirs, monkeypatch):
-    plans_dir, drafts_dir, efl_dir, ptc_dir = refresh_dirs
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
     snapshot = ptc_dir / "ptc_only.csv"
     snapshot.write_text(FIXTURE.read_text())
 
@@ -205,17 +234,103 @@ def test_refresh_market_data_fetch_false_skips_network(refresh_dirs, monkeypatch
 
     monkeypatch.setattr(ptc_module, "fetch_ptc_csv", _fail_if_called)
 
+    def _fail_meterplan_if_called(*a, **k):
+        raise AssertionError("fetch_meterplan should not be called when fetch=False")
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fail_meterplan_if_called)
+
     import httpx
 
     monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
     monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
 
     summary = app_common.refresh_market_data(
-        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir, ptc_dir=ptc_dir, fetch=False
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
+        fetch=False,
     )
     assert summary["fetched"] is False
     assert summary["snapshot_path"] == str(snapshot)
     assert any("fetch=false" in n.lower() for n in summary["notes"])
+    assert summary["meterplan"]["fetched"] is False
+    assert summary["meterplan"]["snapshot_path"] is None  # no meterplan snapshot on disk either
+    assert any("fetch=false" in n.lower() and "meterplan" in n.lower() for n in summary["notes"])
+
+
+# --------------------------------------------------------------------------- #
+# Meterplan.com solar buyback plan index stage (in isolation, monkeypatched
+# fetch): dedupe against surviving plans, battery skip, auto-promote of
+# "simple" drafts via the existing gate.
+# --------------------------------------------------------------------------- #
+def test_refresh_market_data_meterplan_stage(refresh_dirs, monkeypatch):
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+
+    # PTC is blocked/unavailable here -- isolates this test to the meterplan
+    # stage (the full-pipeline test above covers PTC+EFL+meterplan together).
+    def _boom_ptc_fetch(dest_dir, timeout=30.0):
+        raise RuntimeError("network blocked")
+
+    monkeypatch.setattr(ptc_module, "fetch_ptc_csv", _boom_ptc_fetch)
+
+    def _fake_fetch_meterplan(dest_dir, timeout=30.0):
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / "meterplan_snapshot.md"
+        dest_path.write_text(METERPLAN_FIXTURE.read_text())
+        return dest_path
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fake_fetch_meterplan)
+
+    # A manual plan matching one Lubbock row by (retailer, name, term) should
+    # dedupe it out via existing_plan_keys, and must survive (source=manual).
+    (plans_dir / "manual_saver24.yaml").write_text(
+        "id: manual_saver24\n"
+        "retailer: Meter Energy\n"
+        "name: Saver\n"
+        "term_months: 24\n"
+        "energy_rates:\n"
+        "  - rate_ckwh: 11.0\n"
+        "source: manual\n"
+    )
+
+    summary = app_common.refresh_market_data(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
+        tdu="Lubbock",
+    )
+
+    mp = summary["meterplan"]
+    assert mp["fetched"] is True
+    assert mp["snapshot_path"] == str(meterplan_dir / "meterplan_snapshot.md")
+    # Fixture has 6 Lubbock rows: 1 "+ Battery" (skipped), 1 Saver/24 (deduped
+    # against the manual plan above), 4 remaining simple plans imported.
+    assert mp["skipped_battery"] == 1
+    assert mp["skipped_existing"] == 1
+    assert mp["flagged_for_review"] == 0
+    assert len(mp["imported"]) == 4
+    assert all(pid.startswith("mp_") for pid in mp["imported"])
+
+    # All 4 are "simple" (fixed import, fixed/none export, non-free-night
+    # name) -> needs_review=False + high-confidence load-bearing fields ->
+    # auto-promoted by the existing gate, same as confident EFL drafts.
+    assert len(summary["promoted"]) == 4
+    assert set(summary["promoted"]) == set(mp["imported"])
+    for pid in summary["promoted"]:
+        promoted = Plan.model_validate(yaml.safe_load((plans_dir / f"{pid}.yaml").read_text()))
+        assert promoted.source == "meterplan"
+        assert promoted.retrieved == dt.date.today()
+        assert promoted.needs_review is False
+        assert promoted.tdu == "LUBBOCK"
+
+    assert not list(drafts_dir.glob("mp_*.yaml"))  # promoted drafts are removed
+    assert (plans_dir / "manual_saver24.yaml").exists()  # manual plan untouched
+    assert summary["needing_review"] == []
 
 
 # --------------------------------------------------------------------------- #

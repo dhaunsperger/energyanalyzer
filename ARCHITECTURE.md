@@ -216,6 +216,29 @@ prices, EFL URL, renewable %, prepaid/TOU flags), download EFL PDFs to
 Network egress here is restricted; code defensively and make snapshots
 loadable offline.
 
+`fetchers/meterplan.py`: meterplan.com Texas solar buyback plan index
+(`https://meterplan.com/data/texas-solar-buyback-plans.md`), an
+hourly-regenerated public markdown page published by Meter Energy Inc. (a
+competing REP/broker, PUCT broker #BR250137) that covers solar buyback plans
+Power to Choose's export doesn't carry (mostly non-Oncor TDUs, plus a handful
+of Oncor ones). `fetch_meterplan` saves a timestamped `.md` snapshot to
+`data/meterplan/`; `load_meterplan` parses only the "Meter Plan Availability"
+and "Competitor Plan Availability" markdown tables (NOT "Top Plans By TDU For
+The Default Profile", which re-lists a subset of the same rows) into a tidy
+DataFrame (`tdu`, `retailer`, `plan_name`, `term_months`, `import_ckwh`,
+`export_kind`/`export_ckwh`, `base_usd_month`, `etf_usd`,
+`etf_per_month_remaining`, `battery_required`, `source_url`, `generated`);
+`filter_meterplan` filters by TDU (meterplan's own labels: Oncor/Centerpoint/
+AEP Central/AEP North/TNMP/Lubbock); `meterplan_to_drafts` turns rows into
+draft plan YAMLs (same `_parse` confidence/evidence shape as `eflparse`),
+skipping battery-required rows and rows already in the plan database. We
+NEVER read their "Estimated annual cost" column — it's Meter Energy's own
+cost-engine output against a fixed default usage profile; EnergyAnalyzer
+always computes costs itself from the user's actual interval data. Network
+egress here is restricted too; a committed reference snapshot
+(`tests/fixtures/meterplan_sample.md`) is the format reference and test
+fixture.
+
 ## 8. EFL static parser (Task 5) — NO LLM calls
 
 `eflparse/parser.py`: `parse_efl(pdf_path) -> DraftPlan` where DraftPlan =
@@ -258,12 +281,18 @@ Pages (multipage app, `app/Home.py` + `app/pages/`):
    `plans/drafts/*.yaml` (confidence + evidence per field from parsing) and
    promotes them into `plans/` (or deletes them), with the main plan table
    refreshing immediately (cache invalidation + rerun) -- no manual reload;
-   a "Refresh market data" one-button flow (confirmation-gated) orchestrates
-   delete-old-imports → fetch (fallback to newest snapshot on disk on
-   network failure) → download → parse → auto-promote-if-confident in one
-   pass (`app/common.refresh_market_data`), stamping promoted plans'
-   `retrieved` date (manual/report-seed plans and the current plan are never
-   touched by the delete step).
+   a "Meterplan solar plan index" subsection (fetch button with offline
+   fallback to the newest `data/meterplan/` snapshot, snapshot picker, TDU
+   filter, filtered table + raw→filtered count caption, "Import as drafts")
+   turns meterplan.com's solar buyback plan index into the same
+   `plans/drafts/` review/promote flow, deduped against plans already in the
+   database; a "Refresh market data" one-button flow (confirmation-gated)
+   orchestrates delete-old-imports → fetch (fallback to newest snapshot on
+   disk on network failure) → download → parse → meterplan fetch/dedupe/
+   draft (same fallback pattern, tolerated gracefully if unavailable) →
+   auto-promote-if-confident in one pass (`app/common.refresh_market_data`),
+   stamping promoted plans' `retrieved` date (manual/report-seed plans and
+   the current plan are never touched by the delete step).
 3. **Compare** — run engine over all plans; ranked table styled like report
    p.2 (Retailer, Plan, Term, Base $/mo, Import ¢/kWh +TDU, Export ¢/kWh,
    Other details, ETF, 1st-Year Net Bill, Stale?); expandable per-plan
@@ -290,6 +319,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | app + excel | #6 | DONE | Streamlit app (Home + 4 pages) + report/excel.py; 3 tests green in tests/test_excel.py; validated end-to-end against real data/IntervalData.csv + plans/*.yaml (pulse_current=$1031.37, txu_solar_bb=$1211.37, gmtn_pollution_free_nights=$1264.87 -- all within a few cents of report benchmarks) |
 | app + fetchers followup | #6/#4 | DONE | fixed 3 user-reported Plans-page issues: `fetchers.ptc.filter_plans` gained a backward-compatible `language="English"` default filter + snapshot TDU picker in the UI (was reading as truncation, was actually TDU+Spanish-duplicate filtering); `download_efls` gained `progress_callback` wired to `st.progress`; new `app/common.parse_downloaded_efls` batch-parses `data/efl/*.pdf` into `plans/drafts/` (per-file try/except, skip-if-already-parsed) plus a "Draft plans" review/edit/promote UI -- promote/delete both invalidate the plans cache and `st.rerun()` so the main table updates immediately; 183 tests green (`pytest tests/`), plus manual `streamlit.testing.v1.AppTest` smoke passes on the Plans page across empty and populated states |
 | app followup 2: refresh + staleness | #6/#4 | DONE | new `app/common.refresh_market_data` (delete old ptc/efl:-sourced plans+drafts+EFLs+stale snapshots -- never manual/report-*/current-plan -- then fetch-or-fallback → load+filter → download → parse → auto-promote drafts with needs_review=False and all load-bearing confidences >=0.8, stamping `retrieved`) wired to a confirmation-gated "Refresh market data" button + one progress bar with staged labels on the Plans page; new staleness helpers (`interval_staleness_warning`, `price_coverage_warning`, `tdu_staleness_warning`, `plan_is_stale`/`stale_plan_ids`) surfaced as warnings + a "Stale?" table column on Compare; single-draft promote also stamps `retrieved`; 190 tests green (`pytest tests/`, incl. new tests/test_refresh.py), ruff clean, manual AppTest smoke green on both Plans (checkbox-gated button, full refresh pipeline with faked transport, promote/delete) and Compare (staleness warnings + Stale? column render against the real data/IntervalData.csv + plans/*.yaml) |
+| meterplan.com solar plan index | #4/#6 | DONE | new `fetchers/meterplan.py` (fetch_meterplan/load_meterplan/filter_meterplan/meterplan_to_drafts, offline-first, tests/fixtures/meterplan_sample.md as format reference); covers solar buyback plans (mostly non-Oncor TDUs) PTC's export lacks -- their "Estimated annual cost" column is never read, only rates; drafts get a `_parse` confidence/evidence block like eflparse, battery-required rows skipped, free-hours-named plans get an assumed 9pm-6am two-rate structure at low confidence + needs_review, deduped by (retailer, plan, term) against plans already in the database; wired into `app/common.refresh_market_data` as a new stage between EFL parsing and auto-promote (same fetch-or-fallback-to-newest-disk-snapshot pattern, tolerated gracefully if unavailable) and into a new "Meterplan solar plan index" subsection on the Plans page (fetch/snapshot-picker/TDU-filter/import-as-drafts, feeding the existing drafts review/promote UI unchanged); from the committed fixture, filtering to Oncor produces 30 imported / 0 skipped-battery / 0 skipped-existing / 10 flagged-for-review (all schema-valid via Plan.model_validate); 214 tests green (`pytest tests/`, incl. new tests/test_meterplan.py + extended tests/test_refresh.py), ruff clean, manual AppTest smoke green on the Plans page (empty + populated meterplan states, load/filter/import-as-drafts) with data/ and plans/drafts/ left with no git residue afterward |
 | integration/validation | #7 | TODO | lead |
 
 ## 11. Open questions / decisions log
@@ -327,12 +357,14 @@ Data files (all gitignored, all local-only):
   Choose snapshot" section).
 - `data/efl/` -- downloaded/uploaded EFL PDFs (Plans page, "Import from EFL
   PDF" and PTC download-EFLs button).
+- `data/meterplan/` -- meterplan.com solar buyback plan index markdown
+  snapshots (Plans page, "Meterplan solar plan index" section).
 - `plans/*.yaml` -- the plan database (git-versioned); `plans/drafts/*.yaml`
-  holds unpromoted EFL-parser drafts.
+  holds unpromoted EFL-parser/meterplan drafts.
 
 The app never requires network access: every fetcher (ERCOT prices, Power to
-Choose CSV, EFL downloads) degrades to a clear manual-download message
-(surfaced in the UI) if network calls fail or the relevant files aren't
+Choose CSV, EFL downloads, meterplan.com) degrades to a clear manual-download
+message (surfaced in the UI) if network calls fail or the relevant files aren't
 present yet -- only RTW-indexed plans are skipped (with a warning) when
 ERCOT prices are unavailable; everything else works from the interval CSV
 and plan YAMLs alone.

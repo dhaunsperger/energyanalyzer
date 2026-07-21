@@ -17,6 +17,7 @@ if str(_SRC_ROOT) not in sys.path:
 
 from energyanalyzer.app.common import (  # noqa: E402
     EFL_DIR,
+    METERPLAN_DIR,
     PTC_DIR,
     draft_summary_row,
     get_draft_plans,
@@ -291,10 +292,12 @@ st.caption(
     "One button: deletes previously auto-imported plans/drafts/EFLs and old PTC "
     "snapshots, re-fetches the Power to Choose snapshot (falling back to the newest "
     "one on disk if the live fetch fails), re-downloads EFLs, re-parses them into "
-    "drafts, and auto-promotes anything the parser was confident about (all "
-    "load-bearing fields >= 0.8 confidence, not flagged needs_review). Less-certain "
-    "drafts are left in 'Draft plans' below for manual review. Manually-entered and "
-    "report-benchmark plans -- including your current plan -- are never touched."
+    "drafts, re-fetches the meterplan.com solar buyback plan index the same way and "
+    "turns it into drafts (deduped against plans already in the database), and "
+    "auto-promotes anything the parser was confident about (all load-bearing fields "
+    ">= 0.8 confidence, not flagged needs_review). Less-certain drafts are left in "
+    "'Draft plans' below for manual review. Manually-entered and report-benchmark "
+    "plans -- including your current plan -- are never touched."
 )
 refresh_confirm = st.checkbox(
     "I understand auto-imported plans will be replaced", key="refresh_confirm"
@@ -312,6 +315,7 @@ if st.button("Refresh market data", key="refresh_market_btn", disabled=not refre
         drafts_dir=DRAFTS_DIR,
         efl_dir=EFL_DIR,
         ptc_dir=PTC_DIR,
+        meterplan_dir=METERPLAN_DIR,
         progress_callback=_refresh_progress,
     )
     refresh_progress.progress(1.0)
@@ -328,6 +332,13 @@ if refresh_summary is not None:
         f"parsed {len(refresh_summary['parsed']['parsed'])}, "
         f"auto-promoted {len(refresh_summary['promoted'])}, "
         f"{len(refresh_summary['needing_review'])} draft(s) left for review."
+    )
+    mp_refresh = refresh_summary.get("meterplan") or {}
+    st.caption(
+        f"Meterplan solar plan index: imported {len(mp_refresh.get('imported', []))} draft(s) "
+        f"({mp_refresh.get('skipped_battery', 0)} battery-required skipped, "
+        f"{mp_refresh.get('skipped_existing', 0)} already in the plan database, "
+        f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
     for note in refresh_summary["notes"]:
         st.caption(f"- {note}")
@@ -423,6 +434,94 @@ if ptc_df is not None:
                 st.json(summary["failed"][:10])
         except Exception as exc:  # noqa: BLE001
             render_missing_data_help(exc, title="EFL download failed")
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Meterplan solar plan index
+# --------------------------------------------------------------------------- #
+st.subheader("Meterplan solar plan index")
+st.caption(
+    "Solar buyback plan rates from meterplan.com (published by Meter Energy, a competing "
+    "REP/broker) -- covers solar buyback plans Power to Choose's export doesn't carry. Used "
+    "strictly as a rate index: their 'Estimated annual cost' column is never used -- "
+    "EnergyAnalyzer computes costs itself from your actual interval data."
+)
+
+if st.button("Fetch new snapshot from meterplan.com", key="fetch_meterplan_btn"):
+    try:
+        from energyanalyzer.fetchers.meterplan import fetch_meterplan  # noqa: PLC0415
+
+        path = fetch_meterplan(METERPLAN_DIR)
+        st.success(f"Saved {path}")
+        st.rerun()
+    except RuntimeError as exc:
+        render_missing_data_help(exc, title="meterplan.com fetch failed")
+
+mp_snapshots = sorted(METERPLAN_DIR.glob("*.md")) if METERPLAN_DIR.exists() else []
+if mp_snapshots:
+    mp_chosen_name = st.selectbox(
+        "Snapshot",
+        [p.name for p in mp_snapshots],
+        index=len(mp_snapshots) - 1,
+        key="mp_snapshot_select",
+    )
+    if st.button("Load snapshot", key="load_mp_btn"):
+        try:
+            from energyanalyzer.fetchers.meterplan import load_meterplan  # noqa: PLC0415
+
+            st.session_state["mp_df_raw"] = load_meterplan(METERPLAN_DIR / mp_chosen_name)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not load snapshot: {exc}")
+else:
+    st.info(
+        f"No snapshots found in {METERPLAN_DIR} yet -- fetch one above, or use 'Refresh market "
+        "data' below (falls back to the newest one on disk if the live fetch fails)."
+    )
+
+mp_df_raw = st.session_state.get("mp_df_raw")
+if mp_df_raw is not None:
+    from energyanalyzer.fetchers.meterplan import filter_meterplan  # noqa: PLC0415
+
+    mp_tdu_choices = sorted(mp_df_raw["tdu"].dropna().unique()) if "tdu" in mp_df_raw.columns else []
+    if mp_tdu_choices:
+        mp_default_idx = mp_tdu_choices.index("Oncor") if "Oncor" in mp_tdu_choices else 0
+        mp_chosen_tdu = st.selectbox("TDU", mp_tdu_choices, index=mp_default_idx, key="mp_tdu_select")
+    else:
+        mp_chosen_tdu = None
+
+    mp_df = filter_meterplan(mp_df_raw, tdu=mp_chosen_tdu)
+    st.session_state["mp_df"] = mp_df
+
+    mp_filter_desc = f"filtering to {mp_chosen_tdu}" if mp_chosen_tdu else "no TDU filter"
+    st.caption(f"{len(mp_df_raw)} rows in snapshot → {len(mp_df)} after {mp_filter_desc}.")
+
+mp_df = st.session_state.get("mp_df")
+if mp_df is not None:
+    st.dataframe(mp_df.drop(columns=["raw_row"], errors="ignore"), width="stretch", height=300)
+    if st.button("Import as drafts", key="import_meterplan_btn"):
+        from energyanalyzer.fetchers.meterplan import meterplan_to_drafts  # noqa: PLC0415
+
+        progress_bar = st.progress(0.0)
+        status_line = st.empty()
+        status_line.caption(f"0/{len(mp_df)}: building drafts...")
+
+        existing_plan_keys = {
+            (p.retailer.strip().lower(), p.name.strip().lower(), p.term_months) for p in plans
+        }
+        mp_import_summary = meterplan_to_drafts(mp_df, DRAFTS_DIR, existing_plan_keys)
+        progress_bar.progress(1.0)
+        status_line.caption(
+            f"{len(mp_df)}/{len(mp_df)}: "
+            f"imported {len(mp_import_summary['imported'])}, "
+            f"skipped {mp_import_summary['skipped_battery']} battery-required, "
+            f"skipped {mp_import_summary['skipped_existing']} already in the plan database"
+        )
+        st.success(
+            f"Imported {len(mp_import_summary['imported'])} draft(s) "
+            f"({mp_import_summary['flagged_for_review']} flagged for review) into {DRAFTS_DIR}."
+        )
+        st.rerun()
 
 st.divider()
 
