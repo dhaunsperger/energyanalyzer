@@ -1,0 +1,30 @@
+Electricity Facts Label
+Reliant -- an NRG business -- ONCOR
+Plan Name: Truly Free Nights 12
+
+Average Monthly Use          500 kWh         1,000 kWh        2,000 kWh
+Average Price per kWh        18.9c           16.3c            15.1c
+
+Energy Charge                 20.6 cents                       per kWh
+Base Charge                   $4.95                             per billing cycle
+TDU Delivery Charge            $0.050339                        per kWh
+TDU Delivery Charge            $4.23                             per billing cycle
+
+Customers on this plan receive free electricity every night between the hours
+of 9 p.m. and 5:59 a.m. All other usage is billed at the Energy Charge listed
+above.
+
+Does the REP purchase excess distributed renewable generation?  No
+
+              Type of Product                                  Fixed Rate
+              Contract Term                                    12 Months
+
+              Do I have a termination fee or any fees associated with
+              terminating service?     Yes, Reliant will assess a termination
+              fee of $150 if you terminate before the end of the Contract Term.
+
+              Renewable Content                                 15%
+              The statewide average for renewable content is    31.1%
+
+Reliant Energy Retail Services, LLC (PUC Certification Number 10007)
+1000 Main Street, Houston, Texas 77002

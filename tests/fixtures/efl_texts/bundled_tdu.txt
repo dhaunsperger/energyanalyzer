@@ -1,0 +1,27 @@
+Electricity Facts Label
+Gexa Energy -- ONCOR
+Plan Name: Gexa Saver All-In 12
+
+  Average Monthly Use          500 kWh        1,000 kWh       2,000 kWh
+  Average Price per kWh        13.9c          12.4c            11.8c
+
+Energy Charge                    $0.124                       per kWh
+Base Charge                      $0.00                        per billing cycle
+
+TDU delivery charges are already included in the Energy Charge shown above;
+no separate delivery line item applies to your bill.
+
+Does the REP purchase excess distributed renewable generation? No
+
+Type of Product: Fixed Rate
+Contract Term: 6 Months
+
+Do I have a termination fee or any fees associated with terminating service?
+Yes, a termination fee of $50 applies if service ends before the end of the
+Contract Term.
+
+Renewable Content: 0%
+The statewide average for renewable content is 31.1%
+
+Gexa Energy LP (PUC Certification Number 10046)
+20455 State Highway 249, Houston, Texas 77070

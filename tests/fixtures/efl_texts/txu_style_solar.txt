@@ -1,0 +1,31 @@
+Electricity Facts Label
+TXU ENERGY -- ONCOR
+Plan Name: Solar Buyback Advantage 12
+
+  Average Monthly Use            500 kWh          1,000 kWh          2,000 kWh
+  Average Price per kWh          16.9 cents        14.7 cents         13.6 cents
+
+Energy Charge                              $0.145                      per kWh
+Base Charge*                               $9.95                       per billing cycle
+TDU Delivery Charge                        $0.050339                   per kWh
+TDU Delivery Charge                        $4.23                       per billing cycle
+
+Solar Buyback: TXU Energy Retail Company LLC will purchase your excess
+distributed renewable generation at a rate of 3.0 cents per kWh. Credits for
+excess generation are applied to energy charges only; the Base Charge and TDU
+Delivery Charges above are not offsettable by Solar Buyback credits.
+
+*Base Charge is not offsettable by any bill credit.
+
+              Type of Product                                   Fixed Rate
+              Contract Term                                     12 Months
+
+              Do I have a termination fee or any fees associated with
+              terminating service?         Yes, a termination fee of $150 applies
+              if service ends before the end of the Contract Term.
+
+              Renewable Content                                 12%
+              The statewide average for renewable content is    31.1%
+
+TXU Energy Retail Company LLC (PUC Certification Number 10004)
+1601 Bryan Street, Dallas, Texas 75201

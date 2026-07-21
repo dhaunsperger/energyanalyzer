@@ -1,0 +1,31 @@
+ELECTRICITY FACTS LABEL
+Champion Energy Services -- ONCOR
+Plan Name: Champion Saver Tiers 12
+
+    Average Monthly Use        500 kWh        1,000 kWh       2,000 kWh
+    Average Price per kWh      15.4c          11.9c            10.1c
+
+Energy Charge:  $0.132  per kWh
+Base Charge:  $9.95  per billing cycle
+TDU Delivery Charge:  $0.050339  per kWh
+TDU Delivery Charge:  $4.23  per billing cycle
+
+Usage Credits: Customer will receive a bill credit of $50 when usage is at
+least 1000 kWh but less than 2000 kWh in a billing cycle. Customer will
+receive a bill credit of $100 when usage is at least 2000 kWh in a billing
+cycle.
+
+Does the REP purchase excess distributed renewable generation? No
+
+Type of Product: Fixed Rate
+Contract Term: 12 Months
+
+Do I have a termination fee or any fees associated with terminating service?
+Yes, Champion will assess a termination fee of $200 if service is terminated
+before the end of the Contract Term.
+
+Renewable Content: 9%
+The statewide average for renewable content is 31.1%
+
+Champion Energy Services, LLC (PUC Certification Number 10125)
+1500 Rankin Road, Houston, Texas 77073
