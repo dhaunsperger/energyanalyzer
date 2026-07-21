@@ -15,6 +15,7 @@ from energyanalyzer.eflparse.parser import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "efl_texts"
+REAL_FIXTURES = FIXTURES / "real"
 
 
 def _load(name: str) -> str:
@@ -23,6 +24,10 @@ def _load(name: str) -> str:
 
 def _draft(name: str) -> DraftPlan:
     return parse_efl_text(_load(name), source_name=name)
+
+
+def _real_draft(name: str) -> DraftPlan:
+    return parse_efl_text((REAL_FIXTURES / name).read_text(), source_name=name)
 
 
 # --------------------------------------------------------------------------- #

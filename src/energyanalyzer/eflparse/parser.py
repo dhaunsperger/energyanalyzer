@@ -13,6 +13,7 @@ same fact.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import unicodedata
@@ -42,27 +43,68 @@ class DraftPlan:
 # --------------------------------------------------------------------------- #
 # Text extraction
 # --------------------------------------------------------------------------- #
+# Whether `import pdfplumber` succeeds in this environment. Cached at module
+# level (computed once, lazily) so we only ever pay the (slow, and in some
+# environments noisy) import attempt a single time per process.
+_PDFPLUMBER_AVAILABLE: Optional[bool] = None
+
+
+def _pdfplumber_available() -> bool:
+    """Attempt `import pdfplumber` exactly once, with the OS-level stderr fd
+    (not just sys.stderr) redirected to devnull while doing so.
+
+    pdfplumber pulls in pdfminer -> cryptography -> a Rust extension; in some
+    environments (e.g. missing the `_cffi_backend` C extension) the import
+    itself raises a pyo3_runtime.PanicException, which subclasses
+    BaseException rather than Exception (so a plain `except Exception` would
+    miss it) -- and, worse, the Rust panic hook prints a "thread '<unnamed>'
+    panicked at ..." traceback directly to the process's stderr file
+    descriptor via Rust's eprintln!, *before* the exception is even raised
+    into Python. That means `contextlib.redirect_stderr` (which only retargets
+    Python's `sys.stderr` object) cannot silence it -- only redirecting the
+    real OS fd 2 for the duration of the import does.
+    """
+    global _PDFPLUMBER_AVAILABLE
+    if _PDFPLUMBER_AVAILABLE is not None:
+        return _PDFPLUMBER_AVAILABLE
+
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_fd = os.dup(2)
+    try:
+        os.dup2(devnull_fd, 2)
+        try:
+            import pdfplumber  # noqa: F401,PLC0415
+
+            _PDFPLUMBER_AVAILABLE = True
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            _PDFPLUMBER_AVAILABLE = False
+    finally:
+        os.dup2(saved_fd, 2)
+        os.close(saved_fd)
+        os.close(devnull_fd)
+    return _PDFPLUMBER_AVAILABLE
+
+
 def extract_text(pdf_path: str | Path) -> str:
     """Extract raw text from an EFL PDF: pdfplumber first, pdftotext -layout
     fallback (poppler-utils, no python deps)."""
     pdf_path = Path(pdf_path)
-    try:
-        import pdfplumber  # noqa: PLC0415
+    if _pdfplumber_available():
+        try:
+            import pdfplumber  # noqa: PLC0415
 
-        with pdfplumber.open(pdf_path) as pdf:
-            pages = [p.extract_text() or "" for p in pdf.pages]
-        text = "\n".join(pages)
-        if text.strip():
-            return text
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except BaseException:
-        # pdfplumber pulls in pdfminer -> cryptography -> a Rust extension;
-        # in some environments (e.g. missing _cffi_backend) the import itself
-        # raises a pyo3_runtime.PanicException, which subclasses BaseException
-        # rather than Exception, so a plain `except Exception` would miss it.
-        # Either way: fall through to the pdftotext subprocess fallback.
-        pass
+            with pdfplumber.open(pdf_path) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n".join(pages)
+            if text.strip():
+                return text
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            # Fall through to the pdftotext subprocess fallback below.
+            pass
 
     result = subprocess.run(
         ["pdftotext", "-layout", str(pdf_path), "-"],
@@ -160,6 +202,18 @@ def parse_time_range(s: str) -> list[int]:
             break
         hours.append(h)
     return hours
+
+
+def _find_night_hours(text: str) -> list[int]:
+    """Scan the whole document for a clock-time range whose immediate context
+    mentions "night" (e.g. "Bright Nights hours are 11:00 PM to 06:00 AM.",
+    a separate sentence from the rate table itself for brand-prefixed
+    multi-tier plans like Chariot). Returns [] if none is found."""
+    for m in re.finditer(r"[^\n.]{0,40}\bnight[^\n.]{0,80}", text, re.I):
+        hours = parse_time_range(m.group(0))
+        if hours:
+            return hours
+    return []
 
 
 _WEEKDAY_WORDS = {
@@ -317,8 +371,26 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
             0.7,
             lambda m: 0.0,
         ),
+        (
+            # Numbered-list style with reversed unit/value order, e.g.
+            # "2) Base Charge ($) per month: $0.00"
+            re.compile(r"Base\s*Charge\s*\(\$\)\s*per\s*month\s*:?\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
+            0.85,
+            lambda m: float(m.group(1)),
+        ),
     ]
     return _first_match(text, patterns)
+
+
+_TDU_MARK = r"(?:TDU|TDSP|Oncor|CenterPoint(?:\s*Energy)?|AEP(?:\s*Texas)?|TNMP)"
+
+# Combined single-line TDU charge, e.g. "3) Energy Delivery Charges: 6.1196c
+# per kWh and $4.06 per month" (AP Gas & Electric numbered-list style).
+_TDU_COMBINED_LINE = re.compile(
+    r"(?:TDU|TDSP|Energy)\s*Delivery\s*Charges?\s*:?\s*(\d+(?:\.\d+)?)\s*¢?\s*per\s*kWh\s*"
+    r"and\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*month",
+    re.I,
+)
 
 
 def _extract_tdu(text: str) -> tuple[Optional[Extraction], Optional[Extraction], bool]:
@@ -334,14 +406,37 @@ def _extract_tdu(text: str) -> tuple[Optional[Extraction], Optional[Extraction],
             text,
             re.I,
         )
+        or re.search(
+            r"included\s*in\s*(?:the\s*)?(?:variable\s*rate|energy\s*charge)",
+            text,
+            re.I,
+        )
     )
+
+    combined = _TDU_COMBINED_LINE.search(text)
+    if combined:
+        ev = _snippet(combined)
+        ckwh: Optional[Extraction] = (float(combined.group(1)), 0.9, ev)
+        monthly: Optional[Extraction] = (float(combined.group(2)), 0.9, ev)
+        return ckwh, monthly, bundled
+
     ckwh = _first_match(
         text,
         [
             (
-                re.compile(r"TDU\s*Delivery\s*Charge\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*kWh", re.I),
+                re.compile(rf"{_TDU_MARK}\s*Deliver\w*\s*Charges?\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*kWh", re.I),
                 0.9,
                 lambda m: float(m.group(1)) * 100,
+            ),
+            (
+                # compact cent-style, arbitrary charge-type word, e.g.
+                # "Pass-Through TDSP Distribution Charge: 6.1196c/kWh"
+                re.compile(
+                    rf"{_TDU_MARK}[^\n$]{{0,40}}?Charges?\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*¢\s*/?\s*(?:per\s*)?kWh",
+                    re.I,
+                ),
+                0.85,
+                lambda m: float(m.group(1)),
             ),
         ],
     )
@@ -350,14 +445,40 @@ def _extract_tdu(text: str) -> tuple[Optional[Extraction], Optional[Extraction],
         [
             (
                 re.compile(
-                    r"TDU\s*Delivery\s*Charge\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*(?:billing\s*cycle|month)",
+                    rf"{_TDU_MARK}\s*Deliver\w*\s*Charges?\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*(?:billing\s*cycle|month)",
                     re.I,
                 ),
                 0.9,
                 lambda m: float(m.group(1)),
             ),
+            (
+                # arbitrary charge-type word, e.g. "Pass-Through TDSP Customer
+                # Charge: $4.06 per month" / "Oncor Delivery Charges $4.06 per
+                # billing cycle"
+                re.compile(
+                    rf"{_TDU_MARK}[^\n$]{{0,40}}?Charges?\s*[:\-]?\s*\$\s*(\d+(?:\.\d+)?)\s*per\s*"
+                    r"(?:billing\s*cycle|month)",
+                    re.I,
+                ),
+                0.85,
+                lambda m: float(m.group(1)),
+            ),
         ],
     )
+
+    if ckwh is None or monthly is None:
+        generic = _generic_charge_rows(text)
+        if ckwh is None:
+            tdu_kwh_rows = [r for r in generic if r["kind"] == "kwh" and r["is_tdu"]]
+            if tdu_kwh_rows:
+                r = tdu_kwh_rows[0]
+                ckwh = (r["value"], 0.6, r["evidence"])
+        if monthly is None:
+            tdu_month_rows = [r for r in generic if r["kind"] == "month" and r["is_tdu"]]
+            if tdu_month_rows:
+                r = tdu_month_rows[0]
+                monthly = (r["value"], 0.6, r["evidence"])
+
     return ckwh, monthly, bundled
 
 
@@ -424,7 +545,8 @@ def _extract_avg_prices(text: str) -> dict[str, float]:
 # Energy charge / free-windows / TOU
 # --------------------------------------------------------------------------- #
 _ENERGY_LINE = re.compile(
-    r"(?:^|\n)\s*([A-Za-z][A-Za-z\-]{0,20}\s+)?Energy\s*Charge\**\s*[:\-]?\s*([^\n]{0,80})",
+    r"(?:^|\n)\s*(?:\d+[.\)]\s*)?(?:[•*\-]\s*)?([A-Za-z][A-Za-z\-]{0,20}\s+)?"
+    r"Energy\s*(?:Charge|Rate)\**\s*[:\-]?\s*([^\n]{0,80})",
     re.I,
 )
 
@@ -508,6 +630,146 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
     if len(labels) < 2:
         return None
     return rows
+
+
+def _extract_brand_energy_tiers(text: str) -> list[dict]:
+    """Detect multi-tier '<arbitrary label, possibly brand-prefixed> Energy
+    Charge <rate>[c] per kWh' lines that don't use the standard
+    On-Peak/Off-Peak/Mid-Peak/Shoulder vocabulary, e.g. Chariot Energy's:
+    'Chariot Energy Daytime Energy Charge       6.78c      per kWh'
+    'Chariot Energy Bright Nights Energy Charge       0c       per kWh'
+    Returns a list of {"prefix", "rate_ckwh", "evidence"} (possibly empty).
+    """
+    pat = re.compile(
+        r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\s*[:\-]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*per\s*kWh",
+        re.I,
+    )
+    rows = []
+    for m in pat.finditer(text):
+        rows.append(
+            {"prefix": m.group(1).strip(), "rate_ckwh": float(m.group(2)), "evidence": _snippet(m)}
+        )
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# Generic "<label> Charge ... $X / X<c> per <unit>" table-line fallback --
+# used when the specific, higher-confidence patterns above find nothing.
+# Handles two real-world failure modes seen in the Texas EFL corpus:
+#   1. pdftotext -layout mangles some fonts and drops specific letters
+#      throughout the whole document (e.g. "Energy Charge" -> "nerg Charge",
+#      "Base Charge" -> "ae Charge", "billing cycle" -> "illing ccle") --
+#      but the literal word "Charge" itself never contains any of the
+#      dropped letters, so it remains a reliable anchor.
+#   2. Non-standard/brand-prefixed labels the specific regexes don't
+#      recognize (e.g. "Chariot Energy Base Monthly Charge $9.95 per
+#      billing cycle" -- "Base" isn't immediately followed by "Charge").
+# --------------------------------------------------------------------------- #
+_GENERIC_CHARGE_LINE = re.compile(
+    r"(?:^|\n)[ \t]*([^\n$¢]{0,50}?)Charges?\**\s*[:\-]?\s*"
+    r"(?:\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*¢)"
+    r"\s*(?:/\s*)?per\s+([^\n$¢]{1,25})",
+    re.I,
+)
+
+_TDU_MARK_WORDS = re.compile(r"\btdu\b|\btdsp\b|deliver|oncor|centerpoint|\baep\b|tnmp", re.I)
+
+
+def _strip_pua(s: str) -> str:
+    """Drop Unicode Private-Use-Area codepoints (U+E000-U+F8FF). Some EFL
+    PDFs use subset fonts whose ToUnicode CMap maps a handful of glyphs
+    (usually just a few specific letters) into the PUA instead of the real
+    character, so pdftotext emits an invisible/unprintable codepoint exactly
+    where that letter belongs -- e.g. "Delivery" comes out as "Deliver"
+    with the 'y' silently replaced. Stripping them out lets substring/keyword
+    classification (billing -> "illing", cycle -> "ccle", etc.) still work."""
+    return "".join(ch for ch in s if not (0xE000 <= ord(ch) <= 0xF8FF))
+
+
+def _classify_unit_kind(unit_word: str) -> str:
+    u = _strip_pua(unit_word).lower()
+    if "kwh" in u:
+        return "kwh"
+    if "day" in u:
+        return "day"
+    if "month" in u or "cycle" in u or "ccle" in u or "illing" in u:
+        return "month"
+    return "other"
+
+
+def _generic_charge_rows(text: str) -> list[dict]:
+    """Return every '<label>Charge ... <amount> per <unit>' line in the
+    document as {"prefix", "kind" ("kwh"/"day"/"month"/"other"), "value"
+    (cents/kWh for kind=kwh, else USD), "is_tdu", "evidence"}."""
+    rows = []
+    for m in _GENERIC_CHARGE_LINE.finditer(text):
+        prefix = m.group(1).strip()
+        dollar, cents, unit = m.group(2), m.group(3), m.group(4)
+        kind = _classify_unit_kind(unit)
+        if kind == "kwh":
+            value = float(cents) if cents is not None else float(dollar) * 100
+        else:
+            value = float(dollar) if dollar is not None else float(cents) / 100
+        rows.append(
+            {
+                "prefix": prefix,
+                "kind": kind,
+                "value": value,
+                "is_tdu": bool(_TDU_MARK_WORDS.search(prefix)),
+                "evidence": _snippet(m),
+            }
+        )
+    return rows
+
+
+def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
+    """Prepaid plans sometimes state a per-day customer/base fee instead of a
+    monthly base charge, e.g. 'Daily Customer Fee (DCF) $0.39 cents per day'.
+    Convert to an approximate monthly figure: fee * 365 / 12, rounded to
+    cents. Confidence is capped at 0.7 -- this is a derived, not stated,
+    monthly figure."""
+    m = re.search(
+        r"Daily\s*Customer\s*Fee[^\n$]{0,45}\$\s*(\d+(?:\.\d+)?)\s*(?:cents?)?\s*per\s*day",
+        text,
+        re.I,
+    )
+    if not m:
+        return None
+    daily = float(m.group(1))
+    monthly = round(daily * 365 / 12, 2)
+    return monthly, 0.65, _snippet(m)
+
+
+def _extract_variable_rate(text: str) -> Optional[Extraction]:
+    """Variable/prepaid plans without a labeled 'Energy Charge' line often
+    state the rate in prose, e.g. 'included in variable rate of 17.9 cents'."""
+    patterns = [
+        (
+            re.compile(r"variable\s*rate\s*of\s*(\d+(?:\.\d+)?)\s*cents?", re.I),
+            0.7,
+            lambda m: float(m.group(1)),
+        ),
+    ]
+    return _first_match(text, patterns)
+
+
+def _extract_flat_avg_price_row(text: str) -> Optional[Extraction]:
+    """Last-resort: a TDU-labeled row of 3-4 repeated identical average
+    prices (500/1000/2000 kWh columns all equal) implies a flat, usage-tier
+    -independent variable rate, e.g. 'ONCOR 17.9c 17.9c 17.9c 17.9c'."""
+    m = re.search(
+        r"\b(?:Oncor|CenterPoint|AEP|TNMP)\b\s+(\d+(?:\.\d+)?)\s*¢\s+(\d+(?:\.\d+)?)\s*¢\s+"
+        r"(\d+(?:\.\d+)?)\s*¢(?:\s+(\d+(?:\.\d+)?)\s*¢)?",
+        text,
+        re.I,
+    )
+    if not m:
+        return None
+    vals = [float(g) for g in m.groups() if g]
+    if len(set(vals)) == 1:
+        return vals[0], 0.55, _snippet(m)
+    return None
 
 
 def _extract_bill_credits(text: str) -> list[dict]:
@@ -619,6 +881,15 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
 
+    brand_rows: Optional[list[dict]] = None
+    if not tou_rows:
+        candidate_brand_rows = _extract_brand_energy_tiers(text)
+        if len(candidate_brand_rows) >= 2 and len({r["rate_ckwh"] for r in candidate_brand_rows}) >= 2:
+            night_rows = [r for r in candidate_brand_rows if re.search(r"night", r["prefix"], re.I)]
+            other_rows = [r for r in candidate_brand_rows if r not in night_rows]
+            if night_rows and other_rows:
+                brand_rows = candidate_brand_rows
+
     if tou_rows:
         defaults = [r for r in tou_rows if r["is_default"]]
         non_defaults = [r for r in tou_rows if not r["is_default"]]
@@ -643,6 +914,32 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         flat_ckwh = energy_rates[-1]["rate_ckwh"]
         confidence["energy_charge"] = 0.85
         evidence["energy_charge"] = " | ".join(r["evidence"] for r in tou_rows[:4])
+    elif brand_rows:
+        # Multi-tier brand-prefixed charge table (e.g. Chariot Energy's
+        # "Chariot Energy Daytime Energy Charge 6.78c per kWh" /
+        # "Chariot Energy Bright Nights Energy Charge 0c per kWh") where a
+        # 0(-ish) tier's label suggests free/discounted nighttime hours.
+        night_rows = [r for r in brand_rows if re.search(r"night", r["prefix"], re.I)]
+        other_rows = [r for r in brand_rows if r not in night_rows]
+        night = night_rows[0]
+        day_rate = other_rows[0]["rate_ckwh"]
+        hours = _find_night_hours(text)
+        if hours:
+            conf = 0.75
+        else:
+            hours = [21, 22, 23, 0, 1, 2, 3, 4, 5]  # assumed 9 p.m.-6 a.m.
+            conf = 0.5
+            notes.append(
+                "brand-prefixed multi-tier table found a free/discounted night rate but no "
+                "explicit hour range in the text; assumed a 9 p.m.-6 a.m. window (low confidence)"
+            )
+        energy_rates.append({"label": "night", "rate_ckwh": night["rate_ckwh"], "window": {"hours": hours}})
+        energy_rates.append({"label": "day", "rate_ckwh": day_rate, "window": None})
+        flat_ckwh = day_rate
+        confidence["energy_charge"] = conf
+        confidence["free_window"] = conf
+        evidence["energy_charge"] = night["evidence"] + " | " + other_rows[0]["evidence"]
+        evidence["free_window"] = night["evidence"]
     else:
         lines = _find_energy_lines(text)
         flat_candidates = [(lab, tail, ev) for lab, tail, ev in lines if lab is None]
@@ -662,8 +959,36 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             confidence["energy_charge"] = conf
             evidence["energy_charge"] = flat_candidates[0][2]
         else:
-            confidence["energy_charge"] = 0.0
-            notes.append("could not find an Energy Charge rate")
+            # Layered fallbacks, most-specific first: (a) prose "variable
+            # rate of X cents" statement, (b) generic "<label>Charge ... X
+            # per kWh" table-line scan (handles both corrupted-font
+            # documents where only the literal word "Charge" survives
+            # intact, and brand-prefixed labels like "Chariot Energy Base
+            # Monthly Charge"), (c) a flat repeated avg-price table row.
+            var_ext = _extract_variable_rate(text)
+            generic_kwh_rows = [
+                r for r in _generic_charge_rows(text) if r["kind"] == "kwh" and not r["is_tdu"]
+            ]
+            avg_ext = _extract_flat_avg_price_row(text)
+            if var_ext is not None:
+                flat_ckwh, conf, ev = var_ext
+                confidence["energy_charge"] = conf
+                evidence["energy_charge"] = ev
+                notes.append("energy rate derived from a 'variable rate of X cents' statement")
+            elif generic_kwh_rows:
+                r = generic_kwh_rows[0]
+                flat_ckwh = r["value"]
+                confidence["energy_charge"] = 0.6
+                evidence["energy_charge"] = r["evidence"]
+                notes.append("energy rate derived from a generic '<label> Charge ... per kWh' table-line scan")
+            elif avg_ext is not None:
+                flat_ckwh, conf, ev = avg_ext
+                confidence["energy_charge"] = conf
+                evidence["energy_charge"] = ev
+                notes.append("energy rate derived from a flat repeated average-price table row")
+            else:
+                confidence["energy_charge"] = 0.0
+                notes.append("could not find an Energy Charge rate")
 
         if free_win and flat_ckwh is not None:
             window = {}
@@ -683,8 +1008,24 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
     if base_charge is None:
-        notes.append("base charge not found; defaulting to 0.0")
-        base_charge = 0.0
+        daily_ext = _extract_daily_fee_as_base(text)
+        if daily_ext is not None:
+            base_charge = record("base_charge", daily_ext)
+            notes.append(
+                f"base_charge_usd (${base_charge:.2f}/mo) derived from a per-day customer fee "
+                f"(fee * 365 / 12, rounded to cents)"
+            )
+        else:
+            generic_month_rows = [
+                r for r in _generic_charge_rows(text) if r["kind"] == "month" and not r["is_tdu"]
+            ]
+            if generic_month_rows:
+                r = generic_month_rows[0]
+                base_charge = record("base_charge", (r["value"], 0.6, r["evidence"]))
+                notes.append("base charge derived from a generic '<label> Charge ... per month' table-line scan")
+            else:
+                notes.append("base charge not found; defaulting to 0.0")
+                base_charge = 0.0
 
     # --- TDU ------------------------------------------------------------ #
     tdu_ckwh_ext, tdu_monthly_ext, bundled = _extract_tdu(text)
