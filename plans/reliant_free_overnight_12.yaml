@@ -1,0 +1,13 @@
+id: reliant_free_overnight_12
+retailer: Reliant
+name: Free Overnight
+term_months: 12
+energy_rates:
+  - label: free 9pm-6am
+    rate_ckwh: 0
+    window: {hours: [21, 22, 23, 0, 1, 2, 3, 4, 5]}
+  - rate_ckwh: 19.4
+buyback: {kind: none}
+etf_usd: 150
+source: report-2026-07
+notes: $50 VPP credit with eligible battery (not modeled; no battery).

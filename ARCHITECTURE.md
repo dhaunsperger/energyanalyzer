@@ -1,0 +1,277 @@
+# EnergyAnalyzer — Architecture & Agent Coordination Doc
+
+**Audience:** Claude subagents implementing modules, and the human owner (Doug).
+**Maintainer:** Lead architect session. Subagents: read this whole file before coding.
+Update the *Status Board* section when you finish a module; do not change design
+decisions without noting an open question at the bottom.
+
+## 1. What this app does
+
+Replicates the "Texas Power Guide" solar electric plan analysis service:
+
+1. Ingest 12 months of 15-minute interval usage (grid **import** and solar
+   **export**) from SmartMeter Texas (SMT) exports.
+2. Maintain a database of retail electric plans (parsed from EFL PDFs +
+   Power to Choose CSV + manual entry), each described by a structured
+   rate schema.
+3. Simulate one year of monthly bills for every plan against the actual
+   interval data — including free-hours plans, time-of-use plans, solar
+   buyback variants, and real-time-wholesale (RTW) indexed plans priced from
+   historical ERCOT settlement point prices.
+4. Rank plans by **first-year net bill** and present results in a local
+   Streamlit app with Excel export.
+
+Reference artifacts (NOT in repo — privacy): the user's SMT CSV lives at
+`data/IntervalData.csv` (gitignored), and the target report is a PDF from the
+service. Key ground truths for validation:
+
+- Interval CSV: 365 days × 96 intervals × 2 channels. Totals: **import
+  11,278 kWh, export 9,803 kWh** (Jul 2025–Jun 2026).
+- Current plan (Pulse Power, see `plans/pulse_current.yaml`) first-year net
+  bill per the service: **≈ $1,031**.
+- Other report benchmarks (July 2026, Oncor TDU $4.06/mo + 6.12¢/kWh):
+  TXU Solar BB $1,211 · Direct Twelve Hour Power 24 $1,244 · Green Mtn
+  Pollution Free Nights $1,265 · Reliant Free Overnight $1,330 · Gexa Solar
+  Buyback 12 $1,613 · TXU Free Nights & Cool Summer $1,907.
+  Target accuracy: ranking order and roughly ±5% on dollars.
+
+## 2. Stack & conventions
+
+- Python ≥ 3.11, `src/` layout, package `energyanalyzer`. Install dev mode:
+  `pip install -e ".[dev]"`.
+- pandas + pydantic v2 + PyYAML; Streamlit UI; xlsxwriter for Excel;
+  pdfplumber/pdftotext for EFL parsing; httpx for fetchers; pytest.
+- **Dependencies:** only the lead session edits `pyproject.toml`. If your
+  module needs a new dep, check it's listed; if not, note it in your report.
+- Money in **USD floats**, rates internally in **$/kWh** (convert ¢ → $ at
+  the schema boundary; YAML files use `_ckwh` suffixes in cents because
+  that's how EFLs quote them).
+- Timestamps: canonical index is tz-aware **UTC**; local clock logic (rate
+  windows) uses `America/Chicago`. Interval convention: timestamps are
+  **interval START**, duration 15 min.
+- Subagents: do NOT run `git commit`/`push`; the lead session commits. Do not
+  create files outside your module's directories + `tests/`.
+- Tests: put in `tests/test_<module>.py`. Synthetic fixtures only in the repo;
+  tests that need the real CSV must skip gracefully if `data/IntervalData.csv`
+  is absent (use `pytest.mark.skipif`).
+
+## 3. Repo layout
+
+```
+ARCHITECTURE.md            ← this file
+pyproject.toml
+plans/*.yaml               ← plan database (human-editable, git-versioned)
+tdu/oncor.yaml             ← versioned TDU delivery tariffs
+data/                      ← gitignored: user CSVs, parquet cache, ERCOT prices
+src/energyanalyzer/
+  core/models.py           ← DONE (lead). Pydantic schema — THE contract.
+  core/plans_io.py         ← DONE (lead). Load/save plan YAMLs, TDU tariffs.
+  ingest/                  ← Task 2: SMT CSV + Green Button XML → canonical frame
+  prices/                  ← Task 4: ERCOT RTM settlement price loading
+  fetchers/                ← Task 4: Power to Choose CSV + EFL PDF downloads
+  engine/                  ← Task 3: billing simulation
+  eflparse/                ← Task 5: static EFL PDF → draft plan YAML
+  report/                  ← Task 6: Excel export
+  app/                     ← Task 6: Streamlit app (entry: app/Home.py)
+tests/
+```
+
+## 4. Canonical interval data (contract for ingest & engine)
+
+`ingest` produces, and `engine`/`app` consume, a pandas DataFrame:
+
+- Index: `ts` — tz-aware UTC `DatetimeIndex`, 15-min interval starts,
+  strictly increasing, no duplicates.
+- Columns: `import_kwh: float`, `export_kwh: float` (both ≥ 0; blanks → 0.0).
+- Helper `core.models.add_local_columns(df)` adds `local` (America/Chicago
+  tz-aware), `month` (Period 'M' of local time), `hour`, `weekday` (0=Mon),
+  `date` — used by rate-window matching. Billing months = **calendar months
+  of local time**.
+
+DST notes: SMT CSVs list local clock times per day; spring-forward days have
+92 rows/channel, fall-back 100 (the 01:00 hour repeats — first pass is DST,
+`fold=0`). Convert to UTC accordingly; never drop rows silently. Emit a
+`QualityReport` (dataclass in ingest): row counts per channel, blank/estimated
+counts, missing intervals, date range.
+
+SMT CSV format (primary):
+```
+ESIID,USAGE_DATE,REVISION_DATE,USAGE_START_TIME,USAGE_END_TIME,USAGE_KWH,ESTIMATED_ACTUAL,CONSUMPTION_SURPLUSGENERATION
+'10443...,07/01/2025,07/02/2025 07:37:17,00:00,00:15,0.580,A,Consumption
+```
+- ESIID has a leading apostrophe (Excel guard) — strip it.
+- `CONSUMPTION_SURPLUSGENERATION` ∈ {`Consumption`, `Surplus Generation`}.
+- `USAGE_END_TIME` of `00:00` means midnight of the next day.
+- `ESTIMATED_ACTUAL`: 'A' actual, 'E' estimated (keep, count in QualityReport).
+
+Green Button XML (secondary): NAESB ESPI Atom feed; `<IntervalReading>` has
+`start` epoch seconds (UTC), `duration` 900, `value` in **Wh** (÷1000);
+`flowDirection` 1 = delivered (import), 19 = received (export). A file may
+contain only one channel; the loader must merge multiple files.
+
+## 5. Plan schema (see `core/models.py` — authoritative)
+
+Plans are YAML files in `plans/`, one per plan, loaded via
+`core.plans_io.load_plans()`. The engine consumes `Plan` objects.
+
+Key semantics implementers must honor:
+
+- **`energy_rates`**: ordered list of `EnergyRate`; for each interval the
+  FIRST rate whose `window` matches applies; the last entry must have
+  `window: null` (default/catch-all). A rate is either `rate_ckwh` (fixed
+  ¢/kWh) or `rtw` (indexed: `price × multiplier + adder_ckwh`, optional
+  `cap_ckwh`, floor at `floor_ckwh` default 0). Free nights/weekends are just
+  windows with `rate_ckwh: 0`.
+- **`RateWindow`**: `months` (1-12), `weekdays` (0=Mon..6=Sun), `hours`
+  (0-23, local interval-start hour). Empty list = wildcard. A window like
+  hours [21,22,23,0,...,5] expresses "9pm–6am".
+- **`buyback.kind`**: `none` | `fixed` (flat ¢/kWh) | `rtw` (indexed like
+  above) | `windows` (time-of-use export via `rates: list[EnergyRate]`,
+  same first-match semantics). "1:1" plans are `fixed` with rate equal to
+  the energy charge.
+- **`buyback.offset_scope`**: what monthly charges export credits may offset —
+  `energy_only` (the `*`-marked "not offsettable" plans: credits reduce energy
+  charges but never base or TDU) or `all_charges` (credits offset the whole
+  REP+TDU bill). Excess beyond scope goes to rollover balance if
+  `rollover: true` (default), else lost. `cash_out: true` = balance paid out,
+  i.e. bill may go negative.
+- **`buyback.monthly_credit_cap`**: `null` or `energy_charge` (credit earned
+  in a month capped at that month's energy charges — e.g. Atlantex Glow).
+- **`bill_credits`**: usage-tier credits, e.g. `{min_kwh: 1000, credit_usd: 100}`
+  applied when the month's import kWh is in range.
+- **`tdu_passthrough`**: true (normal; add TDU tariff charges) or false
+  (rates bundle delivery).
+- **`base_charge_usd`** monthly; ETF fields are informational (reported, not
+  added to bills).
+- `needs_review: true` marks auto-parsed/uncertain plans; UI must badge them.
+
+TDU tariffs (`tdu/oncor.yaml`): list of `{effective: date, fixed_usd_month,
+volumetric_ckwh}`; engine picks the record effective for each billing month.
+For "first-year forward-looking" bills we use the LATEST tariff for all 12
+months (matches the service's methodology); function
+`core.plans_io.current_tdu()` provides it.
+
+## 6. Billing engine (Task 3) — exact algorithm
+
+For each plan, for each of the 12 local-calendar months in the interval data:
+
+```
+imp(t), exp(t)           # kWh per 15-min interval in month
+rate(t)                  # $/kWh from first matching EnergyRate (RTW: join price series)
+energy_cost   = Σ imp(t)·rate(t)
+base          = base_charge_usd
+tdu           = fixed_usd_month + volumetric·Σimp(t)   [if tdu_passthrough]
+credit_earned = Σ exp(t)·buyback_rate(t)               [0 if kind=none]
+credit_earned = min(credit_earned, energy_cost)        [if monthly_credit_cap=energy_charge]
+bill_credit   = Σ credit_usd for tiers matching month import kWh   (subtract)
+pool          = credit_earned + rollover_in
+offsettable   = energy_cost                       [offset_scope=energy_only]
+              | energy_cost + base + tdu - bill_credit  [all_charges]
+used          = min(pool, max(offsettable, 0))
+month_bill    = energy_cost + base + tdu - bill_credit - used
+rollover_out  = (pool - used) if rollover else 0
+```
+
+- If `cash_out`: `used = pool` (bill may go negative), no rollover.
+- Taxes/PUC assessment: excluded (service excludes them too).
+- RTW rates: 15-min ERCOT RTM settlement point prices for the configured
+  load zone (default `LZ_NORTH`; configurable), joined on UTC interval start;
+  hourly-only price data may be forward-filled to 15-min. Missing price →
+  raise, don't guess.
+- Outputs per plan: `PlanResult` with `first_year_net`, `monthly` breakdown
+  DataFrame (all components above), `final_rollover_balance`, effective
+  avg ¢/kWh. Module: `engine/cost.py`, entry
+  `simulate(plan, intervals, tdu, prices=None) -> PlanResult` and
+  `rank(plans, intervals, tdu, prices) -> list[PlanResult]` sorted ascending.
+- Watch the sign conventions: bills in dollars owed; credits reduce.
+- Partial months at series edges: bill them as-is (they're only edge months
+  when data isn't exactly 12 calendar months; with our data, Jul 1–Jun 30
+  aligns perfectly).
+
+## 7. ERCOT prices & fetchers (Task 4)
+
+`prices/ercot.py`:
+- `load_prices(zone: str, data_dir=Path("data/ercot")) -> pd.Series`
+  ($/kWh, UTC 15-min index). ERCOT publishes RTM Settlement Point Prices
+  ($/MWh — divide by 1000) per 15-min settlement interval, local interval
+  *ending*, with DST flag column. Support the two common file shapes:
+  (a) ERCOT "Historical RTM Load Zone and Hub Prices" annual/monthly XLSX
+  (one sheet per month; columns Delivery Date, Delivery Hour, Delivery
+  Interval, Repeated Hour Flag, Settlement Point Name/Price);
+  (b) CSV concatenations of report 12301 (SPPHLZNP6905) files.
+- Cache normalized series to `data/ercot/<zone>.parquet`.
+- Optional best-effort downloader for the public MIS archive; network may be
+  unavailable — everything must work from manually downloaded files, with a
+  clear error telling the user what to download and where to put it.
+
+`fetchers/ptc.py`: Power to Choose bulk CSV
+(`https://www.powertochoose.org/en-us/Plan/ExportToCsv`), filter TDU=Oncor +
+zip 78665, normalize columns (plan name, REP, term, kWh500/1000/2000 avg
+prices, EFL URL, renewable %, prepaid/TOU flags), download EFL PDFs to
+`data/efl/`. Output an index DataFrame + saved CSV snapshot in `data/ptc/`.
+Network egress here is restricted; code defensively and make snapshots
+loadable offline.
+
+## 8. EFL static parser (Task 5) — NO LLM calls
+
+`eflparse/parser.py`: `parse_efl(pdf_path) -> DraftPlan` where DraftPlan =
+`{plan: Plan-shaped dict, confidence: {field: 0..1}, evidence: {field:
+source text snippet}, unparsed_notes: [...]}`.
+
+Approach: `pdftotext -layout` (poppler) or pdfplumber text; regex/heuristic
+passes for: energy charge(s) ¢/kWh or $/kWh; base/monthly charge; TDU
+delivery charges (per kWh + per month, and whether "included"/bundled); term
+months; ETF ($X or $X/month remaining); buyback ("buyback rate", "solar",
+"excess", 1:1 detection when buyback rate == energy charge); free windows
+("free nights 9pm-6am/8pm-8am", "free weekends"); TOU tables; bill credits
+("$X credit when usage ≥ Y kWh"); prepaid/variable flags. Every extracted
+field carries confidence + evidence; anything below 0.8 → `needs_review:
+true` on the draft. Test corpus: `tests/fixtures/efl_texts/*.txt` (synthetic
+text in the style of real EFLs — create several REP styles; the real Pulse
+EFL text is included there as `pulse.txt`).
+
+Human override: drafts are saved to `plans/drafts/<id>.yaml`; the Streamlit
+Plans page (Task 6) shows draft vs. parsed evidence side-by-side, lets the
+user edit fields and promote to `plans/`.
+
+## 9. Streamlit app + Excel (Task 6)
+
+Pages (multipage app, `app/Home.py` + `app/pages/`):
+1. **Usage** — upload SMT CSV/XML (writes to `data/`, triggers ingest),
+   quality report; monthly import/export bar chart with net line; hour×month
+   average-net-power heatmap (replicate report p.1, red=import blue=export);
+   day/peak/night split table.
+2. **Plans** — table of all plan YAMLs (badge `needs_review`); create/edit
+   via form; import from EFL PDF (runs Task-5 parser, review UI); pull
+   Power to Choose snapshot.
+3. **Compare** — run engine over all plans; ranked table styled like report
+   p.2 (Retailer, Plan, Term, Base $/mo, Import ¢/kWh +TDU, Export ¢/kWh,
+   Other details, ETF, 1st-Year Net Bill); expandable per-plan monthly
+   breakdown chart/table; footnote current TDU rates; RTW plans marked ‡.
+4. **Export** — `report/excel.py` builds workbook: Summary (ranked table),
+   Monthly Detail (per plan per month components), Usage (monthly + heatmap
+   pivot), Plan Inputs (full schema dump). Download button.
+
+Launch: `streamlit run src/energyanalyzer/app/Home.py`.
+
+## 10. Status board  (update when you finish; keep one line each)
+
+| Module | Task | Status | Notes |
+|---|---|---|---|
+| core models + plans_io + seeds | #1 | DONE (lead) | schema is the contract |
+| ingest | #2 | TODO | |
+| engine | #3 | TODO | |
+| prices + fetchers | #4 | TODO | |
+| eflparse | #5 | TODO | |
+| app + excel | #6 | TODO | |
+| integration/validation | #7 | TODO | lead |
+
+## 11. Open questions / decisions log
+
+- Load zone for Round Rock/Oncor assumed `LZ_NORTH` — confirm against ESIID
+  premise; configurable in `data/config.yaml` (`load_zone`).
+- Oncor tariff history seeded with only two points (see `tdu/oncor.yaml`);
+  user updates on Oncor rate changes (Mar/Sep).
+- Seed plans from the July 2026 report carry `source: report-2026-07` and are
+  for engine validation; live shopping requires refreshed EFLs.
+- Battery simulation: out of scope v1. Taxes: excluded by design.
