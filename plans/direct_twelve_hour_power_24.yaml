@@ -6,6 +6,7 @@ base_charge_usd: 9.95
 energy_rates:
   - label: free 9pm-9am
     rate_ckwh: 0
+    tdu_exempt: true
     window: {hours: [21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8]}
   - rate_ckwh: 21.8
 buyback: {kind: none}

@@ -85,6 +85,10 @@ class EnergyRate(BaseModel):
     rtw: Optional[RtwRate] = None
     window: Optional[RateWindow] = None
     label: str = ""  # e.g. "free nights"
+    tdu_exempt: bool = False  # import matched by this rate is excluded from TDU
+    #   volumetric charges (plans whose "free" hours waive delivery too — e.g.
+    #   Green Mtn Pollution Free Nights, Reliant Free Overnight). Only
+    #   meaningful on Plan.energy_rates; ignored for buyback rates.
 
     @model_validator(mode="after")
     def _one_kind(self) -> "EnergyRate":

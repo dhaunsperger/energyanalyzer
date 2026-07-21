@@ -121,7 +121,10 @@ Key semantics implementers must honor:
   `window: null` (default/catch-all). A rate is either `rate_ckwh` (fixed
   ¢/kWh) or `rtw` (indexed: `price × multiplier + adder_ckwh`, optional
   `cap_ckwh`, floor at `floor_ckwh` default 0). Free nights/weekends are just
-  windows with `rate_ckwh: 0`.
+  windows with `rate_ckwh: 0`. An `EnergyRate` may set `tdu_exempt: true`:
+  import matched by that rate is excluded from TDU volumetric charges (some
+  REPs' "free" hours waive delivery too — validated against the report:
+  Green Mtn/Reliant/Direct free nights need it, TXU's do not).
 - **`RateWindow`**: `months` (1-12), `weekdays` (0=Mon..6=Sun), `hours`
   (0-23, local interval-start hour). Empty list = wildcard. A window like
   hours [21,22,23,0,...,5] expresses "9pm–6am".
@@ -160,7 +163,8 @@ imp(t), exp(t)           # kWh per 15-min interval in month
 rate(t)                  # $/kWh from first matching EnergyRate (RTW: join price series)
 energy_cost   = Σ imp(t)·rate(t)
 base          = base_charge_usd
-tdu           = fixed_usd_month + volumetric·Σimp(t)   [if tdu_passthrough]
+tdu           = fixed_usd_month + volumetric·Σimp(t over non-tdu_exempt rates)
+                                                       [if tdu_passthrough]
 credit_earned = Σ exp(t)·buyback_rate(t)               [0 if kind=none]
 credit_earned = min(credit_earned, energy_cost)        [if monthly_credit_cap=energy_charge]
 bill_credit   = Σ credit_usd for tiers matching month import kWh   (subtract)
@@ -259,10 +263,10 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | Module | Task | Status | Notes |
 |---|---|---|---|
 | core models + plans_io + seeds | #1 | DONE (lead) | schema is the contract |
-| ingest | #2 | TODO | |
-| engine | #3 | TODO | |
+| ingest | #2 | DONE | CSV position-based DST handling + GreenButton merge; parquet cache |
+| engine | #3 | DONE | simulate()/rank() implemented per §6; validated against real CSV (see open Q below re: TDU during free windows) |
 | prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
-| eflparse | #5 | TODO | |
+| eflparse | #5 | DONE | static regex/heuristic parser + 6 fixtures (pulse.txt real + 5 synthetic), 40 tests green |
 | app + excel | #6 | TODO | |
 | integration/validation | #7 | TODO | lead |
 
