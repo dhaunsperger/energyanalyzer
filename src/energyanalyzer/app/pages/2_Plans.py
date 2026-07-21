@@ -3,6 +3,7 @@ EFL PDF import, and Power to Choose snapshot loading."""
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     load_draft_raw,
     parse_downloaded_efls,
     plan_summary_row,
+    refresh_market_data,
     render_missing_data_help,
 )
 from energyanalyzer.core.models import Plan  # noqa: E402
@@ -281,6 +283,60 @@ if draft is not None:
 st.divider()
 
 # --------------------------------------------------------------------------- #
+# Refresh market data (one button: delete old imports, fetch, download,
+# parse, auto-promote confident drafts)
+# --------------------------------------------------------------------------- #
+st.subheader("Refresh market data")
+st.caption(
+    "One button: deletes previously auto-imported plans/drafts/EFLs and old PTC "
+    "snapshots, re-fetches the Power to Choose snapshot (falling back to the newest "
+    "one on disk if the live fetch fails), re-downloads EFLs, re-parses them into "
+    "drafts, and auto-promotes anything the parser was confident about (all "
+    "load-bearing fields >= 0.8 confidence, not flagged needs_review). Less-certain "
+    "drafts are left in 'Draft plans' below for manual review. Manually-entered and "
+    "report-benchmark plans -- including your current plan -- are never touched."
+)
+refresh_confirm = st.checkbox(
+    "I understand auto-imported plans will be replaced", key="refresh_confirm"
+)
+if st.button("Refresh market data", key="refresh_market_btn", disabled=not refresh_confirm):
+    refresh_progress = st.progress(0.0)
+    refresh_status = st.empty()
+
+    def _refresh_progress(done: int, total: int, label: str) -> None:
+        refresh_progress.progress(done / total if total else 1.0)
+        refresh_status.caption(label)
+
+    refresh_summary = refresh_market_data(
+        plans_dir=PLANS_DIR,
+        drafts_dir=DRAFTS_DIR,
+        efl_dir=EFL_DIR,
+        ptc_dir=PTC_DIR,
+        progress_callback=_refresh_progress,
+    )
+    refresh_progress.progress(1.0)
+    invalidate_plans_cache()
+    st.session_state["refresh_summary"] = refresh_summary
+    st.rerun()
+
+refresh_summary = st.session_state.get("refresh_summary")
+if refresh_summary is not None:
+    st.success(
+        f"Deleted {len(refresh_summary['deleted_plans'])} old imported plan(s), "
+        f"{refresh_summary['deleted_drafts']} draft(s), {refresh_summary['deleted_efls']} EFL(s). "
+        f"Downloaded {len(refresh_summary['downloaded']['downloaded'])}, "
+        f"parsed {len(refresh_summary['parsed']['parsed'])}, "
+        f"auto-promoted {len(refresh_summary['promoted'])}, "
+        f"{len(refresh_summary['needing_review'])} draft(s) left for review."
+    )
+    for note in refresh_summary["notes"]:
+        st.caption(f"- {note}")
+    with st.expander("Full refresh summary"):
+        st.json(refresh_summary)
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
 # Power to Choose snapshot
 # --------------------------------------------------------------------------- #
 st.subheader("Power to Choose snapshot")
@@ -466,6 +522,7 @@ if current_draft_paths:
         if st.button("Promote to plan database", key="promote_draft_btn"):
             try:
                 edited_dict = yaml.safe_load(edited_draft_yaml)
+                edited_dict["retrieved"] = dt.date.today()  # promotion (re)stamps freshness
                 plan = Plan.model_validate(edited_dict)
                 promoted_path = save_plan(plan, directory=PLANS_DIR)
                 selected_draft_path.unlink(missing_ok=True)

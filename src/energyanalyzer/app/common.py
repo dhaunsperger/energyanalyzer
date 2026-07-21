@@ -10,6 +10,7 @@ afterwards so the cache picks up the change.
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -18,7 +19,7 @@ import streamlit as st
 import yaml
 
 from energyanalyzer.core.models import Plan, TduTariff, add_local_columns
-from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, current_tdu, load_plans
+from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, current_tdu, load_plans, save_plan
 from energyanalyzer.ingest.smt import QualityReport, load_intervals
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -195,6 +196,281 @@ def parse_downloaded_efls(
             progress_callback(i, total, pdf_path.name)
 
     return summary
+
+
+def refresh_market_data(
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    efl_dir: Path = EFL_DIR,
+    ptc_dir: Path = PTC_DIR,
+    tdu: str = "ONCOR",
+    language: Optional[str] = "English",
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    fetch: bool = True,
+) -> dict:
+    """"Refresh market data" one-button pipeline (ARCHITECTURE.md §9).
+
+    Orchestrates, in order:
+
+    1. **Delete** stale auto-imported data: plans in `plans_dir` whose
+       `source` starts with `"ptc"` or `"efl:"` (never `"manual"`,
+       never a `"report-*"` seed, never `CURRENT_PLAN_ID`); every draft in
+       `drafts_dir`; every PDF in `efl_dir`; every PTC snapshot in `ptc_dir`
+       except the newest (kept as a fallback).
+    2. **Fetch** a fresh PTC snapshot (`fetchers.ptc.fetch_ptc_csv`) unless
+       `fetch=False`. If the live fetch raises `RuntimeError` (network
+       blocked), falls back to the newest snapshot kept in step 1 and notes
+       it. If neither a fetch nor an existing snapshot is available, stops
+       here (download/parse/promote are skipped) and says so in `notes`.
+    3. **Load + filter** the snapshot (`load_ptc` + `filter_plans(tdu,
+       language)`).
+    4. **Download** EFLs for the filtered plans (`download_efls`).
+    5. **Parse** every downloaded EFL into a draft (`parse_downloaded_efls`).
+    6. **Auto-promote** drafts the parser was confident about: `needs_review`
+       is `False` on the draft AND every load-bearing field
+       (`eflparse.parser.LOAD_BEARING_KEYS`) it saw a confidence score for
+       scored >= 0.8 (a draft with no confidence data at all is treated
+       conservatively -- left for manual review, not auto-promoted).
+       Promoted plans are validated via `Plan.model_validate`, stamped with
+       `retrieved = today` (and `source` defaulted to `"ptc"` if somehow
+       unset), saved via `plans_io.save_plan`, and their draft file deleted.
+       A single bad draft cannot abort the batch.
+
+    `progress_callback`, if given, is called after every item in every stage
+    as `progress_callback(stage_done, stage_total, "<stage>: <item>")` so a
+    caller can drive one progress bar + status line across the whole run.
+
+    Returns a summary dict: `{'deleted_plans': [id, ...], 'deleted_drafts':
+    int, 'deleted_efls': int, 'deleted_snapshots': int, 'fetched': bool,
+    'snapshot_path': str | None, 'downloaded': <download_efls() summary>,
+    'parsed': <parse_downloaded_efls() summary>, 'promoted': [plan_id, ...],
+    'needing_review': [draft_stem, ...], 'notes': [str, ...]}`.
+    """
+    from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
+    from energyanalyzer.fetchers.ptc import download_efls, fetch_ptc_csv, filter_plans, load_ptc
+
+    plans_dir = Path(plans_dir)
+    drafts_dir = Path(drafts_dir)
+    efl_dir = Path(efl_dir)
+    ptc_dir = Path(ptc_dir)
+
+    notes: list[str] = []
+    summary: dict = {
+        "deleted_plans": [],
+        "deleted_drafts": 0,
+        "deleted_efls": 0,
+        "deleted_snapshots": 0,
+        "fetched": False,
+        "snapshot_path": None,
+        "downloaded": {"downloaded": [], "skipped": [], "failed": []},
+        "parsed": {"parsed": [], "skipped": [], "failed": []},
+        "promoted": [],
+        "needing_review": [],
+        "notes": notes,
+    }
+
+    def _report(stage: str, done: int, total: int, item: str) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total, f"{stage}: {item}")
+
+    # --- 1. delete stale auto-imported data -------------------------------#
+    plan_paths_to_delete = []
+    if plans_dir.exists():
+        for p in sorted(plans_dir.glob("*.yaml")):
+            if p.stem == CURRENT_PLAN_ID:
+                continue
+            try:
+                raw = yaml.safe_load(p.read_text()) or {}
+            except Exception:  # noqa: BLE001 -- unreadable plan file, leave it alone
+                continue
+            src = str(raw.get("source") or "")
+            if src.startswith("ptc") or src.startswith("efl:"):
+                plan_paths_to_delete.append(p)
+
+    draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
+    efl_paths = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+    snapshot_paths = sorted(ptc_dir.glob("*.csv")) if ptc_dir.exists() else []
+    newest_snapshot = max(snapshot_paths, key=lambda p: p.stat().st_mtime) if snapshot_paths else None
+    old_snapshots = [p for p in snapshot_paths if p != newest_snapshot]
+
+    delete_total = len(plan_paths_to_delete) + len(draft_paths) + len(efl_paths) + len(old_snapshots)
+    delete_done = 0
+    for p in plan_paths_to_delete:
+        p.unlink(missing_ok=True)
+        summary["deleted_plans"].append(p.stem)
+        delete_done += 1
+        _report("delete", delete_done, delete_total, f"plan {p.name}")
+    for p in draft_paths:
+        p.unlink(missing_ok=True)
+        summary["deleted_drafts"] += 1
+        delete_done += 1
+        _report("delete", delete_done, delete_total, f"draft {p.name}")
+    for p in efl_paths:
+        p.unlink(missing_ok=True)
+        summary["deleted_efls"] += 1
+        delete_done += 1
+        _report("delete", delete_done, delete_total, f"efl {p.name}")
+    for p in old_snapshots:
+        p.unlink(missing_ok=True)
+        summary["deleted_snapshots"] += 1
+        delete_done += 1
+        _report("delete", delete_done, delete_total, f"snapshot {p.name}")
+
+    if plan_paths_to_delete:
+        invalidate_plans_cache()
+
+    # --- 2. fetch (or fall back to the newest remaining snapshot) --------#
+    snapshot_path = None
+    if fetch:
+        _report("fetch", 0, 1, "contacting powertochoose.org")
+        try:
+            snapshot_path = fetch_ptc_csv(ptc_dir)
+            summary["fetched"] = True
+            _report("fetch", 1, 1, f"saved {snapshot_path.name}")
+        except RuntimeError as exc:
+            notes.append(f"Live PTC fetch failed, falling back to existing snapshot: {exc}")
+            snapshot_path = newest_snapshot
+            _report("fetch", 1, 1, "fetch failed -- using existing snapshot")
+    else:
+        snapshot_path = newest_snapshot
+        notes.append("fetch=False -- using existing snapshot without contacting powertochoose.org")
+
+    if snapshot_path is None:
+        notes.append(
+            "No Power to Choose snapshot available (live fetch failed/skipped and none on "
+            "disk) -- download/parse/promote stages skipped."
+        )
+        return summary
+
+    summary["snapshot_path"] = str(snapshot_path)
+
+    # --- 3. load + filter --------------------------------------------------#
+    df_raw = load_ptc(snapshot_path)
+    df = filter_plans(df_raw, tdu=tdu, language=language)
+
+    # --- 4. download EFLs ---------------------------------------------- #
+    summary["downloaded"] = download_efls(
+        df, dest=efl_dir, progress_callback=lambda d, t, n: _report("download", d, t, n)
+    )
+
+    # --- 5. parse downloaded EFLs into drafts --------------------------- #
+    pdf_paths = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+    summary["parsed"] = parse_downloaded_efls(
+        pdf_paths,
+        drafts_dir=drafts_dir,
+        plans_dir=plans_dir,
+        progress_callback=lambda d, t, n: _report("parse", d, t, n),
+    )
+
+    # --- 6. auto-promote confident drafts -------------------------------- #
+    current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
+    promote_total = len(current_draft_paths)
+    for i, draft_path in enumerate(current_draft_paths, start=1):
+        try:
+            raw = load_draft_raw(draft_path)
+            parse_meta = raw.get("_parse") or {}
+            confidence = parse_meta.get("confidence") or {}
+            seen = [confidence[k] for k in LOAD_BEARING_KEYS if k in confidence]
+            min_conf = min(seen) if seen else None
+            needs_review_flag = raw.get("needs_review", True)
+            eligible = (not needs_review_flag) and min_conf is not None and min_conf >= 0.8
+            if eligible:
+                plan_dict = {k: v for k, v in raw.items() if k != "_parse"}
+                plan_dict.setdefault("source", "ptc")
+                plan_dict["retrieved"] = dt.date.today()
+                plan = Plan.model_validate(plan_dict)
+                save_plan(plan, directory=plans_dir)
+                draft_path.unlink(missing_ok=True)
+                summary["promoted"].append(plan.id)
+            else:
+                summary["needing_review"].append(draft_path.stem)
+        except Exception as exc:  # noqa: BLE001 -- one bad draft mustn't abort auto-promote
+            summary["needing_review"].append(draft_path.stem)
+            notes.append(f"Could not auto-promote {draft_path.name}: {exc!r}")
+        _report("promote", i, promote_total, draft_path.name)
+
+    if summary["promoted"]:
+        invalidate_plans_cache()
+
+    return summary
+
+
+# --------------------------------------------------------------------------- #
+# Staleness (ARCHITECTURE.md §9): warn when the inputs behind the numbers are
+# old, rather than silently showing stale results.
+# --------------------------------------------------------------------------- #
+INTERVAL_STALENESS_DAYS = 35
+TDU_STALENESS_DAYS = 210
+PLAN_STALENESS_DAYS = 90
+
+
+def interval_staleness_warning(
+    quality: QualityReport, as_of: Optional[dt.date] = None, threshold_days: int = INTERVAL_STALENESS_DAYS
+) -> Optional[str]:
+    """Warn if the interval data's last day is more than `threshold_days` old."""
+    if quality.end is None:
+        return None
+    as_of = as_of or dt.date.today()
+    end_date = quality.end.date() if hasattr(quality.end, "date") else quality.end
+    age_days = (as_of - end_date).days
+    if age_days > threshold_days:
+        return (
+            f"Interval data ends {end_date} ({age_days} days ago) -- pull a fresh "
+            "SmartMeter Texas export on the Usage page for accurate results."
+        )
+    return None
+
+
+def price_coverage_warning(prices: Optional[pd.Series], interval_end) -> Optional[str]:
+    """Warn if the loaded ERCOT price series doesn't reach as far as the
+    interval data (RTW-indexed plans would be priced on missing data for the
+    uncovered tail)."""
+    if prices is None or len(prices) == 0 or interval_end is None:
+        return None
+    price_end = prices.index.max()
+    iend = pd.Timestamp(interval_end)
+    if getattr(price_end, "tzinfo", None) is not None and iend.tzinfo is None:
+        iend = iend.tz_localize(price_end.tzinfo)
+    elif getattr(price_end, "tzinfo", None) is None and iend.tzinfo is not None:
+        iend = iend.tz_localize(None)
+    if pd.Timestamp(price_end) < iend:
+        return (
+            f"ERCOT price coverage ends {price_end} but interval data ends {iend} -- "
+            "RTW-indexed plans will be priced on incomplete/missing data for the gap."
+        )
+    return None
+
+
+def tdu_staleness_warning(
+    tariff: TduTariff, as_of: Optional[dt.date] = None, threshold_days: int = TDU_STALENESS_DAYS
+) -> Optional[str]:
+    """Warn if the latest known Oncor tariff record is old enough that a rate
+    change (typically Mar/Sep) may have been missed."""
+    as_of = as_of or dt.date.today()
+    age_days = (as_of - tariff.effective).days
+    if age_days > threshold_days:
+        return (
+            f"Latest Oncor TDU tariff is effective {tariff.effective} ({age_days} days ago) -- "
+            "check for a rate change and update tdu/oncor.yaml if needed."
+        )
+    return None
+
+
+def plan_is_stale(
+    plan: Plan, as_of: Optional[dt.date] = None, threshold_days: int = PLAN_STALENESS_DAYS
+) -> bool:
+    """True if `plan`'s rate data looks stale: `retrieved` older than
+    `threshold_days`, or no `retrieved` at all on a `report-*` seed plan."""
+    as_of = as_of or dt.date.today()
+    if plan.retrieved is not None:
+        return (as_of - plan.retrieved).days > threshold_days
+    return plan.source.startswith("report-")
+
+
+def stale_plan_ids(
+    plans: list[Plan], as_of: Optional[dt.date] = None, threshold_days: int = PLAN_STALENESS_DAYS
+) -> list[str]:
+    return [p.id for p in plans if plan_is_stale(p, as_of=as_of, threshold_days=threshold_days)]
 
 
 # --------------------------------------------------------------------------- #

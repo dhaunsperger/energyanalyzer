@@ -20,7 +20,11 @@ from energyanalyzer.app.common import (  # noqa: E402
     get_intervals,
     get_plans,
     get_tdu,
+    interval_staleness_warning,
+    plan_is_stale,
+    price_coverage_warning,
     render_missing_data_help,
+    tdu_staleness_warning,
     try_get_prices,
 )
 from energyanalyzer.engine.cost import rank  # noqa: E402
@@ -35,7 +39,7 @@ st.set_page_config(page_title="EnergyAnalyzer - Compare", page_icon="⚡", layou
 st.title("Compare plans")
 
 try:
-    intervals, _ = get_intervals(DATA_DIR)
+    intervals, quality = get_intervals(DATA_DIR)
 except FileNotFoundError as exc:
     render_missing_data_help(exc, title="No usage data yet")
     st.stop()
@@ -49,6 +53,25 @@ tdu = get_tdu()
 prices, price_err = try_get_prices()
 if price_err:
     st.caption(f"ERCOT prices not loaded (RTW-indexed plans will be skipped): {price_err}")
+
+# --- Staleness warnings (ARCHITECTURE.md §9) ------------------------------- #
+interval_warning = interval_staleness_warning(quality)
+if interval_warning:
+    st.warning(interval_warning)
+if prices is not None and not intervals.empty:
+    price_warning = price_coverage_warning(prices, intervals.index.max())
+    if price_warning:
+        st.warning(price_warning)
+tdu_warning = tdu_staleness_warning(tdu)
+if tdu_warning:
+    st.warning(tdu_warning)
+n_stale_plans = sum(1 for p in all_plans if plan_is_stale(p))
+if n_stale_plans:
+    st.caption(
+        f"{n_stale_plans} plan(s) below have rate data more than 90 days old (or an "
+        "un-refreshed report seed) -- marked 'Stale?' in the table; consider running "
+        "'Refresh market data' on the Plans page."
+    )
 
 include_review = st.toggle("Include plans flagged `needs_review`", value=False, key="compare_include_review")
 usable_plans = all_plans if include_review else [p for p in all_plans if not p.needs_review]
@@ -89,6 +112,7 @@ for r in results:
             "Other Details": plan_other_details(plan),
             "ETF": plan_etf_label(plan),
             "1st-Year Net Bill": r.first_year_net,
+            "Stale?": "⚠️" if plan_is_stale(plan) else "",
         }
     )
 table = pd.DataFrame(rows).set_index("_plan_id")

@@ -257,11 +257,21 @@ Pages (multipage app, `app/Home.py` + `app/pages/`):
    silent until the end; a "Draft plans" section reviews/edits
    `plans/drafts/*.yaml` (confidence + evidence per field from parsing) and
    promotes them into `plans/` (or deletes them), with the main plan table
-   refreshing immediately (cache invalidation + rerun) -- no manual reload.
+   refreshing immediately (cache invalidation + rerun) -- no manual reload;
+   a "Refresh market data" one-button flow (confirmation-gated) orchestrates
+   delete-old-imports → fetch (fallback to newest snapshot on disk on
+   network failure) → download → parse → auto-promote-if-confident in one
+   pass (`app/common.refresh_market_data`), stamping promoted plans'
+   `retrieved` date (manual/report-seed plans and the current plan are never
+   touched by the delete step).
 3. **Compare** — run engine over all plans; ranked table styled like report
    p.2 (Retailer, Plan, Term, Base $/mo, Import ¢/kWh +TDU, Export ¢/kWh,
-   Other details, ETF, 1st-Year Net Bill); expandable per-plan monthly
-   breakdown chart/table; footnote current TDU rates; RTW plans marked ‡.
+   Other details, ETF, 1st-Year Net Bill, Stale?); expandable per-plan
+   monthly breakdown chart/table; footnote current TDU rates; RTW plans
+   marked ‡; staleness warnings (interval data >35 days old, ERCOT price
+   coverage short of interval end, Oncor tariff >210 days old) plus a
+   per-plan "Stale?" badge (`retrieved` >90 days old, or unstamped
+   `report-*` seed) via `app/common` helpers.
 4. **Export** — `report/excel.py` builds workbook: Summary (ranked table),
    Monthly Detail (per plan per month components), Usage (monthly + heatmap
    pivot), Plan Inputs (full schema dump). Download button.
@@ -279,6 +289,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | eflparse | #5 | DONE | static regex/heuristic parser + 6 synthetic/pulse fixtures + 15-file real Texas EFL corpus regression suite (tests/fixtures/efl_texts/real/), 175 tests green; hardened against corrupted/PUA-encoded fonts, bullet/numbered-list/colon layouts, brand-prefixed TOU tables, per-day prepaid fees, and bundled-TDU phrasing; pdfplumber import-failure noise silenced |
 | app + excel | #6 | DONE | Streamlit app (Home + 4 pages) + report/excel.py; 3 tests green in tests/test_excel.py; validated end-to-end against real data/IntervalData.csv + plans/*.yaml (pulse_current=$1031.37, txu_solar_bb=$1211.37, gmtn_pollution_free_nights=$1264.87 -- all within a few cents of report benchmarks) |
 | app + fetchers followup | #6/#4 | DONE | fixed 3 user-reported Plans-page issues: `fetchers.ptc.filter_plans` gained a backward-compatible `language="English"` default filter + snapshot TDU picker in the UI (was reading as truncation, was actually TDU+Spanish-duplicate filtering); `download_efls` gained `progress_callback` wired to `st.progress`; new `app/common.parse_downloaded_efls` batch-parses `data/efl/*.pdf` into `plans/drafts/` (per-file try/except, skip-if-already-parsed) plus a "Draft plans" review/edit/promote UI -- promote/delete both invalidate the plans cache and `st.rerun()` so the main table updates immediately; 183 tests green (`pytest tests/`), plus manual `streamlit.testing.v1.AppTest` smoke passes on the Plans page across empty and populated states |
+| app followup 2: refresh + staleness | #6/#4 | DONE | new `app/common.refresh_market_data` (delete old ptc/efl:-sourced plans+drafts+EFLs+stale snapshots -- never manual/report-*/current-plan -- then fetch-or-fallback → load+filter → download → parse → auto-promote drafts with needs_review=False and all load-bearing confidences >=0.8, stamping `retrieved`) wired to a confirmation-gated "Refresh market data" button + one progress bar with staged labels on the Plans page; new staleness helpers (`interval_staleness_warning`, `price_coverage_warning`, `tdu_staleness_warning`, `plan_is_stale`/`stale_plan_ids`) surfaced as warnings + a "Stale?" table column on Compare; single-draft promote also stamps `retrieved`; 190 tests green (`pytest tests/`, incl. new tests/test_refresh.py), ruff clean, manual AppTest smoke green on both Plans (checkbox-gated button, full refresh pipeline with faked transport, promote/delete) and Compare (staleness warnings + Stale? column render against the real data/IntervalData.csv + plans/*.yaml) |
 | integration/validation | #7 | TODO | lead |
 
 ## 11. Open questions / decisions log
