@@ -568,6 +568,16 @@ st.divider()
 # --------------------------------------------------------------------------- #
 # Draft plans: review, edit, promote
 # --------------------------------------------------------------------------- #
+def _resolve_source_efl_pdf(source: str) -> Path | None:
+    """A draft's `source` field is `efl:<filename>.pdf` (eflparse/parser.py);
+    resolve that back to the downloaded PDF in EFL_DIR, if it's still there."""
+    prefix = "efl:"
+    if not source.startswith(prefix):
+        return None
+    pdf_path = EFL_DIR / source[len(prefix) :]
+    return pdf_path if pdf_path.is_file() else None
+
+
 st.subheader("Draft plans")
 st.caption(
     "Auto-parsed (or hand-saved) drafts in plans/drafts/, not yet part of the active plan "
@@ -593,47 +603,58 @@ if current_draft_paths:
     draft_evidence = parse_meta.get("evidence") or {}
     draft_unparsed = parse_meta.get("unparsed_notes") or []
 
-    if raw_draft.get("needs_review"):
-        st.warning("⚠️ NEEDS REVIEW")
+    review_col, pdf_col = st.columns([1, 1])
 
-    if draft_confidence:
-        st.markdown("**Field confidence / evidence**")
-        conf_rows = [
-            {"field": field, "confidence": conf, "evidence": draft_evidence.get(field, "")}
-            for field, conf in sorted(draft_confidence.items())
-        ]
-        st.dataframe(pd.DataFrame(conf_rows), width="stretch", hide_index=True)
-    if draft_unparsed:
-        with st.expander(f"{len(draft_unparsed)} unparsed note(s)"):
-            for note in draft_unparsed:
-                st.caption(f"- {note}")
+    with review_col:
+        if raw_draft.get("needs_review"):
+            st.warning("⚠️ NEEDS REVIEW")
 
-    plan_only_dict = {k: v for k, v in raw_draft.items() if k != "_parse"}
-    edited_draft_yaml = st.text_area(
-        "Draft plan YAML (editable)",
-        value=yaml.safe_dump(plan_only_dict, sort_keys=False, allow_unicode=True),
-        height=300,
-        key=f"draft_yaml_{selected_draft_path.stem}",
-    )
+        if draft_confidence:
+            st.markdown("**Field confidence / evidence**")
+            conf_rows = [
+                {"field": field, "confidence": conf, "evidence": draft_evidence.get(field, "")}
+                for field, conf in sorted(draft_confidence.items())
+            ]
+            st.dataframe(pd.DataFrame(conf_rows), width="stretch", hide_index=True)
+        if draft_unparsed:
+            with st.expander(f"{len(draft_unparsed)} unparsed note(s)"):
+                for note in draft_unparsed:
+                    st.caption(f"- {note}")
 
-    dcol1, dcol2 = st.columns(2)
-    with dcol1:
-        if st.button("Promote to plan database", key="promote_draft_btn"):
-            try:
-                edited_dict = yaml.safe_load(edited_draft_yaml)
-                edited_dict["retrieved"] = dt.date.today()  # promotion (re)stamps freshness
-                plan = Plan.model_validate(edited_dict)
-                promoted_path = save_plan(plan, directory=PLANS_DIR)
+        plan_only_dict = {k: v for k, v in raw_draft.items() if k != "_parse"}
+        edited_draft_yaml = st.text_area(
+            "Draft plan YAML (editable)",
+            value=yaml.safe_dump(plan_only_dict, sort_keys=False, allow_unicode=True),
+            height=500,
+            key=f"draft_yaml_{selected_draft_path.stem}",
+        )
+
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            if st.button("Promote to plan database", key="promote_draft_btn"):
+                try:
+                    edited_dict = yaml.safe_load(edited_draft_yaml)
+                    edited_dict["retrieved"] = dt.date.today()  # promotion (re)stamps freshness
+                    plan = Plan.model_validate(edited_dict)
+                    promoted_path = save_plan(plan, directory=PLANS_DIR)
+                    selected_draft_path.unlink(missing_ok=True)
+                    invalidate_plans_cache()
+                    st.success(f"Promoted to {promoted_path}")
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Could not promote: {exc}")
+        with dcol2:
+            if st.button("Delete draft", key="delete_draft_btn"):
                 selected_draft_path.unlink(missing_ok=True)
-                invalidate_plans_cache()
-                st.success(f"Promoted to {promoted_path}")
+                st.success(f"Deleted {selected_draft_path}")
                 st.rerun()
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Could not promote: {exc}")
-    with dcol2:
-        if st.button("Delete draft", key="delete_draft_btn"):
-            selected_draft_path.unlink(missing_ok=True)
-            st.success(f"Deleted {selected_draft_path}")
-            st.rerun()
+
+    with pdf_col:
+        source_pdf = _resolve_source_efl_pdf(raw_draft.get("source", ""))
+        if source_pdf is None:
+            st.info("Source EFL PDF not found on disk for this draft.")
+        else:
+            st.caption(f"Source: {source_pdf.name}")
+            st.pdf(source_pdf, height=850)
 else:
     st.info(f"No drafts found in {DRAFTS_DIR}.")
