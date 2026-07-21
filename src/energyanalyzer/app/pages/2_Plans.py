@@ -17,9 +17,12 @@ if str(_SRC_ROOT) not in sys.path:
 from energyanalyzer.app.common import (  # noqa: E402
     EFL_DIR,
     PTC_DIR,
+    draft_summary_row,
     get_draft_plans,
     get_plans,
     invalidate_plans_cache,
+    load_draft_raw,
+    parse_downloaded_efls,
     plan_summary_row,
     render_missing_data_help,
 )
@@ -302,25 +305,60 @@ if snapshots:
     )
     if st.button("Load snapshot", key="load_ptc_btn"):
         try:
-            from energyanalyzer.fetchers.ptc import filter_plans, load_ptc  # noqa: PLC0415
+            from energyanalyzer.fetchers.ptc import load_ptc  # noqa: PLC0415
 
-            df_ptc = load_ptc(PTC_DIR / chosen_name)
-            df_ptc = filter_plans(df_ptc, tdu="ONCOR")
-            st.session_state["ptc_df"] = df_ptc
+            # Load the raw, unfiltered snapshot -- it's statewide (~1,700 rows,
+            # every TDU, English + Spanish duplicate rows for most plans).
+            # Filtering (TDU + language) happens below, driven by widgets, so
+            # it's clear this is filtering-by-design, not truncation.
+            st.session_state["ptc_df_raw"] = load_ptc(PTC_DIR / chosen_name)
         except Exception as exc:  # noqa: BLE001
             st.error(f"Could not load snapshot: {exc}")
 else:
     st.info(f"No snapshots found in {PTC_DIR} yet.")
+
+ptc_df_raw = st.session_state.get("ptc_df_raw")
+if ptc_df_raw is not None:
+    from energyanalyzer.fetchers.ptc import filter_plans  # noqa: PLC0415
+
+    tdu_choices = sorted(ptc_df_raw["tdu"].dropna().unique()) if "tdu" in ptc_df_raw.columns else []
+    if tdu_choices:
+        default_idx = tdu_choices.index("ONCOR") if "ONCOR" in tdu_choices else 0
+        chosen_tdu = st.selectbox("TDU", tdu_choices, index=default_idx, key="ptc_tdu_select")
+    else:
+        chosen_tdu = None
+    english_only = st.checkbox(
+        "English only (hide Spanish-language duplicate rows)", value=True, key="ptc_english_only"
+    )
+    lang = "English" if english_only else None
+
+    ptc_df = filter_plans(ptc_df_raw, tdu=chosen_tdu, language=lang)
+    st.session_state["ptc_df"] = ptc_df
+
+    filter_desc = f"filtering to {chosen_tdu}" if chosen_tdu else "no TDU filter"
+    if lang:
+        filter_desc += f", {lang}"
+    st.caption(f"{len(ptc_df_raw)} rows in snapshot → {len(ptc_df)} after {filter_desc}.")
 
 ptc_df = st.session_state.get("ptc_df")
 if ptc_df is not None:
     st.dataframe(ptc_df, width="stretch", height=300)
     dl_limit = st.number_input("Max EFLs to download", min_value=1, max_value=500, value=20, key="efl_dl_limit")
     if st.button("Download EFLs for listed plans", key="download_efls_btn"):
-        try:
-            from energyanalyzer.fetchers.ptc import download_efls  # noqa: PLC0415
+        from energyanalyzer.fetchers.ptc import download_efls  # noqa: PLC0415
 
-            summary = download_efls(ptc_df, dest=EFL_DIR, limit=int(dl_limit))
+        progress_bar = st.progress(0.0)
+        status_line = st.empty()
+
+        def _dl_progress(done: int, total: int, name: str) -> None:
+            progress_bar.progress(done / total if total else 1.0)
+            status_line.caption(f"{done}/{total}: {name}")
+
+        try:
+            summary = download_efls(
+                ptc_df, dest=EFL_DIR, limit=int(dl_limit), progress_callback=_dl_progress
+            )
+            progress_bar.progress(1.0)
             st.success(
                 f"Downloaded {len(summary['downloaded'])}, skipped {len(summary['skipped'])}, "
                 f"failed {len(summary['failed'])}"
@@ -329,3 +367,117 @@ if ptc_df is not None:
                 st.json(summary["failed"][:10])
         except Exception as exc:  # noqa: BLE001
             render_missing_data_help(exc, title="EFL download failed")
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Parse downloaded EFLs into drafts
+# --------------------------------------------------------------------------- #
+st.subheader("Parse downloaded EFLs")
+st.caption(
+    "Runs the static EFL parser (ARCHITECTURE.md §8) over every PDF in data/efl/ that "
+    "hasn't already produced a draft or promoted plan, and saves the results to "
+    "plans/drafts/ for review below. Downloading EFLs alone does not add them to the "
+    "plan database -- this step does."
+)
+efl_pdfs = sorted(EFL_DIR.glob("*.pdf")) if EFL_DIR.exists() else []
+st.caption(f"{len(efl_pdfs)} PDF(s) in {EFL_DIR}.")
+if efl_pdfs:
+    if st.button("Parse all downloaded EFLs into drafts", key="parse_all_efls_btn"):
+        progress_bar = st.progress(0.0)
+        status_line = st.empty()
+
+        def _parse_progress(done: int, total: int, name: str) -> None:
+            progress_bar.progress(done / total if total else 1.0)
+            status_line.caption(f"{done}/{total}: {name}")
+
+        summary = parse_downloaded_efls(
+            efl_pdfs, drafts_dir=DRAFTS_DIR, plans_dir=PLANS_DIR, progress_callback=_parse_progress
+        )
+        progress_bar.progress(1.0)
+        st.success(
+            f"Parsed {len(summary['parsed'])}, skipped {len(summary['skipped'])} (already parsed), "
+            f"failed {len(summary['failed'])}"
+        )
+        if summary["failed"]:
+            st.json(summary["failed"][:10])
+        st.rerun()
+else:
+    st.info(
+        f"No downloaded EFL PDFs yet in {EFL_DIR} -- use the Power to Choose section above, "
+        "or upload one in 'Import from EFL PDF'."
+    )
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Draft plans: review, edit, promote
+# --------------------------------------------------------------------------- #
+st.subheader("Draft plans")
+st.caption(
+    "Auto-parsed (or hand-saved) drafts in plans/drafts/, not yet part of the active plan "
+    "database used by Compare/Export. Review the extracted fields, edit the YAML if needed, "
+    "then promote."
+)
+
+current_draft_paths = get_draft_plans()
+if current_draft_paths:
+    draft_rows = [draft_summary_row(p) for p in current_draft_paths]
+    draft_table = pd.DataFrame(draft_rows)
+    st.dataframe(draft_table.drop(columns=["file"]), width="stretch", hide_index=True)
+
+    draft_labels = {
+        f"{row['Retailer']} — {row['Plan']} ({row['id']})": path
+        for row, path in zip(draft_rows, current_draft_paths)
+    }
+    draft_label = st.selectbox("Select a draft", list(draft_labels.keys()), key="draft_select")
+    selected_draft_path = draft_labels[draft_label]
+    raw_draft = load_draft_raw(selected_draft_path)
+    parse_meta = raw_draft.get("_parse") or {}
+    draft_confidence = parse_meta.get("confidence") or {}
+    draft_evidence = parse_meta.get("evidence") or {}
+    draft_unparsed = parse_meta.get("unparsed_notes") or []
+
+    if raw_draft.get("needs_review"):
+        st.warning("⚠️ NEEDS REVIEW")
+
+    if draft_confidence:
+        st.markdown("**Field confidence / evidence**")
+        conf_rows = [
+            {"field": field, "confidence": conf, "evidence": draft_evidence.get(field, "")}
+            for field, conf in sorted(draft_confidence.items())
+        ]
+        st.dataframe(pd.DataFrame(conf_rows), width="stretch", hide_index=True)
+    if draft_unparsed:
+        with st.expander(f"{len(draft_unparsed)} unparsed note(s)"):
+            for note in draft_unparsed:
+                st.caption(f"- {note}")
+
+    plan_only_dict = {k: v for k, v in raw_draft.items() if k != "_parse"}
+    edited_draft_yaml = st.text_area(
+        "Draft plan YAML (editable)",
+        value=yaml.safe_dump(plan_only_dict, sort_keys=False, allow_unicode=True),
+        height=300,
+        key=f"draft_yaml_{selected_draft_path.stem}",
+    )
+
+    dcol1, dcol2 = st.columns(2)
+    with dcol1:
+        if st.button("Promote to plan database", key="promote_draft_btn"):
+            try:
+                edited_dict = yaml.safe_load(edited_draft_yaml)
+                plan = Plan.model_validate(edited_dict)
+                promoted_path = save_plan(plan, directory=PLANS_DIR)
+                selected_draft_path.unlink(missing_ok=True)
+                invalidate_plans_cache()
+                st.success(f"Promoted to {promoted_path}")
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not promote: {exc}")
+    with dcol2:
+        if st.button("Delete draft", key="delete_draft_btn"):
+            selected_draft_path.unlink(missing_ok=True)
+            st.success(f"Deleted {selected_draft_path}")
+            st.rerun()
+else:
+    st.info(f"No drafts found in {DRAFTS_DIR}.")

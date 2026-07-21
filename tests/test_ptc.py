@@ -10,6 +10,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from energyanalyzer.app import common as app_common
+from energyanalyzer.eflparse import parser as eflparser
 from energyanalyzer.fetchers import ptc
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ptc_sample.csv"
@@ -201,3 +203,218 @@ def test_download_efls_skips_existing_and_downloads_new(tmp_path, monkeypatch):
     assert summary["failed"] == []
     for path_str in summary["downloaded"]:
         assert Path(path_str).read_bytes().startswith(b"%PDF")
+
+
+# --------------------------------------------------------------------------- #
+# Issue: statewide PTC snapshot includes Spanish-language duplicate rows,
+# which made a correct tdu-filtered result look "truncated". `filter_plans`
+# now defaults to language="English" (backward compatible: existing callers
+# that never had a `language` column keep their exact prior behavior).
+# --------------------------------------------------------------------------- #
+def _bilingual_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "tdu": ["ONCOR", "ONCOR", "ONCOR", "ONCOR"],
+            "language": ["English", "Spanish", "English", "Spanish"],
+            "plan_name": ["Acme A", "Acme A (ES)", "Acme B", "Acme B (ES)"],
+        }
+    )
+
+
+def test_filter_plans_language_default_excludes_spanish_duplicates():
+    df = _bilingual_df()
+    filtered = ptc.filter_plans(df, tdu=None)  # language defaults to "English"
+    assert len(filtered) == 2
+    assert set(filtered["plan_name"]) == {"Acme A", "Acme B"}
+
+
+def test_filter_plans_language_none_disables_filter():
+    df = _bilingual_df()
+    filtered = ptc.filter_plans(df, tdu=None, language=None)
+    assert len(filtered) == 4
+
+
+def test_filter_plans_language_column_absent_is_backward_compatible():
+    # FIXTURE has no "language" column at all -- the new default filter must
+    # be silently skipped, exactly like every other filter referencing an
+    # absent column, so this matches the pre-existing behavior/row count.
+    df = ptc.load_ptc(FIXTURE)
+    filtered = ptc.filter_plans(df)
+    assert len(filtered) == 6
+
+
+def test_load_ptc_normalizes_language_column_alias(tmp_path: Path):
+    df = pd.DataFrame(
+        {
+            "idKey": [1, 2],
+            "TduCompanyName": ["ONCOR", "ONCOR"],
+            "RepCompany": ["Acme", "Acme"],
+            "Product": ["Acme A", "Acme A (ES)"],
+            "Language": ["English", "Spanish"],
+        }
+    )
+    tmp_csv = tmp_path / "bilingual.csv"
+    df.to_csv(tmp_csv, index=False)
+
+    out = ptc.load_ptc(tmp_csv)
+    assert "language" in out.columns
+    assert set(out["language"]) == {"English", "Spanish"}
+
+
+# --------------------------------------------------------------------------- #
+# Issue: "Download EFLs" gave no feedback until the whole batch finished.
+# --------------------------------------------------------------------------- #
+def test_download_efls_progress_callback_called_per_item(tmp_path, monkeypatch):
+    df = ptc.load_ptc(FIXTURE).head(3)
+
+    class _FakeResponse:
+        def __init__(self, content: bytes):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            return _FakeResponse(b"%PDF-1.4 fake efl content")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+
+    calls: list[tuple[int, int, str]] = []
+    summary = ptc.download_efls(
+        df,
+        dest=tmp_path / "efl",
+        progress_callback=lambda done, total, name: calls.append((done, total, name)),
+    )
+
+    assert len(summary["downloaded"]) == 3
+    assert len(calls) == 3
+    assert [c[0] for c in calls] == [1, 2, 3]
+    assert all(c[1] == 3 for c in calls)
+    assert all(isinstance(c[2], str) and c[2] for c in calls)
+
+
+def test_download_efls_progress_callback_counts_skipped_and_failed(tmp_path, monkeypatch):
+    df = ptc.load_ptc(FIXTURE).head(2)
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+
+    calls = []
+    summary = ptc.download_efls(
+        df,
+        dest=tmp_path / "efl",
+        progress_callback=lambda done, total, name: calls.append((done, total, name)),
+    )
+    assert len(summary["failed"]) == 2
+    assert len(calls) == 2
+    assert calls[-1][0] == 2
+
+
+# --------------------------------------------------------------------------- #
+# Issue: downloaded EFLs never entered the plan database. `parse_downloaded_efls`
+# (app/common.py) is the plain, testable batch helper the Plans page wires to
+# a progress bar; it wraps eflparse.parser per-file so one bad PDF can't abort
+# the batch, and skips PDFs whose derived plan id already has a draft/plan.
+# --------------------------------------------------------------------------- #
+def test_parse_downloaded_efls_batch_parses_skips_and_tolerates_failures(tmp_path, monkeypatch):
+    drafts_dir = tmp_path / "drafts"
+    plans_dir = tmp_path / "plans"
+    plans_dir.mkdir()
+
+    pdf_a = tmp_path / "a.pdf"
+    pdf_b = tmp_path / "b.pdf"
+    pdf_bad = tmp_path / "bad.pdf"
+    for p in (pdf_a, pdf_b, pdf_bad):
+        p.write_bytes(b"dummy pdf bytes")
+
+    def fake_parse_efl(path: Path) -> eflparser.DraftPlan:
+        path = Path(path)
+        if path.name == "bad.pdf":
+            raise ValueError("corrupt/unreadable PDF")
+        plan_id = path.stem
+        return eflparser.DraftPlan(
+            plan_dict={
+                "id": plan_id,
+                "retailer": "Acme",
+                "name": plan_id,
+                "term_months": 12,
+                "base_charge_usd": 4.95,
+                "energy_rates": [{"rate_ckwh": 12.0}],
+                "buyback": {"kind": "none"},
+                "needs_review": False,
+            },
+            confidence={"energy_charge": 0.9, "base_charge": 0.95},
+            evidence={"energy_charge": "12.0 cents per kWh"},
+            unparsed_notes=[],
+        )
+
+    monkeypatch.setattr(eflparser, "parse_efl", fake_parse_efl)
+
+    calls: list[tuple[int, int, str]] = []
+    summary = app_common.parse_downloaded_efls(
+        [pdf_a, pdf_b, pdf_bad],
+        drafts_dir=drafts_dir,
+        plans_dir=plans_dir,
+        progress_callback=lambda done, total, name: calls.append((done, total, name)),
+    )
+
+    assert sorted(summary["parsed"]) == ["a", "b"]
+    assert summary["skipped"] == []
+    assert len(summary["failed"]) == 1
+    assert summary["failed"][0]["file"] == "bad.pdf"
+    assert len(calls) == 3
+    assert (drafts_dir / "a.yaml").exists()
+    assert (drafts_dir / "b.yaml").exists()
+
+    # Re-running over the same (now-parsed) PDFs must skip, not re-save.
+    summary2 = app_common.parse_downloaded_efls(
+        [pdf_a, pdf_b], drafts_dir=drafts_dir, plans_dir=plans_dir
+    )
+    assert summary2["parsed"] == []
+    assert set(summary2["skipped"]) == {"a.pdf", "b.pdf"}
+
+
+def test_parse_downloaded_efls_skips_pdfs_already_promoted(tmp_path, monkeypatch):
+    drafts_dir = tmp_path / "drafts"
+    plans_dir = tmp_path / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "already_promoted.yaml").write_text("id: already_promoted\n")
+
+    pdf = tmp_path / "already_promoted.pdf"
+    pdf.write_bytes(b"dummy")
+
+    def fake_parse_efl(path: Path) -> eflparser.DraftPlan:
+        return eflparser.DraftPlan(plan_dict={"id": "already_promoted"})
+
+    monkeypatch.setattr(eflparser, "parse_efl", fake_parse_efl)
+
+    summary = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
+    assert summary["parsed"] == []
+    assert summary["skipped"] == ["already_promoted.pdf"]
+    assert not drafts_dir.exists() or not any(drafts_dir.glob("*.yaml"))

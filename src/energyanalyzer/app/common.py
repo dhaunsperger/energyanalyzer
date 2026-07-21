@@ -11,7 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 import streamlit as st
@@ -98,6 +98,103 @@ def get_draft_plans() -> list[Path]:
     if not DRAFTS_DIR.exists():
         return []
     return sorted(DRAFTS_DIR.glob("*.yaml"))
+
+
+def load_draft_raw(path: Path) -> dict:
+    """Load a draft YAML as a plain dict (NOT `Plan.model_validate`-ed --
+    drafts are allowed to be incomplete/invalid until promoted). May carry a
+    `_parse` sub-key (confidence/evidence/unparsed_notes) if it came from
+    `eflparse.parser.save_draft`; plain plan-shaped drafts saved via the
+    Add/Edit form won't have one.
+    """
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def draft_energy_rate_summary(plan_dict: dict) -> str:
+    """One-line human summary of a draft/plan dict's `energy_rates` list, for
+    the drafts overview table."""
+    rates = plan_dict.get("energy_rates") or []
+    if not rates:
+        return "-"
+    parts = []
+    for r in rates:
+        if not isinstance(r, dict):
+            continue
+        if r.get("rate_ckwh") is not None:
+            parts.append(f"{r['rate_ckwh']:g}c/kWh")
+        elif r.get("rtw"):
+            parts.append("RTW-indexed")
+        else:
+            parts.append("?")
+    label = " / ".join(parts) if parts else "?"
+    return f"{label} ({len(rates)} rate{'s' if len(rates) != 1 else ''})"
+
+
+def draft_summary_row(path: Path) -> dict:
+    """One flattened row for the Draft plans overview table (ARCHITECTURE.md §9)."""
+    raw = load_draft_raw(path)
+    parse_meta = raw.get("_parse") or {}
+    confidence = parse_meta.get("confidence") or {}
+    min_confidence = min(confidence.values()) if confidence else None
+    return {
+        "file": path.name,
+        "id": raw.get("id", path.stem),
+        "Retailer": raw.get("retailer", ""),
+        "Plan": raw.get("name", ""),
+        "Term (mo)": raw.get("term_months", ""),
+        "Energy rate": draft_energy_rate_summary(raw),
+        "Min confidence": f"{min_confidence:.2f}" if min_confidence is not None else "-",
+        "Needs Review": "⚠️" if raw.get("needs_review") else "",
+    }
+
+
+def parse_downloaded_efls(
+    pdf_paths: list[Path],
+    drafts_dir: Path = DRAFTS_DIR,
+    plans_dir: Path = PLANS_DIR,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Batch-parse EFL PDFs into draft plan YAMLs (ARCHITECTURE.md §8/§9).
+
+    For each PDF, runs `eflparse.parser.parse_efl` (static, no network/LLM)
+    to determine its plan id, then `eflparse.parser.save_draft` -- unless a
+    draft or promoted plan with that id already exists, in which case it's
+    counted as `skipped` rather than re-saved (this is the "already parsed"
+    tracking: identity is the derived draft filename, `<id>.yaml`). Each
+    PDF is parsed inside its own try/except so a single corrupt/unreadable
+    file cannot abort the batch -- such files are collected in `failed`.
+
+    If `progress_callback` is given, it's called after every file as
+    `progress_callback(done_count, total, current_filename)`.
+
+    Returns `{'parsed': [plan_id, ...], 'skipped': [filename, ...],
+    'failed': [{'file': filename, 'error': str}, ...]}`.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl, save_draft
+
+    drafts_dir = Path(drafts_dir)
+    plans_dir = Path(plans_dir)
+    total = len(pdf_paths)
+    summary: dict = {"parsed": [], "skipped": [], "failed": []}
+
+    for i, pdf_path in enumerate(pdf_paths, start=1):
+        pdf_path = Path(pdf_path)
+        try:
+            draft = parse_efl(pdf_path)
+            plan_id = draft.plan_dict.get("id")
+            already = (drafts_dir / f"{plan_id}.yaml").exists() or (plans_dir / f"{plan_id}.yaml").exists()
+            if already:
+                summary["skipped"].append(pdf_path.name)
+            else:
+                save_draft(draft, drafts_dir=drafts_dir)
+                summary["parsed"].append(plan_id)
+        except Exception as exc:  # noqa: BLE001 -- a bad PDF must not abort the batch
+            summary["failed"].append({"file": pdf_path.name, "error": repr(exc)})
+        if progress_callback is not None:
+            progress_callback(i, total, pdf_path.name)
+
+    return summary
 
 
 # --------------------------------------------------------------------------- #

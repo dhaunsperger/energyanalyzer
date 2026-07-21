@@ -153,6 +153,8 @@ class Plan(BaseModel):
     rate_type: Literal["fixed", "variable", "indexed"] = "fixed"
     renewable_pct: Optional[float] = None
     source: str = "manual"  # manual | efl:<file> | ptc | report-2026-07
+    retrieved: Optional[dt.date] = None  # when the rate data was obtained;
+    #   stamped by the EFL parse/promote flow, used for staleness badges
     efl_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False

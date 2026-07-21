@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 
@@ -33,6 +33,7 @@ _USER_AGENT = (
 _COLUMN_ALIASES: dict[str, list[str]] = {
     "plan_id": ["idKey", "PlanId", "PlanID", "Id"],
     "tdu": ["TduCompanyName", "TDU", "TDSP", "UtilityName", "Utility"],
+    "language": ["Language", "PlanLanguage", "Lang"],
     "retailer": ["RepCompany", "CompanyName", "Company", "ProviderName", "REP"],
     "plan_name": ["Product", "PlanName", "Plan"],
     "term_months": ["Term", "TermMonths", "ContractTerm", "Terms"],
@@ -57,6 +58,7 @@ _TIDY_ORDER = [
     "retailer",
     "plan_name",
     "tdu",
+    "language",
     "term_months",
     "rate_type",
     "kwh500",
@@ -132,7 +134,7 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
         fixed_bool = _to_bool(out["fixed_flag"])
         out["rate_type"] = fixed_bool.map({True: "fixed", False: "variable"})
 
-    for col in ("retailer", "plan_name", "tdu", "efl_url", "enroll_url", "website"):
+    for col in ("retailer", "plan_name", "tdu", "language", "efl_url", "enroll_url", "website"):
         if col in out.columns:
             out[col] = out[col].astype(str).str.strip().replace({"nan": None, "": None})
 
@@ -228,13 +230,19 @@ def filter_plans(
     max_term_months: Optional[int] = None,
     min_renewable_pct: Optional[float] = None,
     retailer: Optional[str] = None,
+    language: Optional[str] = "English",
 ) -> pd.DataFrame:
     """Filter a tidy PTC DataFrame (as returned by `load_ptc`) by common criteria.
 
     All filters are optional and combined with AND; string filters
-    (`tdu`, `rate_type`, `retailer`) are case-insensitive substring matches.
-    Filters referencing columns absent from `df` are silently skipped so
-    this stays usable even against partially-recognized exports.
+    (`tdu`, `rate_type`, `retailer`, `language`) are case-insensitive substring
+    matches. Filters referencing columns absent from `df` are silently
+    skipped so this stays usable even against partially-recognized exports.
+
+    `language` defaults to `"English"`: the statewide PTC export includes a
+    Spanish-language duplicate row for most plans (same plan, translated
+    fields), which otherwise roughly doubles the apparent row count. Pass
+    `language=None` to disable this filter and see every row.
     """
     out = df
 
@@ -243,6 +251,8 @@ def filter_plans(
 
     if tdu is not None and "tdu" in out.columns:
         out = out[_contains("tdu", tdu)]
+    if language is not None and "language" in out.columns:
+        out = out[_contains("language", language)]
     if retailer is not None and "retailer" in out.columns:
         out = out[_contains("retailer", retailer)]
     if rate_type is not None and "rate_type" in out.columns:
@@ -279,6 +289,7 @@ def download_efls(
     dest: Path = Path("data/efl"),
     limit: Optional[int] = None,
     timeout: float = 30.0,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict:
     """Download each plan's EFL PDF (`efl_url` column) into `dest`.
 
@@ -287,6 +298,12 @@ def download_efls(
     hosts vary in reliability and this is meant to run unattended against a
     few hundred plans. Returns a summary dict with 'downloaded', 'skipped',
     and 'failed' lists.
+
+    If `progress_callback` is given, it is called after *every* row is
+    processed (downloaded, skipped, failed, or missing a URL) as
+    `progress_callback(done_count, total, current_name)`, so a caller (e.g.
+    the Streamlit Plans page) can drive a progress bar/status line instead
+    of leaving the user with no feedback until the whole batch finishes.
     """
     import httpx
 
@@ -303,15 +320,26 @@ def download_efls(
 
     summary: dict = {"downloaded": [], "skipped": [], "failed": []}
     headers = {"User-Agent": _USER_AGENT, "Accept": "application/pdf,*/*"}
+    total = len(rows)
+    done = 0
+
+    def _report(name: str) -> None:
+        nonlocal done
+        done += 1
+        if progress_callback is not None:
+            progress_callback(done, total, name)
 
     with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
         for _, row in rows.iterrows():
+            name = str(row.get("plan_name") or row.get("retailer") or _efl_filename(row))
             url = str(row["efl_url"]).strip()
             if not url or url.lower() in ("nan", "none"):
+                _report(name)
                 continue
             dest_path = dest / _efl_filename(row)
             if dest_path.exists():
                 summary["skipped"].append(str(dest_path))
+                _report(name)
                 continue
             try:
                 resp = client.get(url)
@@ -320,5 +348,6 @@ def download_efls(
                 summary["downloaded"].append(str(dest_path))
             except Exception as exc:
                 summary["failed"].append({"url": url, "error": repr(exc)})
+            _report(name)
 
     return summary
