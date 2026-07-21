@@ -833,13 +833,82 @@ class TestCorpusThinkEnergyThinkClean24:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusSfeRewardsPlus12:
+    """SFE RewardsPlus 12 (12mo fixed, Oncor): average-price-table style base
+    charge row, e.g. 'Base Charge($ per month) $ 0.00' -- label and value
+    share one line with a parenthetical unit descriptor in between."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("sfe_rewardsplus_12.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(6.67)
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_needs_review(self, draft):
+        assert draft.plan_dict["needs_review"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusChariotChoice24:
+    """Chariot Choice 24 (24mo fixed, Oncor): brand-prefixed table explicitly
+    states 'Chariot Energy Base Monthly Charge N/A per billing cycle' --
+    an unambiguous statement of no base charge, not a missing value."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("chariot_choice_24.txt")
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(0.0)
+
+    def test_base_charge_confidence_high(self, draft):
+        # explicit "N/A" statement, not a silent default-to-zero
+        assert draft.confidence["base_charge"] >= 0.8
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusNecCoopPlainAndSimple:
+    """NEC Co-op Energy Plain and Simple: pricing given as a 'Charge details
+    | Base Charge | Per kWh Charge' table with one row per provider, e.g.
+    'NEC Co-op Energy $7.50 9.94c' / 'Delivery Costs - Oncor $4.06
+    6.1196c' -- base charge ($) then per-kWh rate (c), retailer row first."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("nec_coop_plain_and_simple.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(9.94)
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(7.50)
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 15
+    assert len(real_files) == 18
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)

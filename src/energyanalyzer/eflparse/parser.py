@@ -106,12 +106,20 @@ def extract_text(pdf_path: str | Path) -> str:
             # Fall through to the pdftotext subprocess fallback below.
             pass
 
-    result = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["pdftotext", "-layout", str(pdf_path), "-"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"{pdf_path.name}: not a readable PDF (pdfplumber failed) and the "
+            "pdftotext fallback (poppler-utils) is not installed"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(f"{pdf_path.name}: not a readable PDF ({exc})") from exc
     return result.stdout
 
 
@@ -260,6 +268,110 @@ def _first_match(
 
 
 # --------------------------------------------------------------------------- #
+# Header-block scan: retailer name + plan name.
+#
+# Real-corpus finding: almost none of these EFLs use an explicit "Retailer
+# Name:"/"Plan Name:" label -- instead the PUCT-mandated template puts the
+# retailer on the line right after the "Electricity Facts Label" heading
+# (or inline with it, separated by "|"/"•") and the plan name on the
+# line after that, e.g.:
+#   "Electricity Facts Label | BKV Energy\nDaisy 12 - Fixed Rate ... Plan\n"
+#   "Electricity Facts Label\nBudget Power\nNo Gimmicks 12 - Oncor\n"
+# `pdftotext -layout` on multi-column EFLs (contact-info sidebar next to the
+# header block) interleaves noise lines ("P: 555-555-5555", "E: x@y.com",
+# taglines, dates, bare TDU names) between the two real lines we want, so we
+# scan several lines and skip anything that looks like that noise.
+# --------------------------------------------------------------------------- #
+_EFL_HEADING = re.compile(r"Electricity\s*Facts\s*Label\b(?:[\s\-|•]*\(?EFL\)?)?", re.I)
+
+_HEADER_LEADING_JUNK = re.compile(
+    r"^(?:Residential\s*Service\s*(?:⇒|=>|->|-)\s*|By\s*Phone:?\s*[\d.\-() ]{5,20}\s*)",
+    re.I,
+)
+_HEADER_TRAILING_JUNK = re.compile(
+    r"\s*[•,]?\s*(?:PUCT?|REP)\s*(?:Cert(?:ification)?\.?)?\s*#?\s*[\dA-Za-z]+\s*$"
+    r"|\s*DATE\s*\d{1,2}/\d{1,2}/\d{2,4}\s*$",
+    re.I,
+)
+_HEADER_CONTACT_PREFIX = re.compile(r"^[A-Za-z]{1,2}:\s")
+_HEADER_TAGLINE = re.compile(r"^(?:We[’']re Here To Help!?|Adding Header)\s*$", re.I)
+_HEADER_DATE_LINE = re.compile(
+    r"^(?:Date:?\s*)?\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$"
+    r"|^[A-Za-z]+\.?\s+\d{1,2},?\s+\d{4}$"
+    r"|^\d{1,2}-[A-Za-z]+-\d{4}$",
+    re.I,
+)
+_HEADER_EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+_HEADER_URL = re.compile(r"https?://|www\.|\.com\b", re.I)
+_HEADER_TDU_ONLY_LINE = re.compile(
+    r"^(?:Oncor|CenterPoint(?:\s*Energy)?|AEP\s*Texas(?:\s*(?:Central|North))?|TNMP)"
+    r"(?:\s+Electric(?:\s+Delivery)?)?(?:\s+service\s*area)?\.?$",
+    re.I,
+)
+
+
+def _header_line_or_none(raw: str) -> Optional[str]:
+    """Strip known leading junk from a candidate header line, then return it
+    unless what's left is itself just noise (contact info, a tagline, a bare
+    date, an email/URL, or a bare TDU name)."""
+    s = _HEADER_LEADING_JUNK.sub("", raw).strip()
+    if not s:
+        return None
+    if (
+        _HEADER_CONTACT_PREFIX.match(s)
+        or _HEADER_TAGLINE.match(s)
+        or _HEADER_DATE_LINE.match(s)
+        or _HEADER_EMAIL.search(s)
+        or _HEADER_URL.search(s)
+        or _HEADER_TDU_ONLY_LINE.match(s)
+        or s in ("®", "™")
+    ):
+        return None
+    return s
+
+
+def _clean_header_field(s: str) -> str:
+    s = re.sub(r"[®™]", "", s)
+    s = _HEADER_TRAILING_JUNK.sub("", s)
+    return _clean_name(s)
+
+
+def _scan_efl_header(text: str) -> tuple[Optional[str], Optional[str], str, str]:
+    """Find the retailer name and plan name from the two lines following the
+    'Electricity Facts Label' heading, tolerating an inline retailer
+    ("... Label | Retailer") and skipping interleaved contact-info noise.
+    Returns (retailer_or_None, plan_name_or_None, retailer_evidence,
+    plan_evidence)."""
+    m = _EFL_HEADING.search(text)
+    if not m:
+        return None, None, "", ""
+
+    first_line_tail, _, after = text[m.end() :].partition("\n")
+    found: list[str] = []
+    inline_m = re.match(r"\s*[|•]\s*(.+)", first_line_tail)
+    if inline_m:
+        line = _header_line_or_none(inline_m.group(1))
+        if line:
+            found.append(line)
+        lines = after.split("\n")
+    else:
+        lines = (first_line_tail + "\n" + after).split("\n")
+
+    for raw in lines[:12]:
+        if len(found) >= 2:
+            break
+        line = _header_line_or_none(raw)
+        if line:
+            found.append(line)
+
+    retailer = _clean_header_field(found[0]) if len(found) >= 1 else None
+    plan_name = _clean_header_field(found[1]) if len(found) >= 2 else None
+    ev_r = _snippet_text(found[0]) if len(found) >= 1 else ""
+    ev_p = _snippet_text(found[1]) if len(found) >= 2 else ""
+    return retailer or None, plan_name or None, ev_r, ev_p
+
+
+# --------------------------------------------------------------------------- #
 # Field extractors
 # --------------------------------------------------------------------------- #
 def _extract_retailer(text: str) -> Optional[Extraction]:
@@ -278,16 +390,14 @@ def _extract_retailer(text: str) -> Optional[Extraction]:
             0.8,
             lambda m: _clean_name(m.group(1)),
         ),
-        (
-            re.compile(
-                r"Electricity Facts Label[^\n]*\n+\s*([A-Z][A-Za-z0-9&.' \-]{2,55})",
-                re.M,
-            ),
-            0.6,
-            lambda m: _clean_name(m.group(1)),
-        ),
     ]
-    return _first_match(text, patterns)
+    result = _first_match(text, patterns)
+    if result is not None:
+        return result
+    retailer, _plan_name, ev_r, _ev_p = _scan_efl_header(text)
+    if retailer:
+        return retailer, 0.75, ev_r
+    return None
 
 
 def _extract_plan_name(text: str) -> Optional[Extraction]:
@@ -303,7 +413,13 @@ def _extract_plan_name(text: str) -> Optional[Extraction]:
             lambda m: _clean_name(m.group(1)),
         ),
     ]
-    return _first_match(text, patterns)
+    result = _first_match(text, patterns)
+    if result is not None:
+        return result
+    _retailer, plan_name, _ev_r, ev_p = _scan_efl_header(text)
+    if plan_name:
+        return plan_name, 0.7, ev_p
+    return None
 
 
 def _extract_term_months(text: str) -> Optional[Extraction]:
@@ -372,9 +488,22 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
             lambda m: 0.0,
         ),
         (
+            # Brand-prefixed table style explicitly stating no base charge, e.g.
+            # "Chariot Energy Base Monthly Charge N/A per billing cycle"
+            re.compile(r"Base\s*(?:Monthly\s*)?Charge\s*N/?A\b", re.I),
+            0.85,
+            lambda m: 0.0,
+        ),
+        (
             # Numbered-list style with reversed unit/value order, e.g.
             # "2) Base Charge ($) per month: $0.00"
             re.compile(r"Base\s*Charge\s*\(\$\)\s*per\s*month\s*:?\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
+            0.85,
+            lambda m: float(m.group(1)),
+        ),
+        (
+            # Average-price-table row style, e.g. "Base Charge($ per month) $ 0.00"
+            re.compile(r"Base\s*Charge\s*\([^)]*\)\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
             0.85,
             lambda m: float(m.group(1)),
         ),
@@ -741,6 +870,59 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
     return monthly, 0.65, _snippet(m)
 
 
+def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
+    """Some EFLs (e.g. TXU) split the 'Energy Charge' header from its value
+    across lines in a flattened table -- the header line has no inline
+    number, and the rate instead appears on a following 'All kWh <rate>c'
+    row."""
+    m = re.search(r"\bAll\s*kWh\s*(\d+(?:\.\d+)?)\s*¢", text, re.I)
+    if m:
+        return float(m.group(1)), 0.75, _snippet(m)
+    return None
+
+
+_SPLIT_CHARGE_ROW = re.compile(
+    r"(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)"
+)
+
+
+def _extract_split_energy_base_row(text: str) -> Optional[tuple[float, float, str]]:
+    """Some EFLs (e.g. Champion Energy) render Energy/Base/TDU charges as a
+    4-column table whose headers sit 2-3 lines above a single data row, e.g.:
+    'Energy Charge ... Base Charge ... per kWh per month\\n6.4c/kWh $0.00
+    6.1196c/kWh $4.06' -- energy rate, base charge, TDU rate, TDU monthly in
+    that column order. Returns (energy_ckwh, base_usd, evidence) only when
+    both 'Energy Charge' and 'Base Charge' labels appear just above the row,
+    to avoid matching an unrelated 4-number line."""
+    for m in _SPLIT_CHARGE_ROW.finditer(text):
+        context = text[max(0, m.start() - 200) : m.start()]
+        if re.search(r"Energy\s*Charge", context, re.I) and re.search(r"Base\s*Charge", context, re.I):
+            return float(m.group(1)), float(m.group(2)), _snippet(m)
+    return None
+
+
+_BASE_THEN_KWH_HEADER = re.compile(r"Base\s*Charge\s+Per\s*kWh\s*Charge", re.I)
+_BASE_THEN_KWH_ROW = re.compile(r"^(.{0,40}?)\$(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*¢", re.M)
+
+
+def _extract_base_then_kwh_row(text: str) -> Optional[tuple[float, float, str]]:
+    """Some EFLs (e.g. NEC Co-op Energy) render pricing as a 'Charge details
+    | Base Charge | Per kWh Charge' table with one labeled row per provider,
+    e.g. 'NEC Co-op Energy $7.50 9.94c' / 'Delivery Costs - Oncor $4.06
+    6.1196c' -- base charge ($) then per-kWh rate (c), in that column order.
+    Returns (energy_ckwh, base_usd, evidence) for the first row whose label
+    isn't the TDU/delivery row."""
+    header = _BASE_THEN_KWH_HEADER.search(text)
+    if not header:
+        return None
+    for m in _BASE_THEN_KWH_ROW.finditer(text, header.end()):
+        label = m.group(1).strip(" \t-")
+        if not label or re.search(_TDU_MARK + r"|Delivery", label, re.I):
+            continue
+        return float(m.group(3)), float(m.group(2)), _snippet(m)
+    return None
+
+
 def _extract_variable_rate(text: str) -> Optional[Extraction]:
     """Variable/prepaid plans without a labeled 'Energy Charge' line often
     state the rate in prose, e.g. 'included in variable rate of 17.9 cents'."""
@@ -880,6 +1062,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     free_win = _extract_free_window(text)
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
+    split_base_charge: Optional[float] = None
 
     brand_rows: Optional[list[dict]] = None
     if not tou_rows:
@@ -960,12 +1143,19 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             evidence["energy_charge"] = flat_candidates[0][2]
         else:
             # Layered fallbacks, most-specific first: (a) prose "variable
-            # rate of X cents" statement, (b) generic "<label>Charge ... X
-            # per kWh" table-line scan (handles both corrupted-font
-            # documents where only the literal word "Charge" survives
-            # intact, and brand-prefixed labels like "Chariot Energy Base
-            # Monthly Charge"), (c) a flat repeated avg-price table row.
+            # rate of X cents" statement, (b) a split header/value table row
+            # ("Energy Charge: Per kWh (c)" ... "All kWh 14.0000c" on a
+            # later line), (c) a split 4-column charge row (energy/base/TDU
+            # rate/TDU monthly all on one data row below their headers),
+            # (d) generic "<label>Charge ... X per kWh" table-line scan
+            # (handles both corrupted-font documents where only the literal
+            # word "Charge" survives intact, and brand-prefixed labels like
+            # "Chariot Energy Base Monthly Charge"), (e) a flat repeated
+            # avg-price table row.
             var_ext = _extract_variable_rate(text)
+            all_kwh_ext = _extract_all_kwh_rate(text)
+            split_row = _extract_split_energy_base_row(text)
+            base_kwh_row = _extract_base_then_kwh_row(text)
             generic_kwh_rows = [
                 r for r in _generic_charge_rows(text) if r["kind"] == "kwh" and not r["is_tdu"]
             ]
@@ -975,6 +1165,23 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 confidence["energy_charge"] = conf
                 evidence["energy_charge"] = ev
                 notes.append("energy rate derived from a 'variable rate of X cents' statement")
+            elif all_kwh_ext is not None:
+                flat_ckwh, conf, ev = all_kwh_ext
+                confidence["energy_charge"] = conf
+                evidence["energy_charge"] = ev
+                notes.append("energy rate derived from a split header/value table ('All kWh <rate>' row)")
+            elif split_row is not None:
+                flat_ckwh, split_base_charge, ev = split_row
+                confidence["energy_charge"] = 0.75
+                evidence["energy_charge"] = ev
+                notes.append("energy rate derived from a split 4-column Energy/Base/TDU charge row")
+            elif base_kwh_row is not None:
+                flat_ckwh, split_base_charge, ev = base_kwh_row
+                confidence["energy_charge"] = 0.8
+                evidence["energy_charge"] = ev
+                notes.append(
+                    "energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider row"
+                )
             elif generic_kwh_rows:
                 r = generic_kwh_rows[0]
                 flat_ckwh = r["value"]
@@ -1007,6 +1214,9 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
+    if base_charge is None and split_base_charge is not None:
+        base_charge = record("base_charge", (split_base_charge, 0.75, evidence.get("energy_charge", "")))
+        notes.append("base charge derived from the same split 4-column Energy/Base/TDU charge row")
     if base_charge is None:
         daily_ext = _extract_daily_fee_as_base(text)
         if daily_ext is not None:
