@@ -1,0 +1,47 @@
+id: summer_energy_llc_dba_pronto_power_p_ower_to_choose_1mo
+retailer: Summer Energy LLC dba Pronto Power
+name: P ower To Choose
+term_months: 1
+base_charge_usd: 11.86
+energy_rates:
+- label: ''
+  rate_ckwh: 17.9
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: false
+etf_usd: 50.0
+etf_per_month_remaining: false
+rate_type: variable
+source: efl:PRONTO_POWER_Power_To_Choose.pdf
+notes: energy rate derived from a 'variable rate of X cents' statement; base_charge_usd
+  ($11.86/mo) derived from a per-day customer fee (fee * 365 / 12, rounded to cents);
+  TDU delivery charges appear bundled into the Energy Charge (tdu_passthrough=False)
+needs_review: true
+renewable_pct: 25.0
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.7
+    base_charge: 0.65
+    etf: 0.8
+    renewable_pct: 0.9
+    buyback: 0.95
+  evidence:
+    retailer: Summer Energy LLC dba Pronto Power
+    plan_name: P ower To Choose
+    term_months: Contract Term 1 Month
+    rate_type: Type of Product Variable
+    energy_charge: variable rate of 17.9 cents
+    base_charge: Daily Customer Fee (DCF) $0.39 cents per day
+    etf: termination fee? Yes, $50.00 Can promotional credits be charged back
+    renewable_pct: 'renewable content: 25.0%'
+  unparsed_notes:
+  - energy rate derived from a 'variable rate of X cents' statement
+  - base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365 / 12,
+    rounded to cents)
+  - TDU delivery charges appear bundled into the Energy Charge (tdu_passthrough=False)

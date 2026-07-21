@@ -1,0 +1,51 @@
+id: unknown_retailer_unnamed_plan_36mo
+retailer: Unknown Retailer
+name: Unnamed Plan
+term_months: 36
+base_charge_usd: 0.0
+energy_rates:
+- label: ''
+  rate_ckwh: 6.49
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+source: efl:AE_TEXAS_Smart_Secure_36.pdf
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan; base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
+needs_review: true
+_parse:
+  confidence:
+    retailer: 0.0
+    plan_name: 0.0
+    term_months: 0.95
+    rate_type: 0.0
+    energy_charge: 0.6
+    base_charge: 0.6
+    tdu_ckwh: 0.6
+    tdu_monthly: 0.6
+    etf: 0.9
+    renewable_pct: 0.0
+    avg_price_500_ckwh: 0.7
+    avg_price_1000_ckwh: 0.7
+    avg_price_2000_ckwh: 0.7
+    buyback: 0.95
+  evidence:
+    term_months: Contract Term 36 Month
+    energy_charge: nerg Charge $0.0649 per kWh
+    base_charge: ae Charge $0.00 per illing ccle
+    tdu_ckwh: TDU Deliver Charge $0.061196 per kWh
+    tdu_monthly: TDU Deliver Charge $4.23 per illing ccle
+    etf: termination fee or an fee aociated Ye, A Texa ill ae a termination
+      fee of $20.00 ith terminating ervice? per month rem
+    avg_price_500_ckwh: 13.5c/kWh (from average-price table)
+    avg_price_1000_ckwh: 13.0c/kWh (from average-price table)
+    avg_price_2000_ckwh: 12.8c/kWh (from average-price table)
+  unparsed_notes:
+  - energy rate derived from a generic '<label> Charge ... per kWh' table-line scan
+  - base charge derived from a generic '<label> Charge ... per month' table-line scan

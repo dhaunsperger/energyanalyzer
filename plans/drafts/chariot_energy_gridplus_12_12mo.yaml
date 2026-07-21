@@ -1,0 +1,54 @@
+id: chariot_energy_gridplus_12_12mo
+retailer: Chariot Energy
+name: GridPlus 12
+term_months: 12
+base_charge_usd: 0.0
+energy_rates:
+- label: ''
+  rate_ckwh: 13.22
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 15.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
+notes: base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
+needs_review: true
+renewable_pct: 100.0
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.9
+    base_charge: 0.6
+    tdu_ckwh: 0.85
+    tdu_monthly: 0.9
+    etf: 0.8
+    renewable_pct: 0.9
+    avg_price_500_ckwh: 0.7
+    avg_price_1000_ckwh: 0.7
+    avg_price_2000_ckwh: 0.7
+    buyback: 0.95
+  evidence:
+    retailer: Chariot Energy
+    plan_name: GridPlus 12
+    term_months: Contract Term 12 months
+    rate_type: Type of Product Fixed
+    energy_charge: ': Chariot Energy Energy Charge 13.22¢ per kWh'
+    base_charge: Chariot Energy Base Monthly Charge $0 per billing cycle
+    tdu_ckwh: Oncor Delivery Charges 6.1196¢ per kWh
+    tdu_monthly: Oncor Delivery Charges $4.06 per billing cycle
+    etf: termination fee or any fees Yes, $15.00 multiplied by the number of months
+      rema
+    renewable_pct: product is 100% renewable
+    avg_price_500_ckwh: 20.2c/kWh (from average-price table)
+    avg_price_1000_ckwh: 7.2c/kWh (from average-price table)
+    avg_price_2000_ckwh: 13.3c/kWh (from average-price table)
+  unparsed_notes:
+  - base charge derived from a generic '<label> Charge ... per month' table-line scan

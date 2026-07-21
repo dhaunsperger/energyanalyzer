@@ -1,0 +1,42 @@
+id: ironhorse_power_services_oncor_36_month_ptc_36mo
+retailer: IRONHORSE POWER SERVICES
+name: Oncor 36 Month PTC
+term_months: 36
+base_charge_usd: 0.0
+energy_rates:
+- label: ''
+  rate_ckwh: 7.8076
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_36.pdf
+notes: ''
+needs_review: false
+renewable_pct: 5.85
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.9
+    base_charge: 0.85
+    tdu_ckwh: 0.85
+    etf: 0.0
+    renewable_pct: 0.9
+    buyback: 0.95
+  evidence:
+    retailer: IRONHORSE POWER SERVICES
+    plan_name: Oncor 36 Month PTC
+    term_months: Contract Term 36 months
+    rate_type: Type of Product Fixed
+    energy_charge: ': Energy Rate: 7.8076¢/kWh'
+    base_charge: 'Base Charge per month: $0.00'
+    tdu_ckwh: 'Oncor Delivery Charges: 6.1196¢/kWh'
+    renewable_pct: product is 5.85% renewable
+  unparsed_notes: []

@@ -1,0 +1,49 @@
+id: abundance_energy_fixed_rate_confident_renter_12_12mo
+retailer: Abundance Energy
+name: Fixed Rate – Confident Renter 12
+term_months: 12
+base_charge_usd: 0.0
+energy_rates:
+- label: ''
+  rate_ckwh: 6.22
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 200.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:Abundance_Energy_Confident_Renter_12.pdf
+notes: ''
+needs_review: false
+renewable_pct: 25.5
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.9
+    base_charge: 0.95
+    etf: 0.8
+    renewable_pct: 0.9
+    avg_price_500_ckwh: 0.7
+    avg_price_1000_ckwh: 0.7
+    avg_price_2000_ckwh: 0.7
+    buyback: 0.85
+  evidence:
+    retailer: Abundance Energy
+    plan_name: Fixed Rate – Confident Renter 12
+    term_months: Contract Term 12 Months
+    rate_type: Type of Product Fixed
+    energy_charge: Energy Charge 6.22¢ Per kWh (¢)
+    base_charge: Base Charge $0.00 Per Billing Cycle
+    etf: termination fee or any fees Yes. A termination fee of $200. This fee will
+      not apply associated wit
+    renewable_pct: Renewable Content 25.5%
+    avg_price_500_ckwh: 13.2c/kWh (from average-price table)
+    avg_price_1000_ckwh: 12.7c/kWh (from average-price table)
+    avg_price_2000_ckwh: 12.5c/kWh (from average-price table)
+    buyback: solar buyback plans.
+  unparsed_notes: []

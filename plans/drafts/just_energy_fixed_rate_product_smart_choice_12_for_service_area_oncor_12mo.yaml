@@ -1,0 +1,50 @@
+id: just_energy_fixed_rate_product_smart_choice_12_for_service_area_oncor_12mo
+retailer: 'Just Energy - Fixed Rate Product: Smart Choice - 12'
+name: 'For Service Area: Oncor'
+term_months: 12
+base_charge_usd: 0.0
+energy_rates:
+- label: ''
+  rate_ckwh: 17.0
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:JUST_ENERGY_Smart_Choice_-_12.pdf
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+renewable_pct: 22.0
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.9
+    base_charge: 0.8
+    tdu_ckwh: 0.85
+    tdu_monthly: 0.85
+    etf: 0.8
+    renewable_pct: 0.9
+    buyback: 0.95
+  evidence:
+    retailer: 'Just Energy - Fixed Rate Product: Smart Choice - 12'
+    plan_name: 'For Service Area: Oncor'
+    term_months: Contract Term 12 Months
+    rate_type: Type of Product Fixed
+    energy_charge: ': • Energy Charge: 17¢/kWh'
+    base_charge: 'following components of the price: • Energy Charge: 17¢/kWh / The
+      average price per kWh does not include JustGreen charge.'
+    tdu_ckwh: 'TDSP Distribution Charge: 6.1196¢/kWh'
+    tdu_monthly: 'TDSP Customer Charge: $4.06 per month'
+    etf: termination fee or any fees associated Yes; The Exit fee is $175 per ESIID.
+      with terminating service? Ca
+    renewable_pct: Renewable Content 22%
+  unparsed_notes:
+  - 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+    charge line'

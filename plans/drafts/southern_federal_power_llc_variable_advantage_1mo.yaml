@@ -1,0 +1,42 @@
+id: southern_federal_power_llc_variable_advantage_1mo
+retailer: Southern Federal Power, LLC
+name: Variable Advantage
+term_months: 1
+base_charge_usd: 4.95
+energy_rates:
+- label: ''
+  rate_ckwh: 5.1289
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+rate_type: variable
+source: efl:SOUTHERN_FEDERAL_POWER_LLC_Variable_Advantage.pdf
+notes: ''
+needs_review: false
+renewable_pct: 6.0
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.9
+    rate_type: 0.9
+    energy_charge: 0.9
+    base_charge: 0.95
+    etf: 0.8
+    renewable_pct: 0.9
+    buyback: 0.95
+  evidence:
+    retailer: Southern Federal Power, LLC
+    plan_name: Variable Advantage
+    term_months: Month to Month
+    rate_type: 'Type of Product: Variable'
+    energy_charge: ': Energy Charge: $ 0.051289 per kWh'
+    base_charge: 'Base Charge: $ 4.95 per month'
+    etf: early termination fee or any fees associated with No. $0.00 terminating services?
+      Where can I find
+    renewable_pct: 'renewable content: 6%'
+  unparsed_notes: []

@@ -1,0 +1,50 @@
+id: txu_energy_retail_company_llc_txu_energy_smart_1000_select_12sm_12mo
+retailer: TXU Energy Retail Company LLC
+name: TXU Energy Smart 1000 Select 12SM
+term_months: 12
+base_charge_usd: 9.95
+energy_rates:
+- label: ''
+  rate_ckwh: 14.0
+  window: null
+buyback:
+  kind: none
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:TXU_ENERGY_Smart_1000_Select_12.pdf
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: true
+renewable_pct: 3.0
+_parse:
+  confidence:
+    retailer: 0.75
+    plan_name: 0.7
+    term_months: 0.95
+    rate_type: 0.9
+    energy_charge: 0.75
+    base_charge: 0.85
+    etf: 0.8
+    renewable_pct: 0.9
+    avg_price_500_ckwh: 0.7
+    avg_price_1000_ckwh: 0.7
+    avg_price_2000_ckwh: 0.7
+    buyback: 0.85
+  evidence:
+    retailer: TXU Energy Retail Company LLC
+    plan_name: TXU Energy Smart 1000 Select 12SM
+    term_months: Contract Term 12 Months
+    rate_type: Type of Product Fixed
+    energy_charge: All kWh 14.0000¢
+    base_charge: 'Base Charge: Per Month ($) $9.95'
+    etf: 'termination fee or any fees associated Yes Early Cancellation Fee: $150.00
+      with terminating service? Can my price'
+    renewable_pct: product is 3% renewable
+    avg_price_500_ckwh: 22.9c/kWh (from average-price table)
+    avg_price_1000_ckwh: 10.9c/kWh (from average-price table)
+    avg_price_2000_ckwh: 15.5c/kWh (from average-price table)
+    buyback: solar buyback plan, and who have executed an
+  unparsed_notes:
+  - energy rate derived from a split header/value table ('All kWh <rate>' row)
