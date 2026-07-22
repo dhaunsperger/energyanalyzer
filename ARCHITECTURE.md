@@ -131,7 +131,23 @@ Key semantics implementers must honor:
 - **`buyback.kind`**: `none` | `fixed` (flat ¢/kWh) | `rtw` (indexed like
   above) | `windows` (time-of-use export via `rates: list[EnergyRate]`,
   same first-match semantics). "1:1" plans are `fixed` with rate equal to
-  the energy charge.
+  the energy charge. Each kind requires its own nested config or `Plan`
+  validation fails (`assertion_error`, e.g. "rtw buyback needs rtw config"):
+  - `kind: fixed` requires `rate_ckwh: <flat ¢/kWh>`.
+  - `kind: rtw` requires a nested `rtw:` dict — same shape as an
+    `EnergyRate.rtw` above: `{multiplier: 1.0, adder_ckwh: 0.0}` at minimum;
+    add `cap_ckwh: <ceiling ¢/kWh>` if the EFL states one (e.g. "capped at
+    25¢/kWh"), and `floor_ckwh` if it states a floor (rare; default 0.0).
+    Example:
+    ```yaml
+    buyback:
+      kind: rtw
+      rtw: {multiplier: 1.0, adder_ckwh: 0.0, cap_ckwh: 25.0}
+      offset_scope: all_charges
+    ```
+  - `kind: windows` requires `rates: [...]` (list of `EnergyRate`, last one
+    `window: null`).
+  - `kind: none` needs no extra config (the default).
 - **`buyback.offset_scope`**: what monthly charges export credits may offset —
   `energy_only` (the `*`-marked "not offsettable" plans: credits reduce energy
   charges but never base or TDU) or `all_charges` (credits offset the whole
