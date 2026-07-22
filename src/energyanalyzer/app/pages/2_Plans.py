@@ -20,9 +20,12 @@ from energyanalyzer.app.common import (  # noqa: E402
     EFL_DIR,
     METERPLAN_DIR,
     PTC_DIR,
+    commit_and_push_plan_db,
+    default_plan_db_commit_message,
     draft_summary_row,
     get_draft_plans,
     get_plans,
+    git_plan_db_status,
     invalidate_plans_cache,
     load_draft_raw,
     parse_downloaded_efls,
@@ -409,6 +412,42 @@ if refresh_summary is not None:
         st.caption(f"- {note}")
     with st.expander("Full refresh summary"):
         st.json(refresh_summary)
+
+st.divider()
+
+# --------------------------------------------------------------------------- #
+# Plan database sync (plans/*.yaml is the git-versioned database; commit and
+# push from here instead of a terminal)
+# --------------------------------------------------------------------------- #
+st.subheader("Plan database sync")
+st.caption(
+    "plans/*.yaml is the git-versioned plan database (plans/drafts/ is local-only "
+    "scratch space, never committed). Review the changes below, then commit and push."
+)
+db_status = git_plan_db_status()
+if not db_status["changed"]:
+    st.caption("Nothing to commit -- plan database matches the last commit.")
+else:
+    st.caption(f"{len(db_status['changed'])} file(s) changed on branch `{db_status['branch']}`:")
+    with st.expander("Changed files", expanded=True):
+        for c in db_status["changed"]:
+            st.text(f"{c['status']:>2}  {c['path']}")
+    commit_message = st.text_input(
+        "Commit message",
+        value=default_plan_db_commit_message(db_status["changed"]),
+        key="plan_db_commit_msg",
+    )
+    push_confirm = st.checkbox("I've reviewed the changed files above", key="plan_db_push_confirm")
+    if st.button("Commit & push plan database", key="plan_db_commit_btn", disabled=not push_confirm):
+        result = commit_and_push_plan_db(commit_message)
+        if result["error"]:
+            st.error(result["error"])
+        elif result["pushed"]:
+            st.success(f"Committed and pushed to `{db_status['branch']}`.")
+            st.session_state.pop("plan_db_push_confirm", None)
+            st.rerun()
+        else:
+            st.info(result["note"] or "Nothing to commit.")
 
 st.divider()
 

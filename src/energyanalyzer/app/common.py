@@ -11,6 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -541,6 +542,82 @@ def refresh_market_data(
         invalidate_plans_cache()
 
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# Plan database git sync: plans/*.yaml is the git-versioned database
+# (README.md); plans/drafts/ is gitignored scratch space and never touched
+# here. Lets the "commit and push" step happen from the app instead of a
+# terminal. Every git call is scoped to the `plans` pathspec only -- never
+# `-A` / whole-repo -- so this can't accidentally sweep in unrelated changes.
+# --------------------------------------------------------------------------- #
+def _run_git(*args: str, repo_root: Path = REPO_ROOT) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def git_plan_db_status(repo_root: Path = REPO_ROOT) -> dict:
+    """Pending git changes under plans/ (plans/drafts/ is gitignored and so
+    never appears here). Returns `{'branch': str, 'changed': [{'status':
+    'M'|'A'|'D'|'??', 'path': str}, ...]}`."""
+    status = _run_git("status", "--porcelain", "--", "plans", repo_root=repo_root)
+    changed = []
+    for line in status.stdout.splitlines():
+        if not line.strip():
+            continue
+        changed.append({"status": line[:2].strip(), "path": line[3:]})
+    branch = _run_git("rev-parse", "--abbrev-ref", "HEAD", repo_root=repo_root)
+    return {"branch": branch.stdout.strip() or "HEAD", "changed": changed}
+
+
+def default_plan_db_commit_message(changed: list[dict]) -> str:
+    added = sum(1 for c in changed if c["status"] in ("A", "??"))
+    modified = sum(1 for c in changed if c["status"] == "M")
+    deleted = sum(1 for c in changed if c["status"] == "D")
+    parts = []
+    if added:
+        parts.append(f"{added} added")
+    if modified:
+        parts.append(f"{modified} modified")
+    if deleted:
+        parts.append(f"{deleted} deleted")
+    return f"Plan database update: {', '.join(parts) if parts else 'no changes'}"
+
+
+def commit_and_push_plan_db(message: str, repo_root: Path = REPO_ROOT) -> dict:
+    """Stage, commit, and push changes under plans/ only. Never raises --
+    every failure mode (nothing to commit, git identity not configured,
+    push rejected because the remote has commits this checkout doesn't)
+    is reported in the returned dict instead, so the UI can show a clear
+    message rather than a stack trace. Returns `{'committed': bool,
+    'pushed': bool, 'note': str | None, 'error': str | None}`."""
+    add = _run_git("add", "--", "plans", repo_root=repo_root)
+    if add.returncode != 0:
+        return {"committed": False, "pushed": False, "note": None, "error": f"git add failed: {add.stderr.strip()}"}
+
+    staged = _run_git("diff", "--cached", "--quiet", "--", "plans", repo_root=repo_root)
+    if staged.returncode == 0:
+        return {"committed": False, "pushed": False, "note": "Nothing to commit.", "error": None}
+
+    commit = _run_git("commit", "-m", message, "--", "plans", repo_root=repo_root)
+    if commit.returncode != 0:
+        err = commit.stderr.strip() or commit.stdout.strip()
+        return {"committed": False, "pushed": False, "note": None, "error": f"git commit failed: {err}"}
+
+    push = _run_git("push", repo_root=repo_root)
+    if push.returncode != 0:
+        return {
+            "committed": True,
+            "pushed": False,
+            "note": None,
+            "error": f"Committed locally but push failed: {push.stderr.strip()}",
+        }
+
+    return {"committed": True, "pushed": True, "note": None, "error": None}
 
 
 # --------------------------------------------------------------------------- #
