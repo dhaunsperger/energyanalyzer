@@ -9,7 +9,13 @@ energy_rates:
   window: null
 buyback:
   kind: none
-bill_credits: []
+bill_credits:
+- min_kwh: 1000.0
+  max_kwh: null
+  credit_usd: 35.0
+- min_kwh: 2000.0
+  max_kwh: null
+  credit_usd: 15.0
 tdu_passthrough: true
 etf_usd: 0.0
 etf_per_month_remaining: false
@@ -32,6 +38,7 @@ _parse:
     avg_price_500_ckwh: 0.7
     avg_price_1000_ckwh: 0.7
     avg_price_2000_ckwh: 0.7
+    bill_credits: 0.85
     buyback: 0.95
   evidence:
     retailer: Constellation NewEnergy, Inc. (Constellation)
@@ -44,5 +51,6 @@ _parse:
     avg_price_500_ckwh: 19.2c/kWh (from average-price table)
     avg_price_1000_ckwh: 15.3c/kWh (from average-price table)
     avg_price_2000_ckwh: 16.1c/kWh (from average-price table)
+    bill_credits: 2 tier(s) found
   unparsed_notes:
   - base charge not found; defaulting to 0.0
