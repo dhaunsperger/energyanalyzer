@@ -199,6 +199,62 @@ def parse_downloaded_efls(
     return summary
 
 
+def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> pd.DataFrame:
+    """For each row in a PTC DataFrame, check whether its EFL resolved to a
+    downloaded, parseable PDF -- so a human can go check those retailer
+    sites by hand for the ones that didn't.
+
+    Only problem rows are returned (empty DataFrame if everything resolved
+    cleanly). A row is a problem if: the PTC listing has no `efl_url` at
+    all; the expected PDF (same filename convention as
+    `fetchers.ptc.download_efls`/`_efl_filename`) hasn't been downloaded
+    into `efl_dir` yet; or the PDF is there but `eflparse.parser.parse_efl`
+    raised an exception on it (corrupt/unreadable/non-PDF download).
+    Columns: retailer, plan_name, tdu, status, detail, efl_url, enroll_url,
+    website.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl
+    from energyanalyzer.fetchers.ptc import _efl_filename
+
+    efl_dir = Path(efl_dir)
+    rows: list[dict] = []
+    for _, row in ptc_df.iterrows():
+        efl_url = row.get("efl_url")
+        has_url = bool(str(efl_url).strip()) and str(efl_url).strip().lower() not in ("nan", "none")
+        status: Optional[str] = None
+        detail = ""
+        if not has_url:
+            status = "no EFL URL"
+            detail = "PTC listing has no Facts Label link for this plan"
+        else:
+            pdf_path = efl_dir / _efl_filename(row)
+            if not pdf_path.exists():
+                status = "not downloaded"
+                detail = f"expected {pdf_path.name}, not found in {efl_dir}"
+            else:
+                try:
+                    parse_efl(pdf_path)
+                except Exception as exc:  # noqa: BLE001 -- reporting only, not raising
+                    status = "parse failed"
+                    detail = repr(exc)
+        if status is not None:
+            rows.append(
+                {
+                    "retailer": row.get("retailer"),
+                    "plan_name": row.get("plan_name"),
+                    "tdu": row.get("tdu"),
+                    "status": status,
+                    "detail": detail,
+                    "efl_url": efl_url if has_url else None,
+                    "enroll_url": row.get("enroll_url"),
+                    "website": row.get("website"),
+                }
+            )
+    return pd.DataFrame(
+        rows, columns=["retailer", "plan_name", "tdu", "status", "detail", "efl_url", "enroll_url", "website"]
+    )
+
+
 def refresh_market_data(
     plans_dir: Path = PLANS_DIR,
     drafts_dir: Path = DRAFTS_DIR,

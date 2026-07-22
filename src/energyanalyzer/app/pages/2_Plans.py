@@ -16,6 +16,7 @@ if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
 from energyanalyzer.app.common import (  # noqa: E402
+    CURRENT_PLAN_ID,
     EFL_DIR,
     METERPLAN_DIR,
     PTC_DIR,
@@ -26,6 +27,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     load_draft_raw,
     parse_downloaded_efls,
     plan_summary_row,
+    ptc_efl_resolution_report,
     refresh_market_data,
     render_missing_data_help,
 )
@@ -54,7 +56,7 @@ if draft_paths:
 st.divider()
 
 # --------------------------------------------------------------------------- #
-# Select-a-plan detail view
+# Select-a-plan detail view (editable: save in place, demote to drafts, delete)
 # --------------------------------------------------------------------------- #
 st.subheader("Plan detail")
 if plans:
@@ -63,10 +65,65 @@ if plans:
     selected_plan = next(p for p in plans if p.id == plan_labels[label])
     if selected_plan.needs_review:
         st.warning("⚠️ NEEDS REVIEW")
-    yaml_text = yaml.safe_dump(
+
+    is_current_plan = selected_plan.id == CURRENT_PLAN_ID
+    if is_current_plan:
+        st.caption(
+            "This is your current plan (used for comparisons/exports elsewhere in the app) -- "
+            "demote and delete are disabled for it. Editing and saving is still available."
+        )
+
+    detail_yaml_default = yaml.safe_dump(
         selected_plan.model_dump(mode="json", exclude_none=True), sort_keys=False, allow_unicode=True
     )
-    st.code(yaml_text, language="yaml")
+    edited_detail_yaml = st.text_area(
+        "Plan YAML (editable)",
+        value=detail_yaml_default,
+        height=360,
+        key=f"detail_yaml_{selected_plan.id}",
+    )
+
+    dcol1, dcol2, dcol3 = st.columns(3)
+    with dcol1:
+        if st.button("Save changes", key="detail_save_btn"):
+            try:
+                edited_dict = yaml.safe_load(edited_detail_yaml)
+                edited_plan = Plan.model_validate(edited_dict)
+                new_path = save_plan(edited_plan, directory=PLANS_DIR)
+                if edited_plan.id != selected_plan.id:
+                    (PLANS_DIR / f"{selected_plan.id}.yaml").unlink(missing_ok=True)
+                invalidate_plans_cache()
+                st.success(f"Saved {new_path}")
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not save: {exc}")
+    with dcol2:
+        if st.button("Demote to drafts", key="detail_demote_btn", disabled=is_current_plan):
+            try:
+                edited_dict = yaml.safe_load(edited_detail_yaml)
+                edited_plan = Plan.model_validate(edited_dict)
+                draft_path = save_plan(edited_plan, directory=DRAFTS_DIR)
+                (PLANS_DIR / f"{selected_plan.id}.yaml").unlink(missing_ok=True)
+                invalidate_plans_cache()
+                st.success(f"Moved to {draft_path}")
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not demote: {exc}")
+    with dcol3:
+        detail_delete_confirm = st.checkbox(
+            "Confirm delete", key="detail_delete_confirm", disabled=is_current_plan
+        )
+        if st.button(
+            "Delete plan",
+            key="detail_delete_btn",
+            disabled=is_current_plan or not detail_delete_confirm,
+        ):
+            (PLANS_DIR / f"{selected_plan.id}.yaml").unlink(missing_ok=True)
+            invalidate_plans_cache()
+            st.success(f"Deleted {selected_plan.id}.yaml")
+            st.rerun()
+else:
+    st.info(f"No plans found in {PLANS_DIR}.")
 
 st.divider()
 
@@ -207,6 +264,14 @@ if submitted:
         plan = Plan.model_validate(plan_dict)
         target_dir = PLANS_DIR if f_save_target.startswith("Active") else DRAFTS_DIR
         path = save_plan(plan, directory=target_dir)
+        if editing_plan is not None:
+            # editing_plan always comes from the active plans/ list (see
+            # edit_choices above); if the id changed or it was saved to
+            # Drafts instead, the original active file is now stale --
+            # remove it so this acts as a rename/demote, not a duplicate.
+            original_path = PLANS_DIR / f"{editing_plan.id}.yaml"
+            if original_path != path and original_path.exists():
+                original_path.unlink()
         invalidate_plans_cache()
         st.success(f"Saved {path}")
         st.rerun()
@@ -410,6 +475,21 @@ if ptc_df_raw is not None:
 ptc_df = st.session_state.get("ptc_df")
 if ptc_df is not None:
     st.dataframe(ptc_df, width="stretch", height=300)
+
+    if st.button("Check EFL resolution for listed plans", key="check_efl_resolution_btn"):
+        st.session_state["efl_resolution_report"] = ptc_efl_resolution_report(ptc_df, efl_dir=EFL_DIR)
+
+    efl_resolution_report = st.session_state.get("efl_resolution_report")
+    if efl_resolution_report is not None:
+        if efl_resolution_report.empty:
+            st.success("Every listed plan resolved to a parseable EFL.")
+        else:
+            st.warning(
+                f"{len(efl_resolution_report)} of {len(ptc_df)} listed plan(s) did not resolve to a "
+                "parseable EFL -- check these retailer sites manually:"
+            )
+            st.dataframe(efl_resolution_report, width="stretch", height=300)
+
     dl_limit = st.number_input("Max EFLs to download", min_value=1, max_value=500, value=20, key="efl_dl_limit")
     if st.button("Download EFLs for listed plans", key="download_efls_btn"):
         from energyanalyzer.fetchers.ptc import download_efls  # noqa: PLC0415
