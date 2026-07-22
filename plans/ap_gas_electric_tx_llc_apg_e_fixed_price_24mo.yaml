@@ -1,11 +1,11 @@
-id: ap_gas_electric_tx_llc_apg_e_fixed_price_125_at_1000_kwh_12mo
+id: ap_gas_electric_tx_llc_apg_e_fixed_price_24mo
 retailer: AP GAS & ELECTRIC (TX), LLC (APG&E)
-name: Fixed Price $125 at 1000 kWh
-term_months: 12
+name: Fixed Price
+term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 13.074
+- rate_ckwh: 6.774
   label: ''
   tdu_exempt: false
 buyback:
@@ -14,15 +14,13 @@ buyback:
   offset_scope: all_charges
   rollover: true
   cash_out: false
-bill_credits:
-- min_kwh: 1000.0
-  credit_usd: 125.0
+bill_credits: []
 tdu_passthrough: true
-etf_usd: 150.0
+etf_usd: 250.0
 etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 5.85
-source: efl:AP_GAS_ELECTRIC_TX_LLC_SimpleSaver_12.pdf
+source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_24.pdf
 retrieved: '2026-07-21'
 notes: ''
 needs_review: false

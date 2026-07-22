@@ -1,11 +1,11 @@
-id: rhythm_rhythm_max_saver_12_12_month_plan_12mo
-retailer: Rhythm
-name: Rhythm Max Saver 12 - 12 month plan
+id: budget_power_no_gimmicks_green_12_oncor_12mo
+retailer: Budget Power
+name: No Gimmicks Green 12 - Oncor
 term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 14.214
+- rate_ckwh: 5.612
   label: ''
   tdu_exempt: false
 buyback:
@@ -14,15 +14,13 @@ buyback:
   offset_scope: all_charges
   rollover: true
   cash_out: false
-bill_credits:
-- min_kwh: 1000.0
-  credit_usd: 125.0
+bill_credits: []
 tdu_passthrough: true
-etf_usd: 20.0
-etf_per_month_remaining: true
+etf_usd: 100.0
+etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
-source: efl:RHYTHM_Rhythm_Max_Saver_12.pdf
+source: efl:Budget_Power_No_Gimmicks_Green_12.pdf
 retrieved: '2026-07-21'
 notes: ''
 needs_review: false

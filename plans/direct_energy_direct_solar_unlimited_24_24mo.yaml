@@ -1,0 +1,27 @@
+id: direct_energy_direct_solar_unlimited_24_24mo
+retailer: Direct Energy
+name: Direct Solar Unlimited 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 9.8
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 4.8
+  rates: []
+  offset_scope: energy_only
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:DIRECT_ENERGY_Solar_Unlimited_24.pdf
+retrieved: '2026-07-21'
+notes: ''
+needs_review: false

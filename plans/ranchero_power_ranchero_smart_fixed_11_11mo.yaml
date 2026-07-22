@@ -1,0 +1,25 @@
+id: ranchero_power_ranchero_smart_fixed_11_11mo
+retailer: Ranchero Power
+name: Ranchero Smart & Fixed - 11
+term_months: 11
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 5.3289
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 179.0
+etf_per_month_remaining: false
+rate_type: fixed
+source: efl:Ranchero_Power_Ranchero_Smart_Fixed_-_11.pdf
+retrieved: '2026-07-21'
+notes: ''
+needs_review: false
