@@ -1000,13 +1000,39 @@ class TestCorpusHeritagePowerBrightStart24:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusChariotShine36:
+    """Chariot Energy Shine 36 (36mo fixed, Oncor): the disclosure table
+    reads 'Chariot Energy Buy Back Rate Real Time Market Pricing per
+    kWh' -- a genuine RTW buyback -- but the old _BUYBACK_LABEL regex
+    only matched one-word 'Buyback Rate', not this EFL's two-word 'Buy
+    Back Rate', so it fell through to the next label match instead:
+    'Excess Energy Credit', from an unrelated paragraph describing net
+    metering export credits 'capped at 25c per kWh'. The parser then
+    misread that 25c cap as a fixed buyback rate. Also verifies the RTW
+    detector itself: the old regex required 'real-time' (no space) and
+    'market price' (not 'Pricing'), neither of which this EFL's actual
+    wording ('Real Time Market Pricing') satisfied."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("CHARIOT_ENERGY_Chariot_Shine_36.txt")
+
+    def test_buyback_is_rtw_not_the_export_credit_cap(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "rtw"
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 21
+    assert len(real_files) == 22
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)

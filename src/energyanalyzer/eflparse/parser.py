@@ -1133,7 +1133,7 @@ def _extract_bill_credits(text: str) -> list[dict]:
 
 
 _BUYBACK_LABEL = re.compile(
-    r"(Solar\s*(?:Repurchase|Buyback)|Buyback\s*Rate|Excess\s*Energy\s*(?:Credit|Rate|"
+    r"(Solar\s*(?:Repurchase|Buyback)|Buy\s*Back\s*Rate|Excess\s*Energy\s*(?:Credit|Rate|"
     r"Purchase)|Renewable\s*Buyback)[^\n]{0,100}",
     re.I,
 )
@@ -1166,7 +1166,7 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         evidence = _snippet(m)
 
         if re.search(
-            r"real-?time|wholesale|market\s*price|ERCOT\s*(?:price|settlement)|hourly",
+            r"real\s*-?\s*time|wholesale|market\s*pric|ERCOT\s*(?:price|settlement)|hourly",
             context,
             re.I,
         ):
