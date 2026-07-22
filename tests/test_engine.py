@@ -285,6 +285,35 @@ def test_rtw_import_with_cap():
     assert result.uses_rtw
 
 
+def test_rtw_buyback_with_cap():
+    # Capped RTW *export* credit (e.g. Chariot Shine's "RTW up to 25c/kWh"):
+    # intervals where the wholesale price exceeds the cap credit at the cap.
+    idx_local = pd.date_range(
+        "2024-01-08", periods=4, freq="15min", tz="America/Chicago"
+    )
+    idx_utc = idx_local.tz_convert("UTC")
+    intervals = pd.DataFrame(
+        {"import_kwh": [0.0, 0.0, 0.0, 0.0], "export_kwh": [1.0, 1.0, 1.0, 1.0]},
+        index=idx_utc,
+    )
+    prices = pd.Series([0.10, 0.60, 0.05, 3.00], index=idx_utc)  # two price spikes
+
+    plan = base_plan(
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+        buyback=Buyback(
+            kind=BuybackKind.rtw,
+            rtw=RtwRate(multiplier=1.0, adder_ckwh=0.0, cap_ckwh=25.0),
+        ),
+    )
+    tdu = flat_tdu()
+    result = simulate(plan, intervals, tdu, prices=prices)
+
+    row = result.monthly.iloc[0]
+    expected_credit = 0.10 + 0.25 + 0.05 + 0.25  # 0.60 and 3.00 clipped to 0.25
+    assert row["credit_earned"] == pytest.approx(expected_credit)
+    assert result.uses_rtw
+
+
 def test_rtw_missing_prices_raises():
     intervals = make_intervals("2024-01-08", days=1, import_kwh=1.0, export_kwh=0.0)
     plan = base_plan(energy_rates=[EnergyRate(rtw=RtwRate())])
