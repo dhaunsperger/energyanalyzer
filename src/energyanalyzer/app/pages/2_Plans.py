@@ -722,6 +722,7 @@ if current_draft_paths:
     draft_evidence = parse_meta.get("evidence") or {}
     draft_unparsed = parse_meta.get("unparsed_notes") or []
 
+    source_pdf = _resolve_source_efl_pdf(raw_draft.get("source", ""))
     review_col, pdf_col = st.columns([1, 1])
 
     with review_col:
@@ -763,13 +764,21 @@ if current_draft_paths:
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"Could not promote: {exc}")
         with dcol2:
+            delete_efl_too = st.checkbox(
+                "Also delete source EFL PDF",
+                key="delete_draft_also_efl",
+                disabled=source_pdf is None,
+            )
             if st.button("Delete draft", key="delete_draft_btn"):
                 selected_draft_path.unlink(missing_ok=True)
-                st.success(f"Deleted {selected_draft_path}")
+                if delete_efl_too and source_pdf is not None:
+                    source_pdf.unlink(missing_ok=True)
+                    st.success(f"Deleted {selected_draft_path} and {source_pdf}")
+                else:
+                    st.success(f"Deleted {selected_draft_path}")
                 st.rerun()
 
     with pdf_col:
-        source_pdf = _resolve_source_efl_pdf(raw_draft.get("source", ""))
         if source_pdf is None:
             st.info("Source EFL PDF not found on disk for this draft.")
         else:
