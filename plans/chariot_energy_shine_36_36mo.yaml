@@ -9,8 +9,12 @@ energy_rates:
   label: ''
   tdu_exempt: false
 buyback:
-  kind: fixed
-  rate_ckwh: 25.0
+  kind: rtw
+  rtw:
+    multiplier: 1.0
+    adder_ckwh: 0.0
+    cap_ckwh: 25.0
+    floor_ckwh: 0.0
   rates: []
   offset_scope: all_charges
   rollover: true
