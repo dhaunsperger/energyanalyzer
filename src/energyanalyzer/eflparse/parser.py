@@ -1145,6 +1145,23 @@ _BUYBACK_HEDGE = re.compile(
 )
 
 
+_RTW_CAP_LABEL_RE = re.compile(r"\bcap(?:ped)?\b(?:\s+at)?", re.I)
+
+
+def _extract_rtw_cap(text: str) -> Optional[float]:
+    """Look for a 'capped at 25c per kWh' / 'capped at $0.25 per kWh' style
+    ceiling on an RTW buyback rate. Searched across the full EFL text
+    rather than a window around the buyback label, since EFL prose often
+    states the cap in a separate paragraph well after the rate-table label
+    (e.g. Chariot Shine 36: the "Buy Back Rate" table entry and the
+    "...capped at 25c per kWh..." sentence are >1000 chars apart)."""
+    for m in _RTW_CAP_LABEL_RE.finditer(text):
+        rate = _rate_ckwh_from_snippet(text[m.end() : m.end() + 40])
+        if rate is not None:
+            return rate
+    return None
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
@@ -1170,7 +1187,12 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
             context,
             re.I,
         ):
-            return {"kind": "rtw", "rtw": {"multiplier": 1.0, "adder_ckwh": 0.0}}, 0.85, evidence
+            rtw: dict = {"multiplier": 1.0, "adder_ckwh": 0.0}
+            cap = _extract_rtw_cap(text)
+            if cap is not None:
+                rtw["cap_ckwh"] = cap
+                evidence = evidence + f" [cap: {cap}c/kWh]"
+            return {"kind": "rtw", "rtw": rtw}, 0.85, evidence
 
         rate = _rate_ckwh_from_snippet(m.group(0))
         if rate is None:

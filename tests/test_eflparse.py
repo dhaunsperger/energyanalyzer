@@ -1022,6 +1022,12 @@ class TestCorpusChariotShine36:
         bb = draft.plan_dict["buyback"]
         assert bb["kind"] == "rtw"
 
+    def test_rtw_cap_extracted_from_the_export_credit_paragraph(self, draft):
+        # The same "capped at 25c per kWh" sentence that used to be
+        # misread as a fixed buyback rate is, correctly, this RTW rate's
+        # cap -- extracted from >1000 chars away from the buyback label.
+        assert draft.plan_dict["buyback"]["rtw"]["cap_ckwh"] == 25.0
+
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
 
