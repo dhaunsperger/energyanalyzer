@@ -11,7 +11,7 @@ buyback:
   kind: none
 bill_credits: []
 tdu_passthrough: true
-etf_usd: 0.0
+etf_usd: 150.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: efl:VARSITY_ENERGY_LLC_HOMERUN_12.pdf
@@ -30,7 +30,7 @@ _parse:
     base_charge: 0.6
     tdu_ckwh: 0.85
     tdu_monthly: 0.9
-    etf: 0.0
+    etf: 0.75
     renewable_pct: 0.9
     avg_price_500_ckwh: 0.7
     avg_price_1000_ckwh: 0.7
@@ -45,6 +45,9 @@ _parse:
     base_charge: Base Usage Charge $0 per billing cycle
     tdu_ckwh: Oncor Delivery Charge 6.1196¢ per kWh
     tdu_monthly: Oncor Delivery Charge $4.06 per billing cycle
+    etf: Term 12 months Do I have a termination fee or any fees Yes; $150.00 One time
+      associated with terminating service? Can my price change during the contract
+      Yes. period? Your price ma
     renewable_pct: product is 24.1% renewable
     avg_price_500_ckwh: 12.4c/kWh (from average-price table)
     avg_price_1000_ckwh: 12.0c/kWh (from average-price table)
