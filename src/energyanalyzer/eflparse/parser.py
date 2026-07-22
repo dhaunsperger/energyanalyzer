@@ -1009,20 +1009,84 @@ def _extract_flat_avg_price_row(text: str) -> Optional[Extraction]:
 
 
 def _extract_bill_credits(text: str) -> list[dict]:
-    """'bill credit of $X when usage is at least Y kWh [but less than Z kWh]'."""
-    out = []
-    pat = re.compile(
+    """Usage-tiered bill credits: 'a $X credit when usage >= Y kWh [but < Z
+    kWh]', in whatever word order the retailer uses. Real EFLs phrase this
+    disclosure several distinct ways for the same tier -- each pattern below
+    covers one order seen in the corpus. Non-positive "credits" (a $0
+    placeholder row seen in some average-price disclosure tables) are
+    dropped as noise, not real tiers.
+    """
+    out: list[dict] = []
+    seen: set[tuple[float, Optional[float], float]] = set()
+
+    def _add(credit: float, min_kwh: float, max_kwh: Optional[float]) -> None:
+        if credit <= 0:
+            return
+        key = (min_kwh, max_kwh, credit)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"min_kwh": min_kwh, "max_kwh": max_kwh, "credit_usd": credit})
+
+    # "credit of $125 ... when/if usage is at least 1,000 kWh [but less than 2,000 kWh]"
+    for m in re.finditer(
         r"(?:bill\s*)?credit\s*of\s*\$(\d+(?:\.\d+)?)\s*(?:will\s*be\s*applied\s*)?"
         r"(?:when|if)\s*(?:your|the customer'?s|monthly)?\s*usage\s*is\s*"
         r"(?:at\s*least|>=|greater\s*than\s*or\s*equal\s*to)\s*(\d+(?:,\d{3})*)\s*kWh"
         r"(?:\s*(?:but|and)\s*(?:less\s*than|<)\s*(\d+(?:,\d{3})*)\s*kWh)?",
+        text,
         re.I,
-    )
-    for m in pat.finditer(text):
-        credit = float(m.group(1))
-        min_kwh = float(m.group(2).replace(",", ""))
-        max_kwh = float(m.group(3).replace(",", "")) if m.group(3) else None
-        out.append({"min_kwh": min_kwh, "max_kwh": max_kwh, "credit_usd": credit})
+    ):
+        _add(
+            float(m.group(1)),
+            float(m.group(2).replace(",", "")),
+            float(m.group(3).replace(",", "")) if m.group(3) else None,
+        )
+
+    # "$125 credit when/if usage is >= 1,000 kWh [in a billing cycle]"
+    for m in re.finditer(
+        r"\$(\d+(?:\.\d+)?)\s*credit\s*(?:will\s*be\s*applied\s*)?"
+        r"(?:when|if)\s*(?:your|the customer'?s|monthly)?\s*usage\s*is\s*"
+        r"(?:at\s*least|>=|greater\s*than\s*or\s*equal\s*to)\s*(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
+
+    # "Usage Credit $125 per billing cycle when usage >=1000 kWh"
+    for m in re.finditer(
+        r"Usage\s*Credit[:\s]*\$(\d+(?:\.\d+)?)\s*(?:per\s*(?:billing\s*cycle|month)\s*)?"
+        r"when\s*usage\s*(?:is\s*)?(?:>=|at\s*least|greater\s*than\s*or\s*equal\s*to)\s*"
+        r"(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
+
+    # "Usage Credit for 1,000 kWh or more: $125"
+    for m in re.finditer(
+        r"Usage\s*Credit\s*for\s*(\d+(?:,\d{3})*)\s*kWh\s*or\s*more[:\s]*\$(\d+(?:\.\d+)?)",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(2)), float(m.group(1).replace(",", "")), None)
+
+    # "[Additional] Residential Usage Credit 35.00 $ per bill month if usage
+    # >= 1000kWh" -- reversed value/$ order, "if" instead of "when". A plan
+    # with a second, higher-threshold line of this form (e.g. "Additional
+    # ... Credit ... if usage >= 2000kWh") is a genuinely cumulative/stacking
+    # credit, not a replacement tier: min_kwh open-ended (max_kwh=None) on
+    # both rows is correct, since cost.py sums every bill_credits row whose
+    # min_kwh the month's usage clears.
+    for m in re.finditer(
+        r"Usage\s*Credit\s*(\d+(?:\.\d+)?)\s*\$\s*per\s*(?:bill\s*month|billing\s*cycle|month)\s*"
+        r"(?:when|if)\s*usage\s*(?:is\s*)?(?:>=|at\s*least|greater\s*than\s*or\s*equal\s*to)\s*"
+        r"(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
+
     return out
 
 

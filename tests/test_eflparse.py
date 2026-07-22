@@ -631,6 +631,80 @@ class TestCorpusChariotBrightNights12:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusChariotGridPlus12:
+    """Chariot Energy GridPlus 12 (12mo fixed, Oncor): usage-tiered bill
+    credit -- 'Chariot Energy Residential Usage Credit $125 per billing
+    cycle when usage >=1000 kWh'. This word order (amount before the
+    'when usage >=' clause, no 'credit of' preamble) previously fell
+    through _extract_bill_credits entirely, silently leaving bill_credits
+    empty for a plan whose real economics depend on it."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("CHARIOT_ENERGY_GridPlus_12.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(13.22)
+        assert rates[0][1] is None
+
+    def test_bill_credit_tier(self, draft):
+        credits = draft.plan_dict["bill_credits"]
+        assert len(credits) == 1
+        assert credits[0]["min_kwh"] == pytest.approx(1000.0)
+        assert credits[0]["max_kwh"] is None
+        assert credits[0]["credit_usd"] == pytest.approx(125.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusConstellationAcProtectPlus2Units:
+    """Constellation 12 Month A/C Protect Plus for 2 Units (12mo fixed,
+    Oncor): stacking two-tier usage credit -- 'Residential Usage Credit
+    35.00 $ per bill month if usage >= 1000kWh' plus a second, additive
+    line 'Additional Residential Usage Credit 15.00 $ per bill month if
+    usage >= 2000kWh'. Both value/$ order (value before '$') and the 'if'
+    (not 'when') connector differ from the other real-corpus phrasings
+    already covered. Both tiers are open-ended (max_kwh=None): cost.py
+    sums every bill_credits row a month's usage clears, so >=2000kWh
+    months correctly get $35+$15=$50, not a replacement of the first
+    tier."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.txt")
+
+    def test_energy_rate(self, draft):
+        rates = _rate_pairs(draft)
+        assert len(rates) == 1
+        assert rates[0][0] == pytest.approx(12.27)
+        assert rates[0][1] is None
+
+    def test_bill_credit_tiers_stack(self, draft):
+        credits = draft.plan_dict["bill_credits"]
+        assert len(credits) == 2
+        low, high = credits
+        assert low["min_kwh"] == pytest.approx(1000.0)
+        assert low["max_kwh"] is None
+        assert low["credit_usd"] == pytest.approx(35.0)
+        assert high["min_kwh"] == pytest.approx(2000.0)
+        assert high["max_kwh"] is None
+        assert high["credit_usd"] == pytest.approx(15.0)
+
+    def test_term(self, draft):
+        assert draft.plan_dict["term_months"] == 12
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 class TestCorpusEnergyTexasNoBull12:
     """Energy Texas No Bull 12 (12mo fixed, Oncor): 'Energy Charge: 6.024c
     per kWh' / 'Base Charge: $0 per month' plain layout."""
@@ -910,7 +984,7 @@ def test_corpus_all_real_fixtures_present_and_schema_valid():
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 18
+    assert len(real_files) == 20
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)
