@@ -978,13 +978,35 @@ class TestCorpusNecCoopPlainAndSimple:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusHeritagePowerBrightStart24:
+    """Heritage Power Bright Start 24 (24mo fixed, two-column disclosure
+    chart): 'Do I have a termination fee or any fees\\nYes; $75 One time\\n
+    associated with terminating service?' -- the '$75' lands on the line
+    *after* the question label, which the old same-line-only ETF regex
+    (no newline allowed between label and '$') never crossed, silently
+    yielding etf_usd=0 at 0 confidence for a plan that really has a $75
+    ETF."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("HERITAGE_POWER_LLC_Bright_Start_24.txt")
+
+    def test_etf(self, draft):
+        assert draft.plan_dict["etf_usd"] == pytest.approx(75.0)
+        assert draft.plan_dict["etf_per_month_remaining"] is False
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 20
+    assert len(real_files) == 21
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)

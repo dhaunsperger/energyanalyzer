@@ -625,11 +625,17 @@ def _extract_tdu(text: str) -> tuple[Optional[Extraction], Optional[Extraction],
     return ckwh, monthly, bundled
 
 
+_ETF_PERMO_RE = re.compile(r"months?\s*remaining", re.I)
+_ETF_LABEL_RE = re.compile(
+    r"(?:do\s+i\s+have|is\s+there)\s+an?\s+(?:early\s+)?termination\s+fee|"
+    r"termination\s+fee\s+or\s+any\s+fees?|"
+    r"are\s+there\s+fees?\s+if\s+i\s+(?:choose\s+to\s+)?leave",
+    re.I,
+)
+
+
 def _extract_etf(text: str) -> Extraction:
-    # "termination fee ... $X" then check the surrounding text (which, in a
-    # two-column EFL flattened by pdftotext -layout, may have the *next*
-    # column's label text interleaved before "month remaining") for the
-    # per-month-remaining qualifier.
+    # "termination fee ... $X" on the same line - the common case.
     m = re.search(
         r"(?:termination\s*fee|early\s*termination\s*fee|ETF)[^\n$]{0,80}?\$\s*(\d+(?:\.\d+)?)",
         text,
@@ -638,12 +644,48 @@ def _extract_etf(text: str) -> Extraction:
     if m:
         tail = text[m.end() : m.end() + 250]
         evidence = _snippet_text(text[m.start() : m.end() + 40])
-        if re.search(r"month\s*remaining", tail, re.I):
+        if _ETF_PERMO_RE.search(tail):
             return (float(m.group(1)), True), 0.9, evidence
         return (float(m.group(1)), False), 0.8, evidence
     m = re.search(r"\$\s*(\d+(?:\.\d+)?)\s*per\s*month\s*remaining", text, re.I)
     if m:
         return (float(m.group(1)), True), 0.85, _snippet(m)
+
+    # In a two-column EFL flattened by pdftotext -layout, the disclosure
+    # chart's "Do I have a termination fee..." question label and its
+    # "Yes, $X..." / "No" answer frequently land on different lines - and
+    # the answer can be flattened either before or after the label, and
+    # split across a newline the same-line regex above can't cross. Anchor
+    # on the question label itself and search a bounded window around it.
+    lm = _ETF_LABEL_RE.search(text)
+    if lm:
+        window_start = max(0, lm.start() - 250)
+        window_end = min(len(text), lm.end() + 250)
+        window = text[window_start:window_end]
+        label_pos = lm.start() - window_start
+        dollar_matches = list(re.finditer(r"\$\s*(\d+(?:\.\d+)?)", window))
+        if dollar_matches:
+            # Prefer a dollar amount that reads as a direct Yes/No answer
+            # (e.g. "Yes. $99", "No. $0") over an incidental "$" elsewhere
+            # in the window (e.g. a plan name like "a daily $0 energy
+            # hour") that just happens to sit closer to the label.
+            answer_like = [
+                dm for dm in dollar_matches
+                if re.search(r"(?:yes|no)\W{0,4}$", window[max(0, dm.start() - 15) : dm.start()], re.I)
+            ]
+            candidates = answer_like or dollar_matches
+            best = min(
+                candidates,
+                key=lambda dm: min(abs(dm.start() - label_pos), abs(dm.end() - label_pos)),
+            )
+            val = float(best.group(1))
+            context = window[max(0, best.start() - 60) : best.end() + 150]
+            permo = bool(_ETF_PERMO_RE.search(context))
+            evidence = _snippet_text(context)
+            return (val, permo), 0.75, evidence
+        if re.search(r"\bNo\b", window[max(0, label_pos - 30) : label_pos + 150]):
+            return (0.0, False), 0.7, _snippet_text(window)
+
     return (0.0, False), 0.0, ""
 
 
