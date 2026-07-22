@@ -119,10 +119,13 @@ table = pd.DataFrame(rows).set_index("_plan_id")
 
 
 def _highlight(row: pd.Series) -> list[str]:
+    # Explicit dark text color pinned alongside the light background --
+    # without it, dark-mode's default white text sits on these light
+    # pastels and is unreadable.
     if row.name == CURRENT_PLAN_ID:
-        return ["background-color: #FFF2CC"] * len(row)
+        return ["background-color: #FFF2CC; color: #1a1a1a"] * len(row)
     if row.name == cheapest_id:
-        return ["background-color: #C6EFCE"] * len(row)
+        return ["background-color: #C6EFCE; color: #1a1a1a"] * len(row)
     return [""] * len(row)
 
 
