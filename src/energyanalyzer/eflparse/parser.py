@@ -1147,7 +1147,7 @@ def _extract_bill_credits(text: str) -> list[dict]:
 
 _BUYBACK_LABEL = re.compile(
     r"(Solar\s*(?:Repurchase|Buyback)|Buy\s*Back\s*Rate|Excess\s*Energy\s*(?:Credit|Rate|"
-    r"Purchase)|Renewable\s*Buyback)[^\n]{0,100}",
+    r"Purchase)|Renewable\s*Buyback|Solar\s*Grid\s*Credit)[^\n]{0,100}",
     re.I,
 )
 

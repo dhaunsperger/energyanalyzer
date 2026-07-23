@@ -1073,13 +1073,34 @@ class TestCorpusAmbitSolarBuyback12:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusDirectSolarUnlimited12:
+    """Direct Energy 'Direct Solar Unlimited 12' (Oncor): a genuine solar
+    buyback plan whose credit is labeled 'Solar Grid Credit: 5.3c per kWh' --
+    a term the buyback-label vocabulary didn't recognize, so the parser reported
+    kind=none. Adding 'Solar Grid Credit' to the labels resolves it to a fixed
+    5.3c buyback."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("DIRECT_ENERGY_Direct_Solar_Unlimited_12.txt")
+
+    def test_solar_grid_credit_parsed_as_fixed_buyback(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "fixed"
+        assert bb["rate_ckwh"] == pytest.approx(5.3)
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 23
+    assert len(real_files) == 24
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)

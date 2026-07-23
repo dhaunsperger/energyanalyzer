@@ -1552,7 +1552,124 @@ CHAMPION = RepConfig(
     harvester=_champion_harvest,
 )
 
+
+# --------------------------------------------------------------------------- #
+# Direct Energy interactive harvester (EFL blob is fetched from a backend URL)
+# --------------------------------------------------------------------------- #
+# Direct Energy's shop (shop.directenergy.com) is a React SPA. The plan list is
+# reached by navigating to the ZIP URL (note: ?zipCode=, capital C) then clicking
+# a residential/"not moving" prelude. Each plan's "Electricity Facts Label" link
+# opens a client-generated blob: PDF (popup.url is a useless per-session blob),
+# but the browser first fetches the PDF from a STABLE backend endpoint --
+# api-oam.directenergy.com/api/docs/files/<id>.pdf (plain application/pdf,
+# httpx-downloadable) -- which we capture from the network response and store as
+# the efl_url. Direct Energy's *solar* plans ("Direct Solar Unlimited ...") are
+# the buyback plans PTC/meterplan miss; the rest are standard PTC plans, so this
+# harvester targets the solar ones (widen the name filter to take them all).
+_DE_PLANS_URL = "https://shop.directenergy.com/tx/plan-selection?zipCode={zip}"
+_DE_EFL_API_RE = re.compile(r"api-oam\.directenergy\.com/api/docs/files/", re.I)
+
+
+def _direct_energy_harvest(
+    page: object, zip_code: str, config: RepConfig
+) -> list[DiscoveredPlan]:
+    """Interactive harvester for Direct Energy (see the section comment).
+    ``harvest_live`` handles the initial goto()/browser lifecycle; this
+    re-navigates to the ZIP-specific plans URL, clears the prelude, loads every
+    plan, and for each solar plan captures its EFL's backend PDF URL."""
+
+    def _try(action) -> bool:
+        try:
+            action()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    _try(lambda: page.goto(_DE_PLANS_URL.format(zip=zip_code), wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(5000))  # type: ignore[attr-defined]
+    # Residential / "not moving" prelude -- all best-effort (session-dependent).
+    _try(lambda: page.get_by_role("button", name=" Home").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("radio", name="No").check(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="No").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("view-plans").click(timeout=10000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+    # The listing paginates behind a "Load 8 More" button; click until it's gone.
+    for _ in range(10):
+        btn = page.get_by_role("button", name="Load 8 More")  # type: ignore[attr-defined]
+        if btn.count() == 0:
+            break
+        if not _try(lambda: btn.first.click(timeout=4000)):
+            break
+        _try(lambda: page.wait_for_timeout(1500))  # type: ignore[attr-defined]
+
+    cards = page.locator(".plan__wrapper")  # type: ignore[attr-defined]
+    count = cards.count()
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for i in range(count):
+        card = cards.nth(i)
+        try:
+            name = _clean_plan_name(card.locator(".rich-text-body h4").first.inner_text(timeout=3000))
+        except Exception:  # noqa: BLE001
+            continue
+        # Discovery targets Direct Energy's solar (buyback) plans; the rest are
+        # standard PTC plans. Widen this to take every plan if ever needed.
+        if "solar" not in _normalize_name(name) or name in seen:
+            continue
+        seen.add(name)
+        if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=6000)):
+            continue
+        _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
+        efl_url: Optional[str] = None
+        try:
+            # Scope the EFL link to THIS card -- a global .first would re-click
+            # the first plan's link every iteration (they'd all share one URL).
+            with page.expect_response(  # type: ignore[attr-defined]
+                lambda r: bool(_DE_EFL_API_RE.search(r.url)) and r.url.lower().endswith(".pdf"),
+                timeout=15000,
+            ) as resp_info:
+                card.get_by_role("link", name="promo Electricity Facts Label").first.click(timeout=8000)
+            efl_url = resp_info.value.url
+        except Exception:  # noqa: BLE001
+            efl_url = None
+        # Close any EFL popup tab + the plan-doc panel before the next plan.
+        for extra in list(getattr(page, "context", None).pages if getattr(page, "context", None) else [])[1:]:
+            _try(lambda extra=extra: extra.close())
+        _try(lambda: page.keyboard.press("Escape"))  # type: ignore[attr-defined]
+        if not efl_url:
+            continue
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=name,
+                efl_url=efl_url,
+                is_buyback=True,  # DE solar plans; EFL parse confirms terms
+                extraction_method="harvest",
+                context="Direct Energy solar plan; EFL PDF via api-oam docs endpoint",
+            )
+        )
+    return plans
+
+
+DIRECT_ENERGY = RepConfig(
+    key="direct_energy",
+    retailer="Direct Energy",
+    homepage="https://shop.directenergy.com/",
+    harvester=_direct_energy_harvest,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
-    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, FRONTIER, AMBIT, OCTOPUS, CHAMPION)
+    c.key: c
+    for c in (
+        GREEN_MOUNTAIN,
+        TXU,
+        CHARIOT,
+        GEXA,
+        FRONTIER,
+        AMBIT,
+        OCTOPUS,
+        CHAMPION,
+        DIRECT_ENERGY,
+    )
 }

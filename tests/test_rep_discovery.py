@@ -400,6 +400,14 @@ def test_octopus_registered_in_rep_configs():
     assert rd.REP_CONFIGS["octopus"].render is not None
 
 
+def test_direct_energy_registered_as_harvester():
+    cfg = rd.REP_CONFIGS["direct_energy"]
+    assert cfg.retailer == "Direct Energy"
+    # EFL URLs are JS/blob-driven -> harvester, no static extractor/render.
+    assert cfg.harvester is not None
+    assert cfg.extractor is None and cfg.render is None
+
+
 # --------------------------------------------------------------------------- #
 # Octopus render reads ESI ID (PII) from the gitignored secrets file
 # --------------------------------------------------------------------------- #
