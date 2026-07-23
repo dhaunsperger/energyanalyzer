@@ -13,6 +13,7 @@ same fact.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -95,8 +96,20 @@ def extract_text(pdf_path: str | Path) -> str:
         try:
             import pdfplumber  # noqa: PLC0415
 
-            with pdfplumber.open(pdf_path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages]
+            # Some EFLs (e.g. the True Power "True Value" set) carry a slightly
+            # corrupted FlateDecode stream; pdfminer recovers the full text but
+            # logs a noisy "Data-loss while decompressing corrupted data" warning
+            # per file. Extraction still succeeds, so silence that one logger for
+            # the duration -- genuine unreadable-PDF failures raise, not warn, and
+            # still fall through to the pdftotext fallback / ValueError below.
+            _pdfminer_log = logging.getLogger("pdfminer")
+            _prev_level = _pdfminer_log.level
+            _pdfminer_log.setLevel(logging.ERROR)
+            try:
+                with pdfplumber.open(pdf_path) as pdf:
+                    pages = [p.extract_text() or "" for p in pdf.pages]
+            finally:
+                _pdfminer_log.setLevel(_prev_level)
             text = "\n".join(pages)
             if text.strip():
                 return text
