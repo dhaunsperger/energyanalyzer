@@ -115,7 +115,7 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
 
     download_calls = {}
 
-    def _fake_download_discovered(plans, dest, progress_callback=None):
+    def _fake_download_discovered(plans, dest, headless=True, progress_callback=None):
         download_calls["plans"] = list(plans)
         download_calls["dest"] = dest
         if progress_callback:
@@ -213,7 +213,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     monkeypatch.setattr(
         rd_module,
         "download_discovered",
-        lambda plans, dest, progress_callback=None: {
+        lambda plans, dest, headless=True, progress_callback=None: {
             "downloaded": ["gexa.pdf"],
             "skipped": [],
             "failed": [],

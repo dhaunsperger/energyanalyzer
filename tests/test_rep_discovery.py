@@ -369,6 +369,12 @@ def test_octopus_extractor_finds_all_cards():
     assert all("octopusenergy.com/efl/" in p.efl_url for p in plans)
 
 
+def test_octopus_efl_flagged_as_html_viewer():
+    # octopusenergy.com/efl/<code> is a client-rendered viewer, not a PDF, so
+    # the downloader must render + print-to-PDF instead of a plain GET.
+    assert all(p.efl_is_html_viewer for p in _extract_octopus())
+
+
 def test_octopus_buyback_is_all_plans_except_flex():
     by_name = {p.plan_name: p for p in _extract_octopus()}
     assert by_name["Octopus Flex"].is_buyback is False
@@ -903,6 +909,40 @@ def test_download_discovered_buyback_only_filters(tmp_path, monkeypatch):
     assert summary["filtered_out"] == 1  # the non-buyback plan was excluded
     assert (dest / "Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf").exists()
     assert not (dest / "Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf").exists()
+
+
+def test_download_discovered_renders_html_viewer_to_pdf(tmp_path, monkeypatch):
+    # A plan whose EFL is an HTML viewer must be rendered + print-to-PDF via
+    # _render_efl_pdf, NOT fetched over httpx (which would get only the shell).
+    render_calls = []
+
+    def _fake_render(url, headless=True, timeout_ms=60000, settle_ms=6000):
+        render_calls.append(url)
+        return b"%PDF-1.7 rendered octopus efl"
+
+    class _NoGetClient(_FakeClient):
+        def get(self, url, *args, **kwargs):  # must not be used for viewer plans
+            raise AssertionError("httpx GET used for an HTML-viewer EFL")
+
+    import httpx
+
+    monkeypatch.setattr(rd, "_render_efl_pdf", _fake_render)
+    monkeypatch.setattr(httpx, "Client", _NoGetClient)
+
+    plan = rd.DiscoveredPlan(
+        retailer="Octopus Energy",
+        plan_name="Octo Green 12",
+        efl_url="https://octopusenergy.com/efl/OCTO-GREEN-12-ONCOR-LZ_SOUTH-2026",
+        is_buyback=True,
+        efl_is_html_viewer=True,
+    )
+    dest = tmp_path / "efl"
+    summary = rd.download_discovered([plan], dest=dest, buyback_only=True)
+
+    assert render_calls == [plan.efl_url]
+    assert len(summary["downloaded"]) == 1
+    saved = dest / "Octopus_Energy_Octo_Green_12.pdf"
+    assert saved.exists() and saved.read_bytes().startswith(b"%PDF")
 
 
 def test_download_discovered_rejects_non_pdf_response(tmp_path, monkeypatch):

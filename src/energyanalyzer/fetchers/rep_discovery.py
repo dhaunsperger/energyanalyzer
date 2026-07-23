@@ -93,6 +93,11 @@ class DiscoveredPlan:
     extraction_method: str = "static"  # "static" | "llm" | "harvest"
     llm_confidence: Optional[float] = None
     context: str = ""  # link text / surrounding snippet (audit trail)
+    # True when ``efl_url`` is an HTML EFL *viewer* (client-rendered), not a
+    # direct PDF -- e.g. Octopus's octopusenergy.com/efl/<code> page. The
+    # downloader renders these in a headless browser and print-to-PDFs them
+    # instead of a plain httpx GET (which would only save the SPA shell).
+    efl_is_html_viewer: bool = False
 
 
 @dataclass
@@ -690,6 +695,9 @@ def extract_octopus(html: str, config: RepConfig) -> list[DiscoveredPlan]:
                 buyback_ckwh=None,
                 extraction_method="static",
                 context="Electricity Facts Label",
+                # octopusenergy.com/efl/<code> is a client-rendered HTML viewer,
+                # not a PDF; the downloader renders + print-to-PDFs it.
+                efl_is_html_viewer=True,
             )
         )
     return plans
@@ -1055,6 +1063,44 @@ def harvest_live(
 # --------------------------------------------------------------------------- #
 # Download + manifest
 # --------------------------------------------------------------------------- #
+def _render_efl_pdf(
+    url: str,
+    headless: bool = True,
+    timeout_ms: int = 60000,
+    settle_ms: int = 6000,
+) -> bytes:
+    """Render an HTML EFL *viewer* URL in a headless browser and return a
+    print-to-PDF of the page.
+
+    For REPs (e.g. Octopus) whose EFL link is a client-rendered HTML page rather
+    than a direct PDF -- a plain GET would only fetch the SPA shell. Chromium's
+    print-to-PDF preserves the full EFL text (rate tables, disclosures) so the
+    normal parser can read it. Raises RuntimeError if Playwright isn't installed.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required to render HTML EFL viewers (e.g. Octopus) but is "
+            "not installed. Install it with:  pip install 'energyanalyzer[discovery]' "
+            "&& playwright install chromium"
+        ) from exc
+
+    _respect_rate_limit(urlparse(url).netloc)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=headless)
+        context = browser.new_context(user_agent=_USER_AGENT)
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            if settle_ms:
+                page.wait_for_timeout(settle_ms)
+            return page.pdf(format="Letter", print_background=True)
+        finally:
+            context.close()
+            browser.close()
+
+
 def _sanitize_filename_part(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", name.strip())
     return re.sub(r"_+", "_", cleaned).strip("_")
@@ -1073,6 +1119,7 @@ def download_discovered(
     manifest_path: Optional[Path] = None,
     buyback_only: bool = True,
     timeout: float = 30.0,
+    headless: bool = True,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict:
     """Download discovered plans' EFL PDFs into ``dest`` and append a manifest
@@ -1134,14 +1181,19 @@ def download_discovered(
                     progress_callback(i, total, plan.plan_name)
                 continue
             try:
-                _respect_rate_limit(host)
-                resp = client.get(plan.efl_url)
-                resp.raise_for_status()
-                content = resp.content
-                # Some discovered EFL URLs resolve to an HTML viewer/SPA shell
-                # rather than the PDF itself (e.g. Octopus's octopusenergy.com/efl/
-                # path). Saving that HTML as a .pdf would only fail the parser
-                # later, so reject anything without the "%PDF" signature.
+                if plan.efl_is_html_viewer:
+                    # An HTML EFL viewer (e.g. Octopus): render + print-to-PDF in
+                    # a browser rather than a plain GET (which gets only the SPA
+                    # shell). _render_efl_pdf handles its own rate limiting.
+                    content = _render_efl_pdf(plan.efl_url, headless=headless)
+                else:
+                    _respect_rate_limit(host)
+                    resp = client.get(plan.efl_url)
+                    resp.raise_for_status()
+                    content = resp.content
+                # A direct-GET EFL URL can still resolve to an HTML viewer/SPA
+                # shell or error page; saving that as a .pdf would only fail the
+                # parser later, so reject anything without the "%PDF" signature.
                 if b"%PDF" not in content[:1024]:
                     ctype = resp.headers.get("content-type", "?")
                     summary["failed"].append(

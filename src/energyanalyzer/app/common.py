@@ -421,6 +421,7 @@ def _run_rep_discovery(
     result["downloaded"] = rd.download_discovered(
         all_plans,
         dest=efl_dir,
+        headless=headless,
         progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
     )
 
