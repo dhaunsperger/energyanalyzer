@@ -6,13 +6,16 @@ finds and downloads those EFLs, feeding the same ``data/efl/`` landing zone the
 rest of the pipeline consumes (``app.common.parse_downloaded_efls`` ->
 ``plans/drafts/`` review/promote UI).
 
-Design (two tiers, deterministic-first, mirroring ``eflparse``'s philosophy):
+Design (deterministic-first, mirroring ``eflparse``'s philosophy), with two
+optional LLM tiers layered on top:
 
 1. **Static extraction.** Many REP sites self-label everything -- Green
    Mountain's rendered plans page carries an explicit
    ``<a>Electricity Facts Label</a>`` link per plan and a hidden analytics div
-   flagging buyback plans directly (``analyticscontractrates="...^BuyBack:11.4"``).
-   A per-REP static extractor (regex/DOM query, NO LLM) handles those.
+   flagging buyback plans directly (``analyticscontractrates="...^BuyBack:11.4"``);
+   TXU's EFL links self-label via a ``PDFGenerator?formType=EnergyFactsLabel``
+   URL, with buyback announced in each ``show-plan`` card's visible text. A
+   per-REP static extractor (regex/DOM query, NO LLM) handles those.
 2. **LLM fallback.** For sites that *don't* self-label this cleanly (an
    ambiguous "Download" button, a bare filename), :func:`classify_link_llm`
    asks a local Ollama model (``lfm2.5``, JSON-forced output) to classify a
@@ -20,6 +23,13 @@ Design (two tiers, deterministic-first, mirroring ``eflparse``'s philosophy):
    know domain facts unprompted, so the prompt carries an explicit EFL/buyback
    definition plus worked examples and always feeds real page text -- never a
    bare URL.
+3. **LLM review** (``discover(..., llm_review=True)``). Every EFL the static
+   extractor returned is re-checked by the LLM, so a wording change on the site
+   can't silently lose a solar-buyback plan to the static buyback heuristic.
+   Review is **upgrade-only** (promotes to buyback at/above a confidence
+   threshold, never removes a discovered EFL) -- erring toward keeping buyback
+   EFLs. Validated live against TXU: all 10 plans reviewed, only the real
+   buyback plan flagged, zero false upgrades.
 
 Like the other fetchers in this package the module is **offline-first**: the
 static extractors and the LLM classifier operate on rendered HTML already on
@@ -47,6 +57,7 @@ import re
 import time
 import unicodedata
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
@@ -127,8 +138,9 @@ def _strip_tags(s: str) -> str:
 
 
 def _clean_plan_name(name: str) -> str:
-    """Human-facing plan name: drop trademark glyphs and collapse whitespace."""
-    return _WS_RE.sub(" ", _TRADEMARK_RE.sub("", name)).strip()
+    """Human-facing plan name: decode HTML entities, drop trademark glyphs, and
+    collapse whitespace."""
+    return _WS_RE.sub(" ", _TRADEMARK_RE.sub("", unescape(name))).strip()
 
 
 def _normalize_name(name: str) -> str:
@@ -215,6 +227,90 @@ def extract_green_mountain(html: str, config: RepConfig) -> list[DiscoveredPlan]
                 buyback_ckwh=buyback_ckwh,
                 extraction_method="static",
                 context="Important Documents > Electricity Facts Label",
+            )
+        )
+    return plans
+
+
+# --------------------------------------------------------------------------- #
+# TXU static extractor
+# --------------------------------------------------------------------------- #
+_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.I | re.S)
+# TXU renders each plan in a card <div class="... show-plan ...">.
+_TXU_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="[^"]*\bshow-plan\b)')
+# The card title is a <p> whose class carries both these tokens.
+_TXU_TITLE_RE = re.compile(r'<p\b[^>]*\bclass="([^"]*)"[^>]*>(.*?)</p>', re.I | re.S)
+# The EFL link IS its own self-label: TXU points at a PDF generator with
+# formType=EnergyFactsLabel and the plan's product id in comProdId.
+_TXU_EFL_URL_RE = re.compile(
+    r'href="([^"]*PDFGenerator\?formType=EnergyFactsLabel[^"]*)"', re.I
+)
+_TXU_COMPRODID_RE = re.compile(r"comProdId=([A-Za-z0-9]+)", re.I)
+# Buyback self-labeling in a card's *visible* text (scripts are stripped first,
+# so TXU's embedded Next.js "Solar Panel Buyback" badge JSON can't leak in).
+_TXU_BUYBACK_RE = re.compile(r"buyback|excess energy|excess solar|panels required", re.I)
+
+
+def _txu_card_title(card: str) -> str:
+    """First <p> in the card whose class marks it as the plan title
+    (`font-mProBlack` + `text-txublue`)."""
+    for m in _TXU_TITLE_RE.finditer(card):
+        cls = m.group(1)
+        if "font-mProBlack" in cls and "text-txublue" in cls:
+            return _clean_plan_name(_strip_tags(m.group(2)))
+    return ""
+
+
+def extract_txu(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for TXU's rendered plans page.
+
+    TXU self-labels cleanly, but differently from Green Mountain: EFL links are
+    a ``PDFGenerator?formType=EnergyFactsLabel&comProdId=<id>`` URL (the query
+    string *is* the label — no reliance on the link text, which trails an icon
+    ``<span>``), and each plan is a ``show-plan`` card carrying a styled title
+    ``<p>`` and a visible description. Buyback plans announce themselves in that
+    description ("...bill credits for your excess energy... Panels required.").
+
+    Scripts are stripped first: TXU embeds a Next.js data blob (~half the page)
+    whose badge metadata includes "Solar Panel Buyback"/"Our Best Buyback Rate"
+    strings that would otherwise false-positive non-buyback cards (e.g. Flex
+    Forward). Buyback rate isn't published on this page (it's in the EFL PDF),
+    so `buyback_ckwh` stays None.
+    """
+    # Comments before scripts: a commented-out <script> tag must not let the
+    # script regex run past it into real markup.
+    html = _SCRIPT_RE.sub("", _strip_comments(html))
+    cards = [c for c in _TXU_CARD_SPLIT_RE.split(html) if "show-plan" in c[:120]]
+    base = config.homepage
+
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for card in cards:
+        url_m = _TXU_EFL_URL_RE.search(card)
+        if not url_m:
+            continue
+        efl_url = urljoin(base, unescape(url_m.group(1)))
+        pid_m = _TXU_COMPRODID_RE.search(efl_url)
+        product_id = pid_m.group(1) if pid_m else efl_url
+        if product_id in seen:
+            continue
+        seen.add(product_id)
+        plan_name = _txu_card_title(card) or product_id
+        is_buyback = bool(
+            _TXU_BUYBACK_RE.search(card) or re.search(r"solar|buyback", plan_name, re.I)
+        )
+        # Store the card's visible text as context so an optional LLM review
+        # pass (discover(..., llm_review=True)) has real wording to judge.
+        card_text = _strip_tags(card)[:600]
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name,
+                efl_url=efl_url,
+                is_buyback=is_buyback,
+                buyback_ckwh=None,
+                extraction_method="static",
+                context=f"[comProdId={product_id}] {card_text}",
             )
         )
     return plans
@@ -335,44 +431,80 @@ def discover(
     html: str,
     config: RepConfig,
     use_llm_fallback: bool = True,
+    llm_review: bool = False,
     llm_min_confidence: float = 0.6,
+    review_min_confidence: float = 0.7,
     **llm_kwargs: object,
 ) -> list[DiscoveredPlan]:
-    """Run the two-tier extraction for one REP's rendered HTML.
+    """Run the deterministic extraction for one REP's rendered HTML, with two
+    optional LLM tiers.
 
-    Tier 1 is ``config.extractor`` (deterministic). If it finds nothing and
-    ``use_llm_fallback`` is set, tier 2 walks every ``.pdf`` anchor and asks the
-    LLM classifier whether it is an EFL (keeping those at or above
-    ``llm_min_confidence``); the classifier's ``thinking`` is preserved on each
-    result for audit. A failure of the LLM tier is swallowed (best-effort) --
-    the static result stands.
+    Tier 1 is ``config.extractor`` (deterministic self-label parse).
+
+    If it finds nothing and ``use_llm_fallback`` is set, a fallback walks every
+    ``.pdf`` anchor and asks the LLM classifier whether it is an EFL (keeping
+    those at or above ``llm_min_confidence``).
+
+    If ``llm_review`` is set, EVERY plan the static extractor returned is then
+    re-checked by the LLM -- so a wording change on the site can't silently
+    lose a solar-buyback plan to the static buyback heuristic. Review is
+    **upgrade-only**: the LLM may promote a plan to ``is_buyback=True`` (at or
+    above ``review_min_confidence``) but never removes a discovered EFL, so we
+    err toward keeping buyback EFLs rather than dropping them. Each reviewed
+    plan keeps the model's confidence + reasoning for audit.
+
+    All LLM tiers are best-effort: a failure (Ollama down) is swallowed and the
+    deterministic result stands.
     """
     plans = list(config.extractor(html, config))
-    if plans or not use_llm_fallback:
-        return plans
 
-    html = _strip_comments(html)
-    for m in _GENERIC_EFL_ANCHOR_RE.finditer(html):
-        href = urljoin(config.homepage, m.group(1).strip())
-        link_text = _strip_tags(m.group(2))
-        context = _strip_tags(html[max(0, m.start() - 600) : m.end() + 200])
-        try:
-            verdict = classify_link_llm(link_text, context, url=href, **llm_kwargs)  # type: ignore[arg-type]
-        except RuntimeError:
-            break  # Ollama unavailable -> abandon the LLM tier entirely
-        if verdict["is_efl"] and verdict["confidence"] >= llm_min_confidence:
-            plans.append(
-                DiscoveredPlan(
-                    retailer=config.retailer,
-                    plan_name=link_text or "(unknown)",
-                    efl_url=href,
-                    is_buyback=verdict["is_buyback"] or None,
-                    extraction_method="llm",
-                    llm_confidence=verdict["confidence"],
-                    context=f"{link_text} :: {verdict['thinking']}",
+    if not plans and use_llm_fallback:
+        stripped = _strip_comments(html)
+        for m in _GENERIC_EFL_ANCHOR_RE.finditer(stripped):
+            href = urljoin(config.homepage, m.group(1).strip())
+            link_text = _strip_tags(m.group(2))
+            context = _strip_tags(stripped[max(0, m.start() - 600) : m.end() + 200])
+            try:
+                verdict = classify_link_llm(link_text, context, url=href, **llm_kwargs)  # type: ignore[arg-type]
+            except RuntimeError:
+                break  # Ollama unavailable -> abandon the LLM tier entirely
+            if verdict["is_efl"] and verdict["confidence"] >= llm_min_confidence:
+                plans.append(
+                    DiscoveredPlan(
+                        retailer=config.retailer,
+                        plan_name=link_text or "(unknown)",
+                        efl_url=href,
+                        is_buyback=verdict["is_buyback"] or None,
+                        extraction_method="llm",
+                        llm_confidence=verdict["confidence"],
+                        context=f"{link_text} :: {verdict['thinking']}",
+                    )
                 )
-            )
+
+    if llm_review and plans:
+        _llm_review_plans(plans, review_min_confidence, **llm_kwargs)
+
     return plans
+
+
+def _llm_review_plans(
+    plans: list[DiscoveredPlan], review_min_confidence: float, **llm_kwargs: object
+) -> None:
+    """Upgrade-only LLM review of already-discovered plans (see `discover`).
+    Mutates each plan in place; stops silently if Ollama is unavailable."""
+    for p in plans:
+        try:
+            verdict = classify_link_llm(p.plan_name, p.context, url=p.efl_url, **llm_kwargs)  # type: ignore[arg-type]
+        except RuntimeError:
+            break  # Ollama down -> keep the deterministic verdicts we have
+        p.llm_confidence = verdict["confidence"]
+        if (
+            verdict["is_buyback"]
+            and verdict["confidence"] >= review_min_confidence
+            and not p.is_buyback
+        ):
+            p.is_buyback = True
+            p.context += f" :: LLM review upgraded to buyback ({verdict['thinking']})"
 
 
 # --------------------------------------------------------------------------- #
@@ -603,5 +735,37 @@ GREEN_MOUNTAIN = RepConfig(
     render=_green_mountain_render,
 )
 
+
+def _txu_render(page: object, zip_code: str) -> None:
+    """TXU nav flow, adapted from a `playwright codegen` recording. Dismisses
+    the privacy banner and the two "No"-style interstitials (all best-effort --
+    they don't always appear), selects the residential/"already live here"
+    path, then enters the ZIP gate. `fetch_rendered_html` handles goto() and
+    the post-render settle wait."""
+
+    def _try(action) -> None:
+        try:
+            action()
+        except Exception:  # noqa: BLE001
+            pass
+
+    _try(lambda: page.locator(".privacy-warning > .close").click(timeout=4000))  # type: ignore[attr-defined]
+    page.get_by_role("button", name="Shop Plans").click()  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="No", exact=True).click(timeout=4000))  # type: ignore[attr-defined]
+    page.get_by_role("img", name="House icon").click()  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="No, I already live here").click(timeout=4000))  # type: ignore[attr-defined]
+    page.locator("#p2p-house-zipcode").click()  # type: ignore[attr-defined]
+    page.locator("#p2p-house-zipcode").fill(zip_code)  # type: ignore[attr-defined]
+    page.get_by_role("button", name="See Plans").click()  # type: ignore[attr-defined]
+
+
+TXU = RepConfig(
+    key="txu",
+    retailer="TXU Energy",
+    homepage="https://www.txu.com/",
+    extractor=extract_txu,
+    render=_txu_render,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
-REP_CONFIGS: dict[str, RepConfig] = {GREEN_MOUNTAIN.key: GREEN_MOUNTAIN}
+REP_CONFIGS: dict[str, RepConfig] = {c.key: c for c in (GREEN_MOUNTAIN, TXU)}

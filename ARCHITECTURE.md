@@ -261,15 +261,21 @@ marketing sites — the plans PTC and meterplan.com both miss (see
 `fetch_rendered_html` drives a real browser via Playwright (optional dep:
 `pip install 'energyanalyzer[discovery]' && playwright install chromium`;
 lazily imported, raises a clear install/manual-fallback message when absent).
-Extraction is **two-tier, deterministic-first** (mirrors `eflparse`'s
-philosophy): `discover()` runs a per-REP static extractor first
-(`extract_green_mountain` reads the site's own self-labeling — an explicit
+Extraction is **deterministic-first** (mirrors `eflparse`'s philosophy) with
+two optional LLM tiers: `discover()` runs a per-REP static extractor first
+(`extract_green_mountain` reads Green Mountain's self-labeling — an explicit
 `<a>Electricity Facts Label</a>` per plan joined by normalized name to the
 hidden analytics div whose `analyticscontractrates="...^BuyBack:<rate>"` flags
-buyback plans — NO LLM), and only falls back to `classify_link_llm` (local
-Ollama, `lfm2.5`, JSON-forced, fed real link text + page context, never a bare
-URL; best-effort, tolerated if the server is down) for sites that don't
-self-label. `download_discovered` downloads matched EFLs (buyback-only by
+buyback plans; `extract_txu` reads TXU's `show-plan` cards, whose EFL links
+self-label via a `PDFGenerator?formType=EnergyFactsLabel&comProdId=<id>` URL
+with buyback announced in each card's visible text — both NO LLM, both strip
+the page's embedded `<script>`/Next.js data blobs first so badge JSON can't
+false-positive). It falls back to `classify_link_llm` (local Ollama, `lfm2.5`,
+JSON-forced, fed real link text + page context, never a bare URL; best-effort,
+tolerated if the server is down) only for sites that don't self-label. With
+`llm_review=True`, every returned EFL is additionally LLM-reviewed
+**upgrade-only** (may promote to buyback, never drops an EFL) so a site wording
+change can't silently lose a buyback plan. `download_discovered` downloads matched EFLs (buyback-only by
 default) into `data/efl/` and appends a per-download manifest
 (`data/efl/rep_discovery_manifest.jsonl`: retailer, plan_name, source_url,
 discovered_at, extraction_method, llm_confidence, is_buyback, buyback_ckwh) so
@@ -362,7 +368,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | app + fetchers followup | #6/#4 | DONE | fixed 3 user-reported Plans-page issues: `fetchers.ptc.filter_plans` gained a backward-compatible `language="English"` default filter + snapshot TDU picker in the UI (was reading as truncation, was actually TDU+Spanish-duplicate filtering); `download_efls` gained `progress_callback` wired to `st.progress`; new `app/common.parse_downloaded_efls` batch-parses `data/efl/*.pdf` into `plans/drafts/` (per-file try/except, skip-if-already-parsed) plus a "Draft plans" review/edit/promote UI -- promote/delete both invalidate the plans cache and `st.rerun()` so the main table updates immediately; 183 tests green (`pytest tests/`), plus manual `streamlit.testing.v1.AppTest` smoke passes on the Plans page across empty and populated states |
 | app followup 2: refresh + staleness | #6/#4 | DONE | new `app/common.refresh_market_data` (delete old ptc/efl:-sourced plans+drafts+EFLs+stale snapshots -- never manual/report-*/current-plan -- then fetch-or-fallback → load+filter → download → parse → auto-promote drafts with needs_review=False and all load-bearing confidences >=0.8, stamping `retrieved`) wired to a confirmation-gated "Refresh market data" button + one progress bar with staged labels on the Plans page; new staleness helpers (`interval_staleness_warning`, `price_coverage_warning`, `tdu_staleness_warning`, `plan_is_stale`/`stale_plan_ids`) surfaced as warnings + a "Stale?" table column on Compare; single-draft promote also stamps `retrieved`; 190 tests green (`pytest tests/`, incl. new tests/test_refresh.py), ruff clean, manual AppTest smoke green on both Plans (checkbox-gated button, full refresh pipeline with faked transport, promote/delete) and Compare (staleness warnings + Stale? column render against the real data/IntervalData.csv + plans/*.yaml) |
 | meterplan.com solar plan index | #4/#6 | DONE | new `fetchers/meterplan.py` (fetch_meterplan/load_meterplan/filter_meterplan/meterplan_to_drafts, offline-first, tests/fixtures/meterplan_sample.md as format reference); covers solar buyback plans (mostly non-Oncor TDUs) PTC's export lacks -- their "Estimated annual cost" column is never read, only rates; drafts get a `_parse` confidence/evidence block like eflparse, battery-required rows skipped, free-hours-named plans get an assumed 9pm-6am two-rate structure at low confidence + needs_review, deduped by (retailer, plan, term) against plans already in the database; wired into `app/common.refresh_market_data` as a new stage between EFL parsing and auto-promote (same fetch-or-fallback-to-newest-disk-snapshot pattern, tolerated gracefully if unavailable) and into a new "Meterplan solar plan index" subsection on the Plans page (fetch/snapshot-picker/TDU-filter/import-as-drafts, feeding the existing drafts review/promote UI unchanged); from the committed fixture, filtering to Oncor produces 30 imported / 0 skipped-battery / 0 skipped-existing / 10 flagged-for-review (all schema-valid via Plan.model_validate); 214 tests green (`pytest tests/`, incl. new tests/test_meterplan.py + extended tests/test_refresh.py), ruff clean, manual AppTest smoke green on the Plans page (empty + populated meterplan states, load/filter/import-as-drafts) with data/ and plans/drafts/ left with no git residue afterward |
-| rep_discovery (REP-site EFL discovery) | #4 | DONE (Green Mountain) | new `fetchers/rep_discovery.py`: two-tier (static self-label extractor + Ollama `lfm2.5` JSON fallback) discovery of solar buyback EFLs on REP marketing sites PTC/meterplan miss; Playwright live fetch behind optional `[discovery]` extra; `download_discovered` → `data/efl/` + jsonl manifest. Green Mountain static extractor validated against a real rendered-HTML capture (11 plans, 2 buyback self-labeled correctly); 17 tests + 1 skipif-gated live-Ollama test in tests/test_rep_discovery.py, ruff clean. NOT yet wired into `refresh_market_data` (per §7/§9); more REPs need their flow recorded first. |
+| rep_discovery (REP-site EFL discovery) | #4 | DONE (Green Mountain + TXU) | new `fetchers/rep_discovery.py`: deterministic-first (per-REP static self-label extractor) discovery of solar buyback EFLs on REP marketing sites PTC/meterplan miss, plus an Ollama `lfm2.5` JSON fallback (sites that don't self-label) and an upgrade-only `llm_review=True` pass over all returned EFLs (a site wording change can't silently lose a buyback plan). Playwright live fetch behind optional `[discovery]` extra; `download_discovered` → `data/efl/` + jsonl manifest. Green Mountain (analytics `^BuyBack` flag) and TXU (`show-plan` cards + `PDFGenerator?formType=EnergyFactsLabel` URLs, scripts stripped) static extractors each validated against real rendered-HTML captures (GM 11/2 buyback, TXU 10/1 buyback); llm_review validated live on TXU (10 reviewed, 1 flagged, 0 false upgrades); 27 tests + 1 skipif-gated live-Ollama test, ruff clean. NOT yet wired into `refresh_market_data` (per §7/§9). |
 | integration/validation | #7 | TODO | lead |
 
 ## 11. Open questions / decisions log

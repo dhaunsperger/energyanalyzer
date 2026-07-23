@@ -19,10 +19,11 @@ import pytest
 from energyanalyzer.fetchers import rep_discovery as rd
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rep_green_mountain_sample.html"
+TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
 
 
 # --------------------------------------------------------------------------- #
-# Static extractor
+# Green Mountain static extractor
 # --------------------------------------------------------------------------- #
 def _extract():
     html = FIXTURE.read_text(encoding="utf-8")
@@ -73,6 +74,55 @@ def test_static_extractor_ignores_non_efl_documents():
     # Terms of Service / Your Rights anchors must not be picked up.
     urls = {p.efl_url for p in _extract()}
     assert not any("tos" in u or "yrac" in u for u in urls)
+
+
+# --------------------------------------------------------------------------- #
+# TXU static extractor
+# --------------------------------------------------------------------------- #
+def _extract_txu():
+    html = TXU_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.TXU, use_llm_fallback=False)
+
+
+def test_txu_extractor_finds_all_cards():
+    plans = _extract_txu()
+    assert len(plans) == 3
+    assert all(p.retailer == "TXU Energy" for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+    # EFL links self-label via the PDFGenerator query string.
+    assert all("formType=EnergyFactsLabel" in p.efl_url for p in plans)
+
+
+def test_txu_extractor_unescapes_plan_names():
+    names = {p.plan_name for p in _extract_txu()}
+    assert "Free Nights & Cool Summer 12" in names  # &amp; decoded
+    assert "Solar Buyback System Flex" in names
+
+
+def test_txu_extractor_flags_only_the_buyback_plan():
+    by_name = {p.plan_name: p for p in _extract_txu()}
+    assert by_name["Solar Buyback System Flex"].is_buyback is True
+    assert by_name["Free Nights & Cool Summer 12"].is_buyback is False
+
+
+def test_txu_extractor_ignores_script_buyback_badges():
+    # The embedded Next.js data blob labels a "Solar Panel Buyback" badge, but
+    # Flex Forward's *visible* card is not a buyback plan -- scripts must be
+    # stripped so that badge JSON can't leak in and false-positive it.
+    by_name = {p.plan_name: p for p in _extract_txu()}
+    assert by_name["Flex Forward"].is_buyback is False
+
+
+def test_txu_buyback_efl_url_carries_product_id():
+    buyback = [p for p in _extract_txu() if p.is_buyback]
+    assert len(buyback) == 1
+    assert "comProdId=ONXSBBSYSV00AB" in buyback[0].efl_url
+    assert buyback[0].buyback_ckwh is None  # rate isn't published on the page
+
+
+def test_txu_registered_in_rep_configs():
+    assert rd.REP_CONFIGS["txu"].retailer == "TXU Energy"
+    assert rd.REP_CONFIGS["txu"].render is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -220,6 +270,82 @@ def test_discover_skips_llm_when_static_succeeds():
     )
     assert len(plans) == 1
     assert calls == []  # LLM tier never invoked when static tier produced hits
+
+
+# --------------------------------------------------------------------------- #
+# LLM review pass (upgrade-only, over all returned EFLs)
+# --------------------------------------------------------------------------- #
+def _static_two(html, config):
+    return [
+        rd.DiscoveredPlan(retailer="R", plan_name="Solar Saver 12", efl_url="a.pdf",
+                          is_buyback=False, context="a plan with export credits"),
+        rd.DiscoveredPlan(retailer="R", plan_name="Simple Fixed 12", efl_url="b.pdf",
+                          is_buyback=False, context="a flat-rate plan"),
+    ]
+
+
+def test_llm_review_upgrades_missed_buyback():
+    # Static missed the buyback flag on "Solar Saver 12"; review recovers it so
+    # a buyback-only download won't drop it.
+    def review_chat(messages, model, ollama_url, timeout):
+        user = messages[-1]["content"]
+        is_bb = "Solar Saver" in user
+        return {"message": {"content": json.dumps(
+            {"is_efl": True, "is_buyback": is_bb, "confidence": 0.9, "thinking": "reviewed"}
+        )}}
+
+    plans = rd.discover(
+        "<html></html>", _dummy_config(_static_two),
+        use_llm_fallback=False, llm_review=True, chat_fn=review_chat,
+    )
+    by_name = {p.plan_name: p for p in plans}
+    assert by_name["Solar Saver 12"].is_buyback is True   # upgraded
+    assert by_name["Simple Fixed 12"].is_buyback is False  # unchanged
+    assert all(p.llm_confidence == 0.9 for p in plans)     # every EFL reviewed
+
+
+def test_llm_review_is_upgrade_only_never_drops():
+    # Even if the LLM says "not buyback", the plan is kept (never removed) and a
+    # statically-flagged buyback is never downgraded.
+    def deny_chat(messages, model, ollama_url, timeout):
+        return {"message": {"content": json.dumps(
+            {"is_efl": False, "is_buyback": False, "confidence": 0.99, "thinking": "no"}
+        )}}
+
+    def static_bb(html, config):
+        return [rd.DiscoveredPlan(retailer="R", plan_name="Solar BB", efl_url="a.pdf",
+                                  is_buyback=True, context="buyback")]
+
+    plans = rd.discover(
+        "<html></html>", _dummy_config(static_bb),
+        use_llm_fallback=False, llm_review=True, chat_fn=deny_chat,
+    )
+    assert len(plans) == 1                 # not dropped
+    assert plans[0].is_buyback is True     # not downgraded
+
+
+def test_llm_review_below_threshold_does_not_upgrade():
+    def weak_chat(messages, model, ollama_url, timeout):
+        return {"message": {"content": json.dumps(
+            {"is_efl": True, "is_buyback": True, "confidence": 0.5, "thinking": "maybe"}
+        )}}
+
+    plans = rd.discover(
+        "<html></html>", _dummy_config(_static_two),
+        use_llm_fallback=False, llm_review=True, review_min_confidence=0.7, chat_fn=weak_chat,
+    )
+    assert all(p.is_buyback is False for p in plans)  # 0.5 < 0.7 -> no upgrade
+
+
+def test_llm_review_tolerates_ollama_down():
+    def boom(*args, **kwargs):
+        raise ConnectionError("no ollama")
+
+    plans = rd.discover(
+        "<html></html>", _dummy_config(_static_two),
+        use_llm_fallback=False, llm_review=True, chat_fn=boom,
+    )
+    assert len(plans) == 2  # deterministic results stand, no raise
 
 
 # --------------------------------------------------------------------------- #
