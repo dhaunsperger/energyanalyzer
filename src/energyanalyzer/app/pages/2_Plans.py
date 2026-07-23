@@ -375,6 +375,34 @@ st.caption(
 refresh_confirm = st.checkbox(
     "I understand auto-imported plans will be replaced", key="refresh_confirm"
 )
+run_discovery = st.checkbox(
+    "Also discover solar buyback plans from retailer sites (slow)",
+    key="refresh_run_discovery",
+    help=(
+        "Beyond Power to Choose and meterplan.com, query individual retailer marketing "
+        "sites (Green Mountain, TXU, Chariot, Gexa, Octopus, Champion, Ambit) for solar "
+        "**buyback** EFLs the aggregators miss. Each site is a live browser session, so a "
+        "full sweep takes several minutes; per-retailer results appear below when it "
+        "finishes.\n\n"
+        "**Requires the Playwright browser:** `pip install 'energyanalyzer[discovery]' && "
+        "playwright install chromium`. A retailer whose browser step fails is reported as "
+        "an error and the rest still run.\n\n"
+        "**Manual captures:** some sites block automation. Ambit's plans page must be saved "
+        "by hand as `data/rep_discovery/ambit_<timestamp>.html` (open it in a browser, "
+        "complete the ZIP gate, then Save Page As -> Web Page, HTML Only). Any retailer "
+        "shown as 'manual-needed' below is captured the same way.\n\n"
+        "**Private info stays local:** Octopus needs your ESI ID (its ZIP spans load "
+        "zones). Put it in the gitignored `data/rep_discovery_secrets.yaml` under "
+        "`octopus:` -- it is never committed or logged."
+    ),
+)
+discovery_zip = st.text_input(
+    "Discovery ZIP code",
+    value="78665",
+    key="refresh_discovery_zip",
+    help="ZIP entered into each retailer's plan-shopping gate during discovery.",
+    disabled=not run_discovery,
+)
 if st.button("Refresh market data", key="refresh_market_btn", disabled=not refresh_confirm):
     refresh_progress = st.progress(0.0)
     refresh_status = st.empty()
@@ -390,6 +418,8 @@ if st.button("Refresh market data", key="refresh_market_btn", disabled=not refre
         ptc_dir=PTC_DIR,
         meterplan_dir=METERPLAN_DIR,
         progress_callback=_refresh_progress,
+        run_discovery=run_discovery,
+        discovery_zip=discovery_zip.strip() or "78665",
     )
     refresh_progress.progress(1.0)
     invalidate_plans_cache()
@@ -413,6 +443,31 @@ if refresh_summary is not None:
         f"{mp_refresh.get('skipped_existing', 0)} already in the plan database, "
         f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
+    disc_refresh = refresh_summary.get("discovery") or {}
+    if disc_refresh.get("enabled"):
+        disc_reps = disc_refresh.get("reps") or {}
+        disc_dl = disc_refresh.get("downloaded") or {}
+        disc_parsed = disc_refresh.get("parsed") or {}
+        n_ok = sum(1 for r in disc_reps.values() if r.get("status") == "ok")
+        st.caption(
+            f"REP-site discovery: queried {len(disc_reps)} retailer(s), {n_ok} ok; "
+            f"downloaded {len(disc_dl.get('downloaded', []))} buyback EFL(s), "
+            f"parsed {len(disc_parsed.get('parsed', []))} into draft(s)."
+        )
+        if disc_reps:
+            st.dataframe(
+                [
+                    {
+                        "Retailer": r.get("retailer", key),
+                        "Status": r.get("status", ""),
+                        "Plans": r.get("plans_found", 0),
+                        "Buyback": r.get("buyback", 0),
+                        "Detail": r.get("detail", ""),
+                    }
+                    for key, r in disc_reps.items()
+                ],
+                hide_index=True,
+            )
     for note in refresh_summary["notes"]:
         st.caption(f"- {note}")
     with st.expander("Full refresh summary"):

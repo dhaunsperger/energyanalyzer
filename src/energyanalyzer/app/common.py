@@ -29,6 +29,7 @@ ERCOT_DIR = DATA_DIR / "ercot"
 PTC_DIR = DATA_DIR / "ptc"
 EFL_DIR = DATA_DIR / "efl"
 METERPLAN_DIR = DATA_DIR / "meterplan"
+REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
 DEFAULT_LOAD_ZONE = "LZ_NORTH"
@@ -256,6 +257,155 @@ def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> 
     )
 
 
+def _run_rep_discovery(
+    zip_code: str,
+    efl_dir: Path = EFL_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    plans_dir: Path = PLANS_DIR,
+    reps: Optional[list[str]] = None,
+    headless: bool = True,
+    snapshot_dir: Path = REP_DISCOVERY_DIR,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Discover solar-buyback plan EFLs on individual REP marketing sites that
+    Power to Choose and meterplan.com miss (ARCHITECTURE.md §7), download the
+    buyback EFLs into `efl_dir`, and parse the newly downloaded PDFs into drafts
+    (so `refresh_market_data`'s auto-promote step handles them like any other
+    draft).
+
+    Each REP is dispatched by how its `RepConfig` is wired
+    (`fetchers.rep_discovery.REP_CONFIGS`):
+
+    * **harvester** (e.g. Champion, EFL URL JS-computed) -> `harvest_live`.
+    * **extractor + render** (most REPs) -> `fetch_rendered_html` (live
+      Playwright) then `discover`.
+    * **extractor, no render** (e.g. Ambit, whose WAF blocks Playwright) ->
+      `discover` on the newest manually-captured `<key>_*.html` in
+      `snapshot_dir`; reported as `manual-needed` if no capture is on disk.
+
+    Every REP runs inside its own try/except so one site's failure (Playwright
+    missing, robots.txt block, a WAF, a missing ESI-ID secret, a nav-flow drift)
+    is recorded and the rest still run -- nothing here aborts the refresh.
+
+    `reps` limits the run to those REP keys (default: all configured). PII some
+    sites need to render (e.g. Octopus's ESI ID) is read by the fetcher from the
+    gitignored `data/rep_discovery_secrets.yaml`, never passed in here.
+
+    Returns `{'reps': {key: {'retailer', 'status', 'plans_found', 'buyback',
+    'detail'}, ...}, 'downloaded': <download_discovered() summary>, 'parsed':
+    <parse_downloaded_efls() summary>}` where `status` is one of `'ok'`,
+    `'error'`, or `'manual-needed'`.
+    """
+    from energyanalyzer.fetchers import rep_discovery as rd
+
+    efl_dir = Path(efl_dir)
+    drafts_dir = Path(drafts_dir)
+    plans_dir = Path(plans_dir)
+    snapshot_dir = Path(snapshot_dir)
+
+    def _report(stage: str, done: int, total: int, item: str) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total, f"{stage}: {item}")
+
+    result: dict = {
+        "reps": {},
+        "downloaded": {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0},
+        "parsed": {"parsed": [], "skipped": [], "failed": []},
+    }
+
+    keys = list(reps) if reps is not None else list(rd.REP_CONFIGS.keys())
+    all_plans: list = []
+    total = len(keys)
+    for i, key in enumerate(keys, start=1):
+        config = rd.REP_CONFIGS.get(key)
+        if config is None:
+            result["reps"][key] = {
+                "retailer": key,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": "unknown REP key (not in REP_CONFIGS)",
+            }
+            continue
+        label = config.retailer
+        _report("discovery", i, total, f"{label} (querying site)")
+        try:
+            if config.harvester is not None:
+                plans = rd.harvest_live(config, zip_code, headless=headless)
+                detail = "harvested live"
+            elif config.render is not None:
+                html, _snap = rd.fetch_rendered_html(
+                    config, zip_code, headless=headless, snapshot_dir=snapshot_dir
+                )
+                plans = rd.discover(html, config)
+                detail = "rendered live"
+            else:
+                # No render(): WAF/manual-capture REP. Use the newest saved
+                # capture; if there's none, tell the user to run one by hand.
+                snaps = (
+                    sorted(snapshot_dir.glob(f"{key}_*.html")) if snapshot_dir.exists() else []
+                )
+                if not snaps:
+                    result["reps"][key] = {
+                        "retailer": label,
+                        "status": "manual-needed",
+                        "plans_found": 0,
+                        "buyback": 0,
+                        "detail": (
+                            f"no saved capture in {snapshot_dir}/ -- this site blocks "
+                            f"automation; save its rendered plans page as {key}_<ts>.html"
+                        ),
+                    }
+                    continue
+                newest = max(snaps, key=lambda p: p.stat().st_mtime)
+                html = newest.read_text(encoding="utf-8")
+                plans = rd.discover(html, config)
+                detail = f"from manual capture {newest.name}"
+        except Exception as exc:  # noqa: BLE001 -- one REP's failure mustn't abort the rest
+            result["reps"][key] = {
+                "retailer": label,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": repr(exc),
+            }
+            continue
+        buyback = sum(1 for p in plans if p.is_buyback)
+        result["reps"][key] = {
+            "retailer": label,
+            "status": "ok",
+            "plans_found": len(plans),
+            "buyback": buyback,
+            "detail": detail,
+        }
+        all_plans.extend(plans)
+
+    if not all_plans:
+        return result
+
+    # Download the discovered buyback EFLs into efl_dir (writes its own
+    # rep_discovery manifest so downstream can tell these from PTC/meterplan).
+    result["downloaded"] = rd.download_discovered(
+        all_plans,
+        dest=efl_dir,
+        progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
+    )
+
+    # Parse ONLY the newly discovered PDFs (downloaded now, or already on disk
+    # from a prior run) into drafts -- the caller's stage-5 EFL parse already ran
+    # before this, so this avoids re-parsing the whole efl_dir.
+    dl = result["downloaded"]
+    discovered_pdfs = sorted({Path(p) for p in (dl["downloaded"] + dl["skipped"])})
+    if discovered_pdfs:
+        result["parsed"] = parse_downloaded_efls(
+            discovered_pdfs,
+            drafts_dir=drafts_dir,
+            plans_dir=plans_dir,
+            progress_callback=lambda d, t, n: _report("discovery-parse", d, t, n),
+        )
+    return result
+
+
 def refresh_market_data(
     plans_dir: Path = PLANS_DIR,
     drafts_dir: Path = DRAFTS_DIR,
@@ -266,6 +416,10 @@ def refresh_market_data(
     language: Optional[str] = "English",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     fetch: bool = True,
+    run_discovery: bool = False,
+    discovery_zip: str = "78665",
+    discovery_headless: bool = True,
+    discovery_reps: Optional[list[str]] = None,
 ) -> dict:
     """"Refresh market data" one-button pipeline (ARCHITECTURE.md §9).
 
@@ -309,6 +463,17 @@ def refresh_market_data(
        if somehow unset), saved via `plans_io.save_plan`, and their draft
        file deleted. A single bad draft cannot abort the batch.
 
+    Between meterplan (6) and auto-promote (7), if ``run_discovery`` is set, an
+    optional **REP-site discovery** stage (`_run_rep_discovery`, ARCHITECTURE.md
+    §7) queries individual retailer marketing sites for solar-buyback EFLs that
+    Power to Choose and meterplan.com miss, downloads them into `efl_dir`, and
+    parses them into drafts the auto-promote step then handles. It's off by
+    default because each REP is a live browser session (the sweep is slow), uses
+    `discovery_zip` for the ZIP gates (`discovery_reps` optionally limits which
+    REPs run; `discovery_headless` toggles the browser), and is fully
+    self-tolerant -- a per-REP failure (Playwright missing, a WAF, a missing
+    ESI-ID secret) is recorded, not raised.
+
     `progress_callback`, if given, is called after every item in every stage
     as `progress_callback(stage_done, stage_total, "<stage>: <item>")` so a
     caller can drive one progress bar + status line across the whole run.
@@ -319,8 +484,11 @@ def refresh_market_data(
     'parsed': <parse_downloaded_efls() summary>, 'meterplan': {'fetched':
     bool, 'snapshot_path': str | None, 'imported': [id, ...],
     'skipped_battery': int, 'skipped_existing': int, 'flagged_for_review':
-    int}, 'promoted': [plan_id, ...], 'needing_review': [draft_stem, ...],
-    'notes': [str, ...]}`.
+    int}, 'discovery': {'enabled': bool, 'reps': {rep_key: {'retailer': str,
+    'status': 'ok'|'error'|'manual-needed', 'plans_found': int, 'buyback': int,
+    'detail': str}, ...}, 'downloaded': <download_discovered() summary>,
+    'parsed': <parse_downloaded_efls() summary>}, 'promoted': [plan_id, ...],
+    'needing_review': [draft_stem, ...], 'notes': [str, ...]}`.
     """
     from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
     from energyanalyzer.fetchers.meterplan import (
@@ -354,6 +522,12 @@ def refresh_market_data(
             "skipped_battery": 0,
             "skipped_existing": 0,
             "flagged_for_review": 0,
+        },
+        "discovery": {
+            "enabled": run_discovery,
+            "reps": {},
+            "downloaded": {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0},
+            "parsed": {"parsed": [], "skipped": [], "failed": []},
         },
         "promoted": [],
         "needing_review": [],
@@ -510,6 +684,32 @@ def refresh_market_data(
         except Exception as exc:  # noqa: BLE001 -- a bad/corrupt snapshot mustn't abort the run
             notes.append(f"Could not parse meterplan.com snapshot {mp_snapshot_path.name}: {exc!r}")
             _report("meterplan", 1, 1, "snapshot parse failed")
+
+    # --- 6.5 REP-site solar buyback discovery (optional; slow) --------------#
+    # Independent of the PTC/meterplan stages: queries individual REP marketing
+    # sites (Playwright/manual capture) for solar-buyback EFLs the two aggregate
+    # sources miss, downloads them into efl_dir, and parses them into drafts that
+    # the auto-promote step below then handles. Off by default (each REP is a
+    # live browser session, so the whole sweep is slow) and fully self-tolerant:
+    # a per-REP failure is recorded in the summary, and the whole stage is
+    # wrapped so it can never abort the refresh.
+    if run_discovery:
+        _report("discovery", 0, 1, "starting REP-site solar buyback discovery")
+        try:
+            summary["discovery"].update(
+                _run_rep_discovery(
+                    zip_code=discovery_zip,
+                    efl_dir=efl_dir,
+                    drafts_dir=drafts_dir,
+                    plans_dir=plans_dir,
+                    reps=discovery_reps,
+                    headless=discovery_headless,
+                    progress_callback=progress_callback,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 -- discovery must never abort the refresh
+            notes.append(f"REP discovery stage failed: {exc!r}")
+            _report("discovery", 1, 1, "discovery stage failed")
 
     # --- 7. auto-promote confident drafts (EFL- and meterplan-sourced) -----#
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
