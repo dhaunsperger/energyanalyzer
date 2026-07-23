@@ -203,7 +203,10 @@ def add_local_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     local = out.index.tz_convert(LOCAL_TZ)
     out["local"] = local
-    out["month"] = local.to_period("M") if hasattr(local, "to_period") else pd.PeriodIndex(local, freq="M")
+    # A month Period is tz-naive; converting a tz-aware index to Period warns
+    # ("...will drop timezone information"). `local` is already local wall time,
+    # so drop the tz explicitly first -- same month buckets, no warning.
+    out["month"] = local.tz_localize(None).to_period("M")
     out["month_num"] = local.month
     out["hour"] = local.hour
     out["weekday"] = local.weekday
