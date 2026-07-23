@@ -1256,8 +1256,11 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
             _try(lambda: popup.close())
         except Exception:  # noqa: BLE001
             efl_url = None
-        # Close the one-at-a-time modal before moving to the next plan.
-        _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
+        # Close the one-at-a-time plan-details modal before the next plan. Its
+        # close button is named "Close" (per the codegen recording) -- distinct
+        # from the "Close this dialog" interstitial dismissed in the nav prelude,
+        # which is already gone by now, so a plain (substring) name match is safe.
+        _try(lambda: page.get_by_role("button", name="Close").click(timeout=6000))  # type: ignore[attr-defined]
         if not efl_url:
             continue
         code_m = _CHAMPION_PLANNAME_PARAM_RE.search(efl_url)

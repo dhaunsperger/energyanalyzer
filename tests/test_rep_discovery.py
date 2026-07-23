@@ -337,7 +337,9 @@ class _FakeLoc:
         elif self.name == "Electricity Facts Label":
             # The click that (in a real browser) spawns the EFL popup.
             self.page._pending_popup = self.page.plans[self.page.current]["efl"]
-        elif self.name == "Close this dialog":
+        elif self.name in ("Close", "Close this dialog"):
+            # "Close" closes the plan-details modal; "Close this dialog" is the
+            # nav-prelude interstitial. Either way, no modal is open afterward.
             self.page.current = None
         # nav buttons (View Rates, New Service, zip text) are no-ops
 
