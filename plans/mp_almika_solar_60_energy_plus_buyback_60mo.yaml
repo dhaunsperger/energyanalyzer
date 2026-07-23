@@ -1,0 +1,26 @@
+id: mp_almika_solar_60_energy_plus_buyback_60mo
+retailer: Almika Solar
+name: 60 Energy Plus Buyback
+term_months: 60
+tdu: ONCOR
+base_charge_usd: 14.95
+energy_rates:
+- rate_ckwh: 14.5
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 10.0
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 14.95
+etf_per_month_remaining: true
+rate_type: fixed
+source: meterplan
+retrieved: '2026-07-21'
+notes: ''
+needs_review: false

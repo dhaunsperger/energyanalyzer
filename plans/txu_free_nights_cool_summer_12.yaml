@@ -1,0 +1,15 @@
+id: txu_free_nights_cool_summer_12
+retailer: TXU Energy
+name: Free Nights & Cool Summer
+term_months: 12
+base_charge_usd: 9.95
+energy_rates:
+  - label: free nights 9pm-6am
+    rate_ckwh: 0
+    window: {hours: [21, 22, 23, 0, 1, 2, 3, 4, 5]}
+  - rate_ckwh: 20.5
+buyback: {kind: none}
+etf_usd: 150
+source: report-2026-07
+needs_review: true
+notes: Verify TXU free-night window hours (9pm-6am assumed).

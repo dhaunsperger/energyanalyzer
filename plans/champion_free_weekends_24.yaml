@@ -1,0 +1,14 @@
+id: champion_free_weekends_24
+retailer: Champion Energy Services
+name: Free Weekends
+term_months: 24
+energy_rates:
+  - label: free weekends
+    rate_ckwh: 0
+    window: {weekdays: [5, 6]}
+  - rate_ckwh: 10.9
+buyback:
+  kind: rtw
+  rtw: {multiplier: 1.0, adder_ckwh: 0.0}
+etf_usd: 250
+source: report-2026-07

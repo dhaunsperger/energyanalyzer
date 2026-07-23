@@ -1,0 +1,18 @@
+# User's current plan. EFL: Pulse Power / Oncor, 9/15/2023 (36mo term originally;
+# report models remaining term as 12). Energy 15.8c = 0.159 - 0.001 paperless.
+id: pulse_current
+retailer: Pulse Power
+name: Your Current Plan
+term_months: 12
+base_charge_usd: 4.95
+energy_rates:
+  - rate_ckwh: 15.8
+buyback:
+  kind: fixed
+  rate_ckwh: 15.8
+  offset_scope: energy_only   # report: "+TDU*" = not offsettable by credits
+etf_usd: 20.0
+etf_per_month_remaining: true
+renewable_pct: 100
+source: report-2026-07
+notes: 1:1 energy buyback at energy charge rate; TDU passthrough not offsettable.

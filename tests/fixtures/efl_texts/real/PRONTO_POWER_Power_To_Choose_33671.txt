@@ -1,0 +1,59 @@
+                                                            Electricity Facts Label - EFL
+                                                         Summer Energy LLC dba Pronto Power
+                                                                    Power To Choose
+                                                                    Oncor 6/17/2026
+                         Price Disclosure              Average price per kWH (Based on 30 days usage) includes {Calc}
+                                     Variable
+                    Utility                                       500                       1000                   2000
+                                      Rate(VR)
+
+
+                  ONCOR                  17.9¢                   17.9¢                      17.9¢                   17.9¢
+
+            Daily Customer Fee (DCF)                    $0.39 cents per day
+Electricity
+  Price     TDSP recurring (pass-through) charges: $0, included in variable rate of 17.9 cents
+  Terms
+            The average price for electric service above includes the variable rate, daily customer fee $0.39¢, and all existing
+            recurring charges for the first billing cycle. The average price does not include non-recurring utility charges, non-
+            recurring fees as referenced below (Other Key Terms), or applicable taxes. Your actual price for a certain period
+            will be shown on each Account Update and will be used to calculate your daily invoice amount based on your
+            electric usage during the preceding day(s).
+            Except for price changes allowed by law or regulatory action, this price is the price that will be applied on your
+            first purchase. This Price may change without notice on subsequent purchases. Please review the historical
+            price of this product available at www.powermepronto.com or by calling 1-888-234-1373
+Other Key
+            A $0.50 fee will be assessed for any billing period in which usage is less than 26 kWh. Account balances that
+  (non-
+           fallbelow $0.00 at the time of billing, will be billed $0.01 higher per kWh until the account acquires a positive
+recurring)
+           balance. See Terms of Service for complete explanation of fees.
+  terms
+           Type of Product                                                           Variable Price Product
+            Contract Term                                                  1 Month
+            Is there a termination fee?                                     Yes, $50.00
+            Can promotional credits be charged back to my account?          No promotional credits are currently
+                                                                           offered with this product.
+                                                                           The average price applied on a daily basis
+                                                                           may be different from the price in this EFL
+                                                                           if there are changes in Utility charges,
+                                                                           changes to ERCOT or Texas Regional
+           Can my price change? If so, how will it change and by how much? Entity administrative fees charged to
+                                                                           loads; or changes resulting from federal,
+Disclosure                                                                 state, or local laws or regulatory actions
+  Chart                                                                    that impose new or modified fees or costs
+                                                                           that are outside our control.
+                                                                            See 'Other Key Terms ' and the 'Terms of
+           What other fees may I be charged?
+                                                                            Service' for explanation of additional fees.
+           Is this a pre-pay or pay in advance product?                    This is a pre-pay/pay as you go product.
+           Does Pronto purchase excess distributed renewable generation?   No
+           Renewable Content                                               20.0
+           Statewide average for Renewable Content                         25.0
+                          Summer Energy LLC dba Pronto Power                         www.powermepronto.com
+                            PO Box 460485, Houston, TX 77056                Hours: M - F 8am to 7pm; Sat 8am - 5pm
+                                 Toll Free 1-888-234-1373                          service@powermepronto.com
+                                      PUCT License # 10205                                 {Version}
+                      Renewable Content for this product:                                                      20.0%
+             The statewide average for renewable content:                                                      25.0%
+

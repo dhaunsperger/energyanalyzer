@@ -1,0 +1,29 @@
+Electricity Facts Label
+Rhythm Energy -- ONCOR
+Plan Name: PowerShift Time-of-Use 12
+
+  Average Monthly Use          500 kWh        1,000 kWh       2,000 kWh
+  Average Price per kWh        19.8c          17.2c            15.9c
+
+On-Peak Energy Charge: 35.7 cents per kWh (weekdays 5 p.m. to 9 p.m.)
+Mid-Peak Energy Charge: 18.9 cents per kWh (weekdays 6 a.m. to 5 p.m.)
+Off-Peak Energy Charge: 4.1 cents per kWh (all other hours)
+
+Base Charge                       $14.95                     per billing cycle
+TDU Delivery Charge                $0.050339                 per kWh
+TDU Delivery Charge                $4.23                      per billing cycle
+
+Does the REP purchase excess distributed renewable generation? No
+
+Type of Product: Fixed Rate
+Contract Term: 12 Months
+
+Do I have a termination fee or any fees associated with terminating service?
+Yes, Rhythm will assess a termination fee of $150 if service is terminated
+before the end of the Contract Term.
+
+Renewable Content: 5%
+The statewide average for renewable content is 31.1%
+
+Rhythm Ops, LLC (PUC Certification Number 10171)
+1005 Congress Ave, Austin, Texas 78701

@@ -1,0 +1,34 @@
+id: southern_federal_power_llc_free_energy_lunch_12_12mo
+retailer: Southern Federal Power, LLC
+name: Free Energy Lunch - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays: []
+    hours:
+    - 12
+  label: free
+  tdu_exempt: false
+- rate_ckwh: 6.9757
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 99.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 6.0
+source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Free_Energy_Lunch_-_12.pdf
+retrieved: '2026-07-21'
+notes: ''
+needs_review: false

@@ -1,0 +1,9 @@
+idKey,TduCompanyName,RepCompany,Product,Term,RateType,Fixed,kwh500,kwh1000,kwh2000,Fees/Credits,PrePaid,TimeOfUse,Renewable,CancellationFee,Website,EnrollURL,FactsURL
+1001,ONCOR,TXU Energy,TXU Solar BB 12,12,Fixed,Y,13.2,12.4,11.9,None,N,N,15,150,https://www.txu.com,https://www.txu.com/enroll?plan=1001,https://www.txu.com/efl/1001.pdf
+1002,ONCOR,Gexa Energy,Gexa Saver Solar Buyback 12,12,Fixed,Y,14.1,13.0,12.5,None,N,N,20,150,https://www.gexaenergy.com,https://www.gexaenergy.com/enroll?plan=1002,https://www.gexaenergy.com/efl/1002.pdf
+1003,ONCOR,Reliant,Reliant Free Overnight,24,Fixed,Y,15.8,14.2,13.1,$25 bill credit,N,Y,10,200,https://www.reliant.com,https://www.reliant.com/enroll?plan=1003,https://www.reliant.com/efl/1003.pdf
+1004,CenterPoint Energy,Direct Energy,Direct Twelve Hour Power 24,24,Fixed,Y,12.9,11.8,11.0,None,N,Y,5,150,https://www.directenergy.com,https://www.directenergy.com/enroll?plan=1004,https://www.directenergy.com/efl/1004.pdf
+1005,ONCOR,Green Mountain Energy,Pollution Free Nights,12,Fixed,Y,16.4,15.1,14.0,None,N,Y,100,150,https://www.greenmountainenergy.com,https://www.greenmountainenergy.com/enroll?plan=1005,https://www.greenmountainenergy.com/efl/1005.pdf
+1006,ONCOR,Payless Power,Payless Prepaid 250,1,Variable,N,17.5,16.0,15.2,None,Y,N,5,0,https://www.paylesspower.com,https://www.paylesspower.com/enroll?plan=1006,https://www.paylesspower.com/efl/1006.pdf
+1007,AEP Texas Central,Pulse Power,Pulse Simple 12,12,Fixed,Y,13.9,12.7,12.0,None,N,N,10,150,https://www.pulsepowertx.com,https://www.pulsepowertx.com/enroll?plan=1007,https://www.pulsepowertx.com/efl/1007.pdf
+1008,ONCOR,Atlantex Power,Atlantex Glow Solar,12,Fixed,Y,14.6,13.3,12.4,None,N,N,25,150,https://www.atlantexpower.com,https://www.atlantexpower.com/enroll?plan=1008,https://www.atlantexpower.com/efl/1008.pdf

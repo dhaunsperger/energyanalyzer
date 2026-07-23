@@ -1,0 +1,15 @@
+# Private user data & caches — never commit (README documents the layout)
+data/*
+!data/README.md
+
+# Draft plans are regenerated on every "Refresh market data" run — scratch
+# review space, not part of the git-versioned plan database in plans/.
+plans/drafts/
+
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.streamlit/secrets.toml

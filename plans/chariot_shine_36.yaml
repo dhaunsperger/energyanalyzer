@@ -1,0 +1,15 @@
+id: chariot_shine_36
+retailer: Chariot Energy
+name: Shine
+term_months: 36
+base_charge_usd: 9.95
+energy_rates:
+  - rate_ckwh: 8.5
+buyback:
+  kind: rtw
+  rtw: {multiplier: 1.0, adder_ckwh: 0.0, cap_ckwh: 25.0}
+etf_usd: 15
+etf_per_month_remaining: true
+source: report-2026-07
+notes: Export credited at real-time wholesale, capped at 25c/kWh (report "RTW<=25c").
+  Verify current rate and cap against Chariot's EFL before enrolling.

@@ -1,0 +1,46 @@
+                                        Electricity Facts Label (EFL)
+                              Just Energy - Fixed Rate Product: Basics PTC - 24
+                                          For Service Area: Oncor
+                                               Date: 7/21/2026
+                Average monthly use:                       500 kWh          1000 kWh                                        2000 kWh
+                Average price per kilowatt-hour                                16.3¢                    15.9¢                   15.7¢
+
+                The average price per kWh is based on the usage levels shown above and includes the following components of the price:
+                • Energy Charge: 9.4¢/kWh
+                • Pass-Through TDSP Distribution Charge: 6.1196¢/kWh
+                • Pass-Through TDSP Customer Charge: $4.06 per month
+Electricity
+              Your average price for electric service will vary according to your monthly usage.
+Price         The average price per kWh does not include JustGreen charge.
+(Residential)
+                The price does not include federal, state, or local sales taxes or fees, reimbursement for the state miscellaneous gross
+                receipts tax, other government charges, or all other non-recurring fees. Some locations may be subject to a TDSP
+                Underground Facilities and Cost Recovery Charge authorized by their city that is not included in the total average price
+                shown. For more details, see the TDSP service tariff for a listing of cities and authorized charges.
+Other Keys
+and Terms       See Terms of Service statement for a full listing of fees, deposit policy, and other terms.
+and
+Questions
+                Type of Product                                          Fixed Rate Product
+                Contract Term                                            24 Months
+                Do I have a termination fee or any fees associated       Yes; The Exit fee is $175 per ESIID.
+                with terminating service?
+                Can my price change during the contract period?          Yes, but only in the limited circumstances described below.
+                If my price can change, how will it change and by        Your price can change to reflect changes in TDU/TDSP charges,
+                how much?                                                changes to the ERCOT or Texas Regional Entity administrative
+                                                                         fees charged to loads or changes resulting from federal, state, or
+Disclosure                                                               local laws that impose new or modified fees or costs on Just
+Chart                                                                    Energy that are beyond our control.
+                What other fees may I be charged?                        Please see the “Special Service Fees” and “JustGreen” sections of
+                                                                         the Terms of Service for more details.
+                Is this a pre-pay or pay in advance product?             No
+                Does the REP purchase excess distributed renewable Yes
+                generation?
+                Renewable Content                                  22%
+                The statewide average for renewable content is           37.2%
+
+            Just Energy Texas L.P. d/b/a Just Energy                                 CustomerSupport@justenergy.com
+            P.O. Box 460008, Houston, Texas 77056                       Monday – Friday: 8AM – 7PM CST, Saturday: 9AM – 6PM CST
+          www.JustEnergy.com | PUCT License # 10052                            Phone: 1-866-587-8674 | Fax: 1-888-548-7690
+                                                                                                     TX_JE_BASICS_PTC_EFL_ENG_V1.3_JUL_01_26
+

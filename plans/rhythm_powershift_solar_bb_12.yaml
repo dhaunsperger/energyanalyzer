@@ -1,0 +1,25 @@
+id: rhythm_powershift_solar_bb_12
+retailer: Rhythm
+name: PowerShift Solar BB
+term_months: 12
+base_charge_usd: 14.95
+energy_rates:
+  - label: peak (assumed 5-9pm)
+    rate_ckwh: 35.7
+    window: {hours: [17, 18, 19, 20]}
+  - label: mid (assumed 6am-5pm)
+    rate_ckwh: 18.9
+    window: {hours: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]}
+  - label: off-peak (nights)
+    rate_ckwh: 4.1
+buyback:
+  kind: windows
+  rates:
+    - {label: peak, rate_ckwh: 21.4, window: {hours: [17, 18, 19, 20]}}
+    - {label: mid, rate_ckwh: 11.4, window: {hours: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]}}
+    - {label: off-peak, rate_ckwh: 2.5}
+  offset_scope: energy_only
+etf_usd: 150
+source: report-2026-07
+needs_review: true
+notes: TOU window hours are assumptions; verify against current Rhythm EFL.
