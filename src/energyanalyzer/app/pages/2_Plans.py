@@ -23,6 +23,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     commit_and_push_plan_db,
     default_plan_db_commit_message,
     draft_summary_row,
+    efl_pdf_health,
     get_draft_plans,
     get_plans,
     git_plan_db_status,
@@ -56,6 +57,22 @@ else:
 draft_paths = get_draft_plans()
 if draft_paths:
     st.caption(f"{len(draft_paths)} unpromoted draft(s) in {DRAFTS_DIR}: " + ", ".join(p.stem for p in draft_paths))
+
+_efl_health = efl_pdf_health(EFL_DIR)
+st.caption(
+    f"{len(plans)} plan(s) in {PLANS_DIR} · {_efl_health['total']} EFL PDF(s) in {EFL_DIR}"
+    + (f" ({len(_efl_health['invalid'])} unreadable)" if _efl_health["invalid"] else "")
+    + "."
+)
+if _efl_health["invalid"]:
+    _bad = _efl_health["invalid"]
+    st.warning(
+        f"{len(_bad)} file(s) in {EFL_DIR} are not valid PDFs, so the parser can't read them "
+        "and they produce no plan. This happens when a download returns an HTML error/redirect "
+        "or bot-challenge (captcha) page instead of the EFL. The downloader now rejects non-PDF "
+        "responses, so re-running **Refresh market data** clears these; ones that still fail need "
+        "a manual capture. Affected: " + ", ".join(_bad[:15]) + (" …" if len(_bad) > 15 else "")
+    )
 
 st.divider()
 
@@ -436,6 +453,35 @@ if refresh_summary is not None:
         f"auto-promoted {len(refresh_summary['promoted'])}, "
         f"{len(refresh_summary['needing_review'])} draft(s) left for review."
     )
+    # Surface EFLs that couldn't be downloaded or turned into a draft YAML, so a
+    # failed download (HTML/captcha saved as .pdf) or an unparseable PDF isn't
+    # silent. Aggregates the PTC and REP-discovery download/parse failure lists.
+    _disc = refresh_summary.get("discovery") or {}
+    _dl_failed = list(refresh_summary["downloaded"].get("failed", [])) + list(
+        (_disc.get("downloaded") or {}).get("failed", [])
+    )
+    _parse_failed = list(refresh_summary["parsed"].get("failed", [])) + list(
+        (_disc.get("parsed") or {}).get("failed", [])
+    )
+    if _dl_failed or _parse_failed:
+        _msg = []
+        if _dl_failed:
+            _msg.append(f"{len(_dl_failed)} EFL download(s) failed or weren't valid PDFs")
+        if _parse_failed:
+            _msg.append(f"{len(_parse_failed)} downloaded PDF(s) couldn't be parsed into a plan")
+        st.warning(
+            " · ".join(_msg)
+            + ". These produced no plan; see the details below. Non-PDF responses (an HTML "
+            "error/redirect or captcha page) are the usual cause; a genuinely image-only EFL "
+            "would need OCR."
+        )
+        with st.expander("EFL download/parse failures"):
+            if _dl_failed:
+                st.caption("Download failures:")
+                st.json(_dl_failed[:25])
+            if _parse_failed:
+                st.caption("Parse failures:")
+                st.json(_parse_failed[:25])
     mp_refresh = refresh_summary.get("meterplan") or {}
     st.caption(
         f"Meterplan solar plan index: imported {len(mp_refresh.get('imported', []))} draft(s) "

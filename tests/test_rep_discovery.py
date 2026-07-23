@@ -905,6 +905,35 @@ def test_download_discovered_buyback_only_filters(tmp_path, monkeypatch):
     assert not (dest / "Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf").exists()
 
 
+def test_download_discovered_rejects_non_pdf_response(tmp_path, monkeypatch):
+    # A discovered EFL URL that resolves to an HTML viewer/error page (not a PDF)
+    # must be recorded as failed, not saved as a .pdf.
+    class _HtmlResponse:
+        content = b"<!DOCTYPE html><html><body>viewer</body></html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            return None
+
+    class _HtmlClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            self.calls.append(url)
+            return _HtmlResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _HtmlClient)
+    dest = tmp_path / "efl"
+    summary = rd.download_discovered(_sample_plans(), dest=dest, buyback_only=True)
+
+    assert summary["downloaded"] == []
+    assert len(summary["failed"]) == 1
+    assert "not a PDF" in summary["failed"][0]["error"]
+    assert not list(dest.glob("*.pdf"))
+    # A rejected download writes no manifest entry either.
+    assert not (dest / "rep_discovery_manifest.jsonl").exists()
+
+
 def test_download_discovered_writes_manifest(tmp_path, monkeypatch):
     import httpx
 

@@ -344,7 +344,23 @@ def download_efls(
             try:
                 resp = client.get(url)
                 resp.raise_for_status()
-                dest_path.write_bytes(resp.content)
+                content = resp.content
+                # Guard against saving a non-PDF (an HTML "not found"/SPA shell or
+                # a bot-challenge/captcha page returned with HTTP 200) as a .pdf --
+                # those can't be parsed and otherwise land silently on disk. A PDF
+                # begins with the "%PDF" signature (allow a little leading junk).
+                if b"%PDF" not in content[:1024]:
+                    ctype = resp.headers.get("content-type", "?")
+                    summary["failed"].append(
+                        {
+                            "url": url,
+                            "error": f"response was not a PDF (content-type {ctype!r}, "
+                            f"{len(content)} bytes) -- likely an HTML error/redirect page",
+                        }
+                    )
+                    _report(name)
+                    continue
+                dest_path.write_bytes(content)
                 summary["downloaded"].append(str(dest_path))
             except Exception as exc:
                 summary["failed"].append({"url": url, "error": repr(exc)})

@@ -201,6 +201,33 @@ def parse_downloaded_efls(
     return summary
 
 
+def efl_pdf_health(efl_dir: Path = EFL_DIR) -> dict:
+    """Quick health check of the downloaded-EFL cache: how many ``.pdf`` files
+    are on disk, and which of them aren't actually PDFs.
+
+    A download that returned an HTML "not found"/SPA shell or a bot-challenge
+    (captcha) page with HTTP 200 can land under a ``.pdf`` name; the parser then
+    silently fails on it (it's not a PDF) and no plan is produced. A real PDF
+    starts with the ``%PDF`` signature, so any file lacking it in its first 1 KB
+    is flagged. (The downloaders now reject non-PDF responses up front, so this
+    mainly surfaces files saved before that guard, or ones placed by hand.)
+
+    Returns ``{'total': int, 'invalid': [filename, ...]}``.
+    """
+    efl_dir = Path(efl_dir)
+    pdfs = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+    invalid: list[str] = []
+    for p in pdfs:
+        try:
+            head = p.read_bytes()[:1024]
+        except OSError:
+            invalid.append(p.name)
+            continue
+        if b"%PDF" not in head:
+            invalid.append(p.name)
+    return {"total": len(pdfs), "invalid": invalid}
+
+
 def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> pd.DataFrame:
     """For each row in a PTC DataFrame, check whether its EFL resolved to a
     downloaded, parseable PDF -- so a human can go check those retailer

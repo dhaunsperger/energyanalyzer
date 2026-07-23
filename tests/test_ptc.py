@@ -205,6 +205,45 @@ def test_download_efls_skips_existing_and_downloads_new(tmp_path, monkeypatch):
         assert Path(path_str).read_bytes().startswith(b"%PDF")
 
 
+def test_download_efls_rejects_non_pdf_response(tmp_path, monkeypatch):
+    # A 200 response whose body is an HTML error/redirect/captcha page (not a
+    # PDF) must NOT be saved as a .pdf -- it would only fail the parser later.
+    df = ptc.load_ptc(FIXTURE).head(2)
+
+    class _HtmlResponse:
+        content = b"<!DOCTYPE html><html><head></head><body>Not found</body></html>"
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            return _HtmlResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    dest = tmp_path / "efl"
+
+    summary = ptc.download_efls(df, dest=dest)
+
+    assert summary["downloaded"] == []
+    assert len(summary["failed"]) == 2
+    assert "not a PDF" in summary["failed"][0]["error"]
+    # Nothing written to disk.
+    assert not list(dest.glob("*.pdf"))
+
+
 # --------------------------------------------------------------------------- #
 # Issue: statewide PTC snapshot includes Spanish-language duplicate rows,
 # which made a correct tdu-filtered result look "truncated". `filter_plans`

@@ -1137,7 +1137,24 @@ def download_discovered(
                 _respect_rate_limit(host)
                 resp = client.get(plan.efl_url)
                 resp.raise_for_status()
-                file_path.write_bytes(resp.content)
+                content = resp.content
+                # Some discovered EFL URLs resolve to an HTML viewer/SPA shell
+                # rather than the PDF itself (e.g. Octopus's octopusenergy.com/efl/
+                # path). Saving that HTML as a .pdf would only fail the parser
+                # later, so reject anything without the "%PDF" signature.
+                if b"%PDF" not in content[:1024]:
+                    ctype = resp.headers.get("content-type", "?")
+                    summary["failed"].append(
+                        {
+                            "url": plan.efl_url,
+                            "error": f"response was not a PDF (content-type {ctype!r}, "
+                            f"{len(content)} bytes) -- likely an HTML viewer/error page",
+                        }
+                    )
+                    if progress_callback:
+                        progress_callback(i, total, plan.plan_name)
+                    continue
+                file_path.write_bytes(content)
                 summary["downloaded"].append(str(file_path))
                 entries.append(_manifest_entry(plan, file_path))
             except Exception as exc:  # noqa: BLE001

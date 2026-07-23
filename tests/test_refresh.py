@@ -336,6 +336,23 @@ def test_refresh_market_data_meterplan_stage(refresh_dirs, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Staleness helpers
 # --------------------------------------------------------------------------- #
+def test_efl_pdf_health_flags_non_pdf_files(tmp_path):
+    efl_dir = tmp_path / "efl"
+    efl_dir.mkdir()
+    (efl_dir / "good.pdf").write_bytes(b"%PDF-1.5\n...real content...")
+    (efl_dir / "leading_junk.pdf").write_bytes(b"\n\n%PDF-1.4 ok")  # tolerated
+    (efl_dir / "html_error.pdf").write_bytes(b"<!DOCTYPE html><html>nope</html>")
+    (efl_dir / "captcha.pdf").write_bytes(b"<html><meta http-equiv='refresh'></html>")
+
+    health = app_common.efl_pdf_health(efl_dir)
+    assert health["total"] == 4
+    assert set(health["invalid"]) == {"html_error.pdf", "captcha.pdf"}
+
+
+def test_efl_pdf_health_empty_dir(tmp_path):
+    assert app_common.efl_pdf_health(tmp_path / "missing") == {"total": 0, "invalid": []}
+
+
 def test_interval_staleness_warning():
     from energyanalyzer.ingest.smt import QualityReport
 
