@@ -94,11 +94,11 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
     render_plan = _plan("Gexa", "Gexa Buyback")
     manual_plan = _plan("Ambit", "Ambit Buyback")
 
-    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True: [harvester_plan])
+    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True, check_robots=True: [harvester_plan])
     monkeypatch.setattr(
         rd_module,
         "fetch_rendered_html",
-        lambda cfg, zip_, headless=True, snapshot_dir=None: ("<html>rendered</html>", snapshot_dir / "x.html"),
+        lambda cfg, zip_, headless=True, snapshot_dir=None, check_robots=True: ("<html>rendered</html>", snapshot_dir / "x.html"),
     )
 
     discover_calls: list[str] = []
@@ -198,7 +198,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     render_cfg = _render_config("gexa", "Gexa")
     monkeypatch.setattr(rd_module, "REP_CONFIGS", {"champion": harvester_cfg, "gexa": render_cfg})
 
-    def _boom_harvest_live(cfg, zip_, headless=True):
+    def _boom_harvest_live(cfg, zip_, headless=True, check_robots=True):
         raise RuntimeError("playwright missing")
 
     monkeypatch.setattr(rd_module, "harvest_live", _boom_harvest_live)
@@ -207,7 +207,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     monkeypatch.setattr(
         rd_module,
         "fetch_rendered_html",
-        lambda cfg, zip_, headless=True, snapshot_dir=None: ("<html></html>", snapshot_dir / "x.html"),
+        lambda cfg, zip_, headless=True, snapshot_dir=None, check_robots=True: ("<html></html>", snapshot_dir / "x.html"),
     )
     monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [render_plan])
     monkeypatch.setattr(
@@ -284,11 +284,11 @@ def test_no_plans_found_skips_download_and_parse(discovery_dirs, monkeypatch):
     render_cfg = _render_config("gexa", "Gexa")
     monkeypatch.setattr(rd_module, "REP_CONFIGS", {"champion": harvester_cfg, "gexa": render_cfg})
 
-    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True: [])
+    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True, check_robots=True: [])
     monkeypatch.setattr(
         rd_module,
         "fetch_rendered_html",
-        lambda cfg, zip_, headless=True, snapshot_dir=None: ("<html></html>", snapshot_dir / "x.html"),
+        lambda cfg, zip_, headless=True, snapshot_dir=None, check_robots=True: ("<html></html>", snapshot_dir / "x.html"),
     )
     monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [])
     monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
@@ -318,11 +318,11 @@ def test_progress_callback_receives_per_rep_labels(discovery_dirs, monkeypatch):
     render_cfg = _render_config("gexa", "Gexa")
     monkeypatch.setattr(rd_module, "REP_CONFIGS", {"champion": harvester_cfg, "gexa": render_cfg})
 
-    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True: [])
+    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, zip_, headless=True, check_robots=True: [])
     monkeypatch.setattr(
         rd_module,
         "fetch_rendered_html",
-        lambda cfg, zip_, headless=True, snapshot_dir=None: ("<html></html>", snapshot_dir / "x.html"),
+        lambda cfg, zip_, headless=True, snapshot_dir=None, check_robots=True: ("<html></html>", snapshot_dir / "x.html"),
     )
     monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [])
     monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)

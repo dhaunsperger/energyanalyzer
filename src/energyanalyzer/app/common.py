@@ -331,11 +331,17 @@ def _run_rep_discovery(
         _report("discovery", i, total, f"{label} (querying site)")
         try:
             if config.harvester is not None:
-                plans = rd.harvest_live(config, zip_code, headless=headless)
+                plans = rd.harvest_live(
+                    config, zip_code, headless=headless, check_robots=config.check_robots
+                )
                 detail = "harvested live"
             elif config.render is not None:
                 html, _snap = rd.fetch_rendered_html(
-                    config, zip_code, headless=headless, snapshot_dir=snapshot_dir
+                    config,
+                    zip_code,
+                    headless=headless,
+                    snapshot_dir=snapshot_dir,
+                    check_robots=config.check_robots,
                 )
                 plans = rd.discover(html, config)
                 detail = "rendered live"

@@ -127,6 +127,13 @@ class RepConfig:
     harvester: Optional[
         Callable[[object, str, "RepConfig"], list[DiscoveredPlan]]
     ] = None
+    # Whether the live-fetch helpers honor this REP's robots.txt. Default True
+    # (we abort out of politeness on an explicit Disallow). Set False ONLY as a
+    # deliberate, per-REP decision -- e.g. Frontier's enrollment subdomain
+    # carries a blanket `Disallow: /` aimed at search-crawler indexing, but the
+    # user opted to treat a single rate-limited fetch of their own shopping page
+    # as outside that intent. Never a blanket default.
+    check_robots: bool = True
 
     def __post_init__(self) -> None:
         if self.extractor is None and self.harvester is None:
@@ -451,22 +458,28 @@ def extract_chariot(html: str, config: RepConfig) -> list[DiscoveredPlan]:
 # --------------------------------------------------------------------------- #
 # Gexa Energy static extractor
 # --------------------------------------------------------------------------- #
-# Gexa renders each plan as a <div class="row ... plan-list-padding"> card: an
-# <h3> plan name, a <ul class="plan-list"> with "Plan Type: <b>Solar Buyback</b>"
-# for buyback plans, and an EFL link inside a nested .EFL_PlanCard. The
-# "Solar Buyback & EV" category is a client-side filter -- all plans stay in the
-# DOM -- so this extractor sees every plan and flags buyback per card.
-_GEXA_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="row[^"]*\bplan-list-padding\b)')
-_GEXA_NAME_RE = re.compile(r"<h3\b[^>]*>(.*?)</h3>", re.I | re.S)
-# The EFL link IS the self-label: an eflviewer.aspx URL carrying the prodcode.
-_GEXA_EFL_URL_RE = re.compile(r'href="([^"]*eflviewer\.aspx\?[^"]*)"', re.I)
-_GEXA_PRODCODE_RE = re.compile(r"prodcode=([^&\"]+)", re.I)
+# Shared "eflviewer" enrollment platform (Gexa + Frontier both run the same
+# Vistra/eflviewer shopping stack).
+# --------------------------------------------------------------------------- #
+# Each plan renders as a <div class="row ... plan-list-padding"> card: an <h3>
+# plan name, a <ul class="plan-list"> with "Plan Type: <b>Solar Buyback</b>" for
+# buyback plans, and an EFL link (an eflviewer.aspx URL carrying the prodcode)
+# inside a nested .EFL_PlanCard. The "Solar Buyback & EV" category tab is a
+# client-side filter -- all plans stay in the DOM -- so the extractor sees every
+# plan and flags buyback per card.
+_EFLVIEWER_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="row[^"]*\bplan-list-padding\b)')
+_EFLVIEWER_NAME_RE = re.compile(r"<h3\b[^>]*>(.*?)</h3>", re.I | re.S)
+# The EFL link IS the self-label: an eflviewer.aspx URL carrying the prodcode
+# (the host differs per REP -- eflviewer.gexaenergy.com vs
+# eflviewer.frontierutilities.com -- so the pattern keys on the path, not host).
+_EFLVIEWER_EFL_URL_RE = re.compile(r'href="([^"]*eflviewer\.aspx\?[^"]*)"', re.I)
+_EFLVIEWER_PRODCODE_RE = re.compile(r"prodcode=([^&\"]+)", re.I)
 # Buyback self-label (matched on tag-stripped card text): the plan-list line
 # "Plan Type: Solar Buyback", or the export-credit wording. A bare "Solar
 # Buyback" ribbon (the .Product-tab badge, which the DOM positions at the end of
 # the *previous* card) is deliberately NOT a signal.
-_GEXA_BUYBACK_RE = re.compile(r"Plan Type:\s*Solar Buyback", re.I)
-_GEXA_EXPORT_RE = re.compile(r"excess energy[^.]{0,40}(?:export|grid)", re.I)
+_EFLVIEWER_BUYBACK_RE = re.compile(r"Plan Type:\s*Solar Buyback", re.I)
+_EFLVIEWER_EXPORT_RE = re.compile(r"excess energy[^.]{0,40}(?:export|grid)", re.I)
 # The .Product-tab category ribbon is DOM-positioned at the END of a card, but
 # it labels the NEXT one -- so a "Solar Buyback" ribbon trails the *previous*
 # (often non-buyback) card. The deterministic buyback check already ignores it
@@ -475,11 +488,12 @@ _GEXA_EXPORT_RE = re.compile(r"excess energy[^.]{0,40}(?:export|grid)", re.I)
 # lfm2.5 probe of the Gexa capture false-upgraded "Energy Saver 12" solely
 # because its context ended in the trailing "Solar Buyback" ribbon, and the
 # model (correctly, given the flattened text) read it as part of the plan.
-_GEXA_RIBBON_RE = re.compile(r"<div\b[^>]*\bProduct-tab\b.*?</div>\s*</div>", re.I | re.S)
+_EFLVIEWER_RIBBON_RE = re.compile(r"<div\b[^>]*\bProduct-tab\b.*?</div>\s*</div>", re.I | re.S)
 
 
-def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
-    """Static (no-LLM) extractor for Gexa's rendered plans page.
+def _extract_eflviewer_platform(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for the shared eflviewer enrollment platform
+    (Gexa, Frontier).
 
     Each plan is a ``plan-list-padding`` row: the ``<h3>`` is the name and the
     EFL link self-labels via an ``eflviewer.aspx?...&prodcode=<code>`` URL.
@@ -494,26 +508,26 @@ def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
     html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
     # Drop the category ribbons before splitting: they carry no plan we need and
     # would otherwise trail into a card's context and mislead the LLM review.
-    html = _GEXA_RIBBON_RE.sub(" ", html)
-    cards = [c for c in _GEXA_CARD_SPLIT_RE.split(html) if "plan-list-padding" in c[:80]]
+    html = _EFLVIEWER_RIBBON_RE.sub(" ", html)
+    cards = [c for c in _EFLVIEWER_CARD_SPLIT_RE.split(html) if "plan-list-padding" in c[:80]]
     base = config.homepage
 
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
     for card in cards:
-        url_m = _GEXA_EFL_URL_RE.search(card)
+        url_m = _EFLVIEWER_EFL_URL_RE.search(card)
         if not url_m:  # a section-header row ("Gexa Stable Plans") with no EFL
             continue
         efl_url = urljoin(base, unescape(url_m.group(1)))
-        code_m = _GEXA_PRODCODE_RE.search(efl_url)
+        code_m = _EFLVIEWER_PRODCODE_RE.search(efl_url)
         product_code = code_m.group(1) if code_m else efl_url
         if product_code in seen:
             continue
         seen.add(product_code)
-        name_m = _GEXA_NAME_RE.search(card)
+        name_m = _EFLVIEWER_NAME_RE.search(card)
         plan_name = _clean_plan_name(_strip_tags(name_m.group(1))) if name_m else product_code
         card_text = _strip_tags(unescape(card))
-        is_buyback = bool(_GEXA_BUYBACK_RE.search(card_text) or _GEXA_EXPORT_RE.search(card_text))
+        is_buyback = bool(_EFLVIEWER_BUYBACK_RE.search(card_text) or _EFLVIEWER_EXPORT_RE.search(card_text))
         plans.append(
             DiscoveredPlan(
                 retailer=config.retailer,
@@ -526,6 +540,25 @@ def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
             )
         )
     return plans
+
+
+def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static extractor for Gexa's rendered plans page -- the shared eflviewer
+    platform (see :func:`_extract_eflviewer_platform`)."""
+    return _extract_eflviewer_platform(html, config)
+
+
+def extract_frontier(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static extractor for Frontier Utilities' rendered plans page.
+
+    Frontier runs the same eflviewer enrollment platform as Gexa -- identical
+    ``plan-list-padding`` cards, ``<h3>`` names, ``eflviewer.aspx?...prodcode``
+    EFL links (hosted at eflviewer.frontierutilities.com), and the same
+    ``Plan Type: Solar Buyback`` self-label -- so it delegates to
+    :func:`_extract_eflviewer_platform`. Its plans page is reached directly via
+    ``/Home/Index?Zip=<zip>`` (no ZIP-gate click flow); see
+    :func:`_frontier_render`."""
+    return _extract_eflviewer_platform(html, config)
 
 
 # --------------------------------------------------------------------------- #
@@ -1255,6 +1288,43 @@ GEXA = RepConfig(
     render=_gexa_render,
 )
 
+
+# Frontier's enrollment site takes the ZIP directly in the URL
+# (/Home/Index?Zip=<zip>) -- no click-through ZIP gate -- but the plan cards are
+# still injected by JS after load, so a plain HTTP GET returns only the shell;
+# render() navigates to the ZIP URL and waits for the eflviewer EFL links to
+# appear before the caller captures page.content().
+_FRONTIER_PLANS_URL = "https://newenroll.frontierutilities.com/Home/Index?Zip={zip}"
+
+
+def _frontier_render(page: object, zip_code: str) -> None:
+    page.goto(  # type: ignore[attr-defined]
+        _FRONTIER_PLANS_URL.format(zip=zip_code),
+        wait_until="domcontentloaded",
+        timeout=60000,
+    )
+    try:
+        page.wait_for_selector(  # type: ignore[attr-defined]
+            "a.efl[href*='eflviewer.aspx']", timeout=30000
+        )
+    except Exception:  # noqa: BLE001 -- fall back to the caller's fixed settle wait
+        pass
+
+
+FRONTIER = RepConfig(
+    key="frontier",
+    retailer="Frontier Utilities",
+    homepage="https://newenroll.frontierutilities.com/",
+    extractor=extract_frontier,
+    render=_frontier_render,
+    # newenroll.frontierutilities.com robots.txt is a blanket `Disallow: /`
+    # ("Stop indexing of all content") aimed at search crawlers; per the user's
+    # decision, a single rate-limited render of their own shopping page is
+    # treated as outside that intent, so live discovery skips the robots check
+    # for this REP only.
+    check_robots=False,
+)
+
 # Ambit has no render(): its WAF blocks Playwright after ZIP entry, so its HTML
 # is captured manually (Doug's own browser) and discover() runs on the saved
 # file. A stealth render() (real-Chrome persistent profile) is a possible
@@ -1415,5 +1485,5 @@ CHAMPION = RepConfig(
 
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
-    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT, OCTOPUS, CHAMPION)
+    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, FRONTIER, AMBIT, OCTOPUS, CHAMPION)
 }

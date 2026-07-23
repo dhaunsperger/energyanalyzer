@@ -380,7 +380,7 @@ run_discovery = st.checkbox(
     key="refresh_run_discovery",
     help=(
         "Beyond Power to Choose and meterplan.com, query individual retailer marketing "
-        "sites (Green Mountain, TXU, Chariot, Gexa, Octopus, Champion, Ambit) for solar "
+        "sites (Green Mountain, TXU, Chariot, Gexa, Frontier, Octopus, Champion, Ambit) for solar "
         "**buyback** EFLs the aggregators miss. Each site is a live browser session, so a "
         "full sweep takes several minutes; per-retailer results appear below when it "
         "finishes.\n\n"

@@ -22,6 +22,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "rep_green_mountain_sample.html"
 TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
 CHARIOT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_chariot_sample.html"
 GEXA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_gexa_sample.html"
+FRONTIER_FIXTURE = Path(__file__).parent / "fixtures" / "rep_frontier_sample.html"
 AMBIT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_ambit_sample.html"
 OCTOPUS_FIXTURE = Path(__file__).parent / "fixtures" / "rep_octopus_sample.html"
 
@@ -249,6 +250,60 @@ def test_gexa_ribbon_does_not_leak_into_context():
 def test_gexa_registered_in_rep_configs():
     assert rd.REP_CONFIGS["gexa"].retailer == "Gexa Energy"
     assert rd.REP_CONFIGS["gexa"].render is not None
+
+
+# --------------------------------------------------------------------------- #
+# Frontier static extractor (shared eflviewer platform with Gexa)
+# --------------------------------------------------------------------------- #
+def _extract_frontier():
+    html = FRONTIER_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.FRONTIER, use_llm_fallback=False)
+
+
+def test_frontier_extractor_finds_all_cards():
+    plans = _extract_frontier()
+    # 5 plans: the "Frontier Stable Plans" section-header row (no EFL) is skipped.
+    assert len(plans) == 5
+    assert all(p.retailer == "Frontier Utilities" for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+    assert all("eflviewer.frontierutilities.com/eflviewer.aspx" in p.efl_url for p in plans)
+
+
+def test_frontier_extractor_flags_only_solar_buyback_plans():
+    by_name = {p.plan_name: p for p in _extract_frontier()}
+    assert by_name["Frontier Sun Confidence 12"].is_buyback is True
+    assert by_name["Frontier Battery Awards 12"].is_buyback is True
+    # The EV plan right after a buyback card must not inherit its "export to the
+    # grid" wording across the card boundary.
+    assert by_name["Frontier Nighttime EV Charging 24"].is_buyback is False
+    assert by_name["Frontier Super Saver 12"].is_buyback is False
+    assert by_name["Frontier 12"].is_buyback is False
+
+
+def test_frontier_extractor_ignores_solar_buyback_ribbon():
+    # A .Product-tab "Solar buyback" ribbon sits (in the DOM) at the end of the
+    # Frontier Super Saver 12 card, but that plan is a Usage Credit plan -- keying
+    # on the ribbon rather than "Plan Type: Solar Buyback" would wrongly flag it.
+    by_name = {p.plan_name: p for p in _extract_frontier()}
+    assert by_name["Frontier Super Saver 12"].is_buyback is False
+    assert "Solar buyback" not in by_name["Frontier Super Saver 12"].context
+
+
+def test_frontier_extractor_url_handling_and_no_phantom_from_script():
+    by_name = {p.plan_name: p for p in _extract_frontier()}
+    # &amp; decoded; %2b-encoded prodcode preserved.
+    assert (
+        by_name["Frontier 12"].efl_url
+        == "https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&prodcode=F12%2b&tdspcode=ONCOR_ELEC"
+    )
+    # The script blob's "GHOST" eflviewer URL must be stripped, not discovered.
+    assert not any("GHOST" in p.efl_url for p in _extract_frontier())
+
+
+def test_frontier_registered_in_rep_configs():
+    assert rd.REP_CONFIGS["frontier"].retailer == "Frontier Utilities"
+    assert rd.REP_CONFIGS["frontier"].render is not None
+    assert rd.REP_CONFIGS["frontier"].extractor is not None
 
 
 # --------------------------------------------------------------------------- #

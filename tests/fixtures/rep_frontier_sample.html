@@ -1,0 +1,74 @@
+<!--
+  Synthetic Frontier Utilities plans-page fragment for tests. Frontier runs the
+  SAME eflviewer enrollment platform as Gexa, so the structure is identical: each
+  plan is a div.row.plan-list-padding with an <h3> name, a nested .EFL_PlanCard
+  holding the EFL link (self-labeled via eflviewer.aspx?...prodcode=<code>, hosted
+  at eflviewer.frontierutilities.com), and a <ul class="plan-list"> whose
+  "Plan Type: <b>Solar Buyback</b>" line is the buyback self-label. The
+  free-floating .Product-tab ribbon is DOM-positioned at the end of the PREVIOUS
+  card, so this fixture puts a "Solar buyback" ribbon at the end of a NON-buyback
+  card (Frontier Super Saver 12) to prove the extractor keys on the plan-list
+  "Plan Type", not the stray ribbon. An EV plan (Nighttime EV Charging 24) placed
+  right after a buyback card proves per-card splitting kills cross-card bleed. A
+  "Frontier Stable Plans" section-header row has no EFL and must be skipped. The
+  &amp; entity and a %2b-encoded prodcode exercise URL handling; the script blob
+  proves script stripping. No real EFL content, no PII, no network.
+-->
+<html>
+<body>
+<div id="divInfo" class="plan-list-container">
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Frontier Super Saver 12</h3>
+    <strong>Earn up to $1,500 in Usage Credits annually based on your usage</strong>
+    <div class="EFL_PlanCard"><a class="efl learn_more_item_text" target="_blank" href="https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&amp;prodcode=FROUSVR12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Usage Credit</b> <br>A $125 usage credit will be included per billing cycle when usage is at least 1000 kWh</li><li>Best for: <b>Medium to large homes</b></li></ul></div>
+</div>
+<!-- ribbon belongs (visually) to the NEXT card; must NOT flag Super Saver 12 -->
+<div class="Product-tab" style="background:#DAA520;width:auto"><div class="font">Solar buyback</div></div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Frontier Sun Confidence 12</h3>
+    <strong>Earn bill credits on all excess energy exported to the grid</strong>
+    <div class="EFL_PlanCard"><a class="efl learn_more_item_text" target="_blank" href="https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&amp;prodcode=FU_TOU_FSC12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Solar Buyback</b> <br> Earn energy credit for all excess energy you export to the grid</li><li>Roll-over credits available for redemption on future bills</li><li>Designed for: Rooftop solar owners</li></ul></div>
+</div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Frontier Battery Awards 12</h3>
+    <strong>Reward your rooftop solar and battery setup</strong>
+    <div class="EFL_PlanCard"><a class="efl learn_more_item_text" target="_blank" href="https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&amp;prodcode=FU_TOU_BATAWD12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Solar Buyback</b> <br> Earn energy credit for all excess energy you export to the grid</li><li>Designed for: Rooftop solar owners with installed home batteries</li></ul></div>
+</div>
+
+<!-- EV plan right after a buyback card: "export to the grid" above must not bleed in -->
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Frontier Nighttime EV Charging 24</h3>
+    <strong>Free nighttime EV charging</strong>
+    <div class="EFL_PlanCard"><a class="efl learn_more_item_text" target="_blank" href="https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&amp;prodcode=FU_TOU_NEVC24&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>24 months</b></li><li>Plan Type: <b>Fixed</b> Free energy for nighttime EV charging</li><li>Designed for: EV charging at home</li></ul></div>
+</div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Frontier 12</h3>
+    <strong>Lock in a low price</strong>
+    <div class="EFL_PlanCard"><a class="efl learn_more_item_text" target="_blank" href="https://eflviewer.frontierutilities.com/eflviewer.aspx?lang=EN&amp;prodcode=F12%2b&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Fixed</b> Budget stability with a locked-in price</li></ul></div>
+</div>
+
+<!-- Section-header row with no EFL: must be skipped. -->
+<div class="row  text-center plan-list-padding"><div class="col-lg-12"><h3>Frontier Stable Plans</h3></div></div>
+
+</div>
+<script>
+  // Analytics config naming a "Solar Buyback" badge and an eflviewer URL that
+  // must be stripped, never leaking a phantom plan/EFL.
+  window.__frontier = {"badge":"Solar Buyback","efl":"https://eflviewer.frontierutilities.com/eflviewer.aspx?prodcode=GHOST"};
+</script>
+</body>
+</html>
