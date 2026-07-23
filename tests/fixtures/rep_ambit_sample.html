@@ -1,0 +1,52 @@
+<!--
+  Synthetic Ambit plans-page fragment for tests. Mirrors the confirmed real
+  structure: Ambit runs the same Vistra platform as TXU, so plans are
+  `show-plan` cards; each carries data-planname + data-productid on its
+  (mobile + desktop) "Select Plan" buttons. The collapsed list page has NO EFL
+  link -- the extractor CONSTRUCTS the PDFGenerator EFL URL from the product id.
+  This fixture exercises: buyback detection by name ("Texas Solar Buyback 24",
+  no description) and by description ("Get paid for your excess solar energy" on
+  the 12), dedup of the two same-productid buttons within a card, &amp;
+  unescaping in a plan name, and script stripping (the blob names a PDFGenerator
+  URL + "buyback" that must not leak). No real EFL content, no network.
+-->
+<html>
+<body>
+<div class="plans-grid">
+
+<div class="show-plan min-h-[240px] rounded-t-xl bg-[#f5f5f5]">
+  <p class="text-plus2 amb:font-aProEnergyBold">Free &amp; Clear Nights 12</p>
+  <div class="amb:text-minus2">Free electricity every night from 9pm to 7am.</div>
+  <button class="rvPlanButton" data-planname="Free &amp; Clear Nights 12" data-productid="ONAMFRCLRC12AA" data-text="Select Plan">Select Plan</button>
+  <button class="rvPlanButton amb:hidden" data-planname="Free &amp; Clear Nights 12" data-productid="ONAMFRCLRC12AA" data-text="Select Plan">Select Plan</button>
+</div>
+
+<div class="show-plan min-h-[240px] rounded-t-xl bg-[#f5f5f5]">
+  <p class="text-plus2 amb:font-aProEnergyBold">Texas Solar Buyback 12</p>
+  <div class="amb:text-minus2">Get paid for your excess solar energy and offset up to 100% of your energy charges each month. Roll over any extra credits for future use.</div>
+  <button class="rvPlanButton" data-planname="Texas Solar Buyback 12" data-productid="ONAMTXSBBC12AA" data-text="Select Plan">Select Plan</button>
+  <button class="rvPlanButton amb:hidden" data-planname="Texas Solar Buyback 12" data-productid="ONAMTXSBBC12AA" data-text="Select Plan">Select Plan</button>
+</div>
+
+<div class="show-plan min-h-[240px] rounded-t-xl bg-[#f5f5f5]">
+  <p class="text-plus2 amb:font-aProEnergyBold">Texas Solar Buyback 24</p>
+  <div class="amb:text-minus2">A 24-month term for rooftop solar homes.</div>
+  <button class="rvPlanButton" data-planname="Texas Solar Buyback 24" data-productid="ONAMTXSBBC24AA" data-text="Select Plan">Select Plan</button>
+  <button class="rvPlanButton amb:hidden" data-planname="Texas Solar Buyback 24" data-productid="ONAMTXSBBC24AA" data-text="Select Plan">Select Plan</button>
+</div>
+
+<div class="show-plan min-h-[240px] rounded-t-xl bg-[#f5f5f5]">
+  <p class="text-plus2 amb:font-aProEnergyBold">Lone Star Flex</p>
+  <div class="amb:text-minus2">A flexible month-to-month plan with no annual contract.</div>
+  <button class="rvPlanButton" data-planname="Lone Star Flex" data-productid="ONAMLSFRVC00AA" data-text="Select Plan">Select Plan</button>
+  <button class="rvPlanButton amb:hidden" data-planname="Lone Star Flex" data-productid="ONAMLSFRVC00AA" data-text="Select Plan">Select Plan</button>
+</div>
+
+</div>
+<script>
+  // Vistra config referencing a PDFGenerator URL + "buyback" that must be
+  // stripped, never leaking a phantom plan/EFL.
+  window.__ambit = {"efl":"https://shopping.ambitenergy.com/PDFGenerator?comProdId=GHOST","badge":"Solar Buyback"};
+</script>
+</body>
+</html>

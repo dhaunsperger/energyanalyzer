@@ -485,6 +485,85 @@ def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
 
 
 # --------------------------------------------------------------------------- #
+# Ambit Energy static extractor
+# --------------------------------------------------------------------------- #
+# Ambit runs the same Vistra shopping platform as TXU: plans are `show-plan`
+# cards and EFLs are served by an identical `PDFGenerator?formType=
+# EnergyFactsLabel&comProdId=<id>` endpoint. But Ambit's list page only reveals
+# the EFL link after a per-card "See Plan Details" expansion, so a static
+# capture has NO EFL URL in it -- instead each card carries the product id in a
+# `data-productid` attribute, from which we CONSTRUCT the EFL URL. (Ambit's site
+# also sits behind a WAF that blocks Playwright, so its capture is manual and
+# its RepConfig has no render(); see project_ambit_discovery memory.)
+_AMBIT_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="[^"]*\bshow-plan\b)')
+_AMBIT_PRODUCTID_RE = re.compile(r'data-productid="([^"]+)"', re.I)
+_AMBIT_PLANNAME_RE = re.compile(r'data-planname="([^"]+)"', re.I)
+# Buyback self-label: the plan name ("Texas Solar Buyback ...") or the card's
+# visible export-credit description.
+_AMBIT_BUYBACK_RE = re.compile(r"buyback|excess solar|get paid for your excess", re.I)
+_AMBIT_EFL_BASE = "https://shopping.ambitenergy.com/PDFGenerator"
+# Doug's TDU. The capture is Oncor-specific (ZIP 78665); PDFGenerator needs a
+# tdsp, absent from the collapsed list DOM, so we supply it. Change for another
+# TDU territory.
+_AMBIT_TDSP = "ONCOR"
+
+
+def _ambit_efl_url(product_id: str, efldate: str) -> str:
+    """Construct Ambit's EFL URL for a product id (the collapsed list page omits
+    it; expanding "See Plan Details" reveals this exact PDFGenerator link)."""
+    return (
+        f"{_AMBIT_EFL_BASE}?formType=EnergyFactsLabel&comProdId={product_id}"
+        f"&efldate={efldate}&tdsp={_AMBIT_TDSP}&lang=en&custClass=Residential"
+    )
+
+
+def extract_ambit(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Ambit's rendered plans page.
+
+    Each plan is a ``show-plan`` card carrying ``data-planname`` +
+    ``data-productid``. Ambit reuses TXU's Vistra ``PDFGenerator`` EFL endpoint,
+    but the list page only exposes the link after a "See Plan Details"
+    expansion, so we CONSTRUCT the EFL URL from the product id
+    (:func:`_ambit_efl_url`) rather than scraping it. Buyback plans self-label in
+    the name ("Texas Solar Buyback") and the card's export-credit description.
+    Rate isn't on the page (it's in the EFL), so ``buyback_ckwh`` stays None.
+    """
+    html = _SCRIPT_RE.sub("", _strip_comments(html))
+    html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
+    cards = [c for c in _AMBIT_CARD_SPLIT_RE.split(html) if "show-plan" in c[:120]]
+    efldate = dt.date.today().isoformat()
+
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for card in cards:
+        pid_m = _AMBIT_PRODUCTID_RE.search(card)
+        if not pid_m:
+            continue
+        product_id = pid_m.group(1)
+        if product_id in seen:
+            continue
+        seen.add(product_id)
+        name_m = _AMBIT_PLANNAME_RE.search(card)
+        plan_name = _clean_plan_name(name_m.group(1)) if name_m else product_id
+        card_text = _strip_tags(unescape(card))
+        is_buyback = bool(
+            _AMBIT_BUYBACK_RE.search(card_text) or re.search(r"buyback", plan_name, re.I)
+        )
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name,
+                efl_url=_ambit_efl_url(product_id, efldate),
+                is_buyback=is_buyback,
+                buyback_ckwh=None,
+                extraction_method="static",
+                context=f"[comProdId={product_id}] {card_text[:600]}",
+            )
+        )
+    return plans
+
+
+# --------------------------------------------------------------------------- #
 # LLM fallback classifier (Ollama, lfm2.5, JSON-forced)
 # --------------------------------------------------------------------------- #
 _CLASSIFIER_SYSTEM = (
@@ -1017,7 +1096,19 @@ GEXA = RepConfig(
     render=_gexa_render,
 )
 
+# Ambit has no render(): its WAF blocks Playwright after ZIP entry, so its HTML
+# is captured manually (Doug's own browser) and discover() runs on the saved
+# file. A stealth render() (real-Chrome persistent profile) is a possible
+# follow-up. See project_ambit_discovery memory.
+AMBIT = RepConfig(
+    key="ambit",
+    retailer="Ambit Energy",
+    homepage="https://www.ambitenergy.com/",
+    extractor=extract_ambit,
+    render=None,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
-    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA)
+    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT)
 }

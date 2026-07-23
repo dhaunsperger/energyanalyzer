@@ -22,6 +22,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "rep_green_mountain_sample.html"
 TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
 CHARIOT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_chariot_sample.html"
 GEXA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_gexa_sample.html"
+AMBIT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_ambit_sample.html"
 
 
 # --------------------------------------------------------------------------- #
@@ -247,6 +248,54 @@ def test_gexa_ribbon_does_not_leak_into_context():
 def test_gexa_registered_in_rep_configs():
     assert rd.REP_CONFIGS["gexa"].retailer == "Gexa Energy"
     assert rd.REP_CONFIGS["gexa"].render is not None
+
+
+# --------------------------------------------------------------------------- #
+# Ambit static extractor (EFL URL constructed from product id)
+# --------------------------------------------------------------------------- #
+def _extract_ambit():
+    html = AMBIT_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.AMBIT, use_llm_fallback=False)
+
+
+def test_ambit_extractor_finds_all_cards_deduped():
+    plans = _extract_ambit()
+    # 4 show-plan cards; the two same-productid buttons per card dedup to one.
+    assert len(plans) == 4
+    assert all(p.retailer == "Ambit Energy" for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+
+
+def test_ambit_constructs_pdfgenerator_efl_url_from_product_id():
+    by_name = {p.plan_name: p for p in _extract_ambit()}
+    url = by_name["Texas Solar Buyback 12"].efl_url
+    assert url.startswith("https://shopping.ambitenergy.com/PDFGenerator?")
+    assert "formType=EnergyFactsLabel" in url
+    assert "comProdId=ONAMTXSBBC12AA" in url
+    assert "tdsp=ONCOR" in url and "efldate=" in url
+
+
+def test_ambit_flags_buyback_by_name_and_by_description():
+    by_name = {p.plan_name: p for p in _extract_ambit()}
+    # "12" flagged via the export-credit description; "24" via the name alone
+    # (its card has no buyback wording).
+    assert by_name["Texas Solar Buyback 12"].is_buyback is True
+    assert by_name["Texas Solar Buyback 24"].is_buyback is True
+    assert by_name["Free & Clear Nights 12"].is_buyback is False
+    assert by_name["Lone Star Flex"].is_buyback is False
+
+
+def test_ambit_unescapes_plan_name_and_no_phantom_from_script():
+    names = {p.plan_name for p in _extract_ambit()}
+    assert "Free & Clear Nights 12" in names  # &amp; decoded
+    # The script blob's GHOST PDFGenerator URL must be stripped, not discovered.
+    assert not any("GHOST" in p.efl_url for p in _extract_ambit())
+
+
+def test_ambit_registered_with_no_render():
+    # WAF-blocked: Ambit is manual-capture only, so it has no render() flow.
+    assert rd.REP_CONFIGS["ambit"].retailer == "Ambit Energy"
+    assert rd.REP_CONFIGS["ambit"].render is None
 
 
 # --------------------------------------------------------------------------- #
