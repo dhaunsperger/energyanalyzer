@@ -128,6 +128,15 @@ Key semantics implementers must honor:
 - **`RateWindow`**: `months` (1-12), `weekdays` (0=Mon..6=Sun), `hours`
   (0-23, local interval-start hour). Empty list = wildcard. A window like
   hours [21,22,23,0,...,5] expresses "9pm–6am".
+- **`ev_free_charging`** (optional `EvFreeCharging`): models plans (e.g. Tesla)
+  that give *free EV charging* during certain hours — unlike a free-nights
+  window (which zeroes ALL usage in it), this waives the energy charge on only
+  up to `monthly_kwh_cap` import kWh inside `window` each billing month (the
+  estimated car load, e.g. 271 = 3250 kWh/yr ÷ 12), spent chronologically at
+  those kWh's own rate. Usage beyond the cap or outside the window is billed
+  normally, and only the energy charge is waived — **TDU delivery still applies**
+  (a REP can't waive TDU). The engine reports the freed kWh as a monthly
+  `ev_free_kwh` column.
 - **`buyback.kind`**: `none` | `fixed` (flat ¢/kWh) | `rtw` (indexed like
   above) | `windows` (time-of-use export via `rates: list[EnergyRate]`,
   same first-match semantics). "1:1" plans are `fixed` with rate equal to

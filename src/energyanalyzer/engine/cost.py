@@ -16,6 +16,7 @@ from ..core.models import (
     Buyback,
     BuybackKind,
     EnergyRate,
+    EvFreeCharging,
     Plan,
     PlanResult,
     TduTariff,
@@ -79,6 +80,29 @@ def _first_match_rate(
     return rate, tdu_exempt, uses_rtw
 
 
+def _apply_ev_free_charging(
+    df: pd.DataFrame, ev: EvFreeCharging
+) -> tuple[pd.Series, pd.Series]:
+    """Waive the energy charge on the first ``ev.monthly_kwh_cap`` import kWh
+    inside ``ev.window`` each billing month (chronologically), at those kWh's
+    own rate. Returns ``(reduced_energy_charge, freed_kwh)`` per interval.
+
+    Only the energy charge is reduced -- TDU delivery on those kWh still
+    applies. Requires df to carry the ``add_local_columns`` helpers and an
+    ``energy_charge`` column, and to be time-sorted (the canonical UTC frame is).
+    """
+    window_kwh = df["import_kwh"].where(ev.window.mask(df), 0.0)
+    # Cumulative in-window import kWh BEFORE this interval, within its month, so
+    # the cap is spent chronologically across the month.
+    cum_before = window_kwh.groupby(df["month"], sort=False).cumsum() - window_kwh
+    remaining_cap = (ev.monthly_kwh_cap - cum_before).clip(lower=0.0)
+    freed_kwh = pd.concat([remaining_cap, window_kwh], axis=1).min(axis=1)  # per interval
+    # Fraction of this interval's import that's freed -> reduce its energy charge
+    # by the same fraction (0 for non-window / zero-usage intervals).
+    frac = (freed_kwh / df["import_kwh"]).where(df["import_kwh"] > 0, 0.0).clip(0.0, 1.0)
+    return df["energy_charge"] * (1.0 - frac), freed_kwh
+
+
 def _resolve_buyback_rate(
     buyback: Buyback, df: pd.DataFrame, prices: pd.Series | None, plan_id: str
 ) -> tuple[pd.Series, bool]:
@@ -139,6 +163,14 @@ def simulate(
 
     df = df.copy()
     df["energy_charge"] = df["import_kwh"] * energy_rate
+    # Free EV charging: waive the energy charge on capped in-window import kWh
+    # each month (TDU still applies). Reduces energy_charge before it's summed.
+    if plan.ev_free_charging is not None:
+        df["energy_charge"], df["ev_free_kwh"] = _apply_ev_free_charging(
+            df, plan.ev_free_charging
+        )
+    else:
+        df["ev_free_kwh"] = 0.0
     df["export_credit_raw"] = df["export_kwh"] * buyback_rate
     df["tdu_import_kwh"] = df["import_kwh"].where(~tdu_exempt, 0.0)
 
@@ -150,6 +182,7 @@ def simulate(
         import_kwh = float(g["import_kwh"].sum())
         export_kwh = float(g["export_kwh"].sum())
         energy_cost = float(g["energy_charge"].sum())
+        ev_free_kwh = float(g["ev_free_kwh"].sum())
         base = plan.base_charge_usd
         tdu_charge = (
             tdu.fixed_usd_month + tdu.volumetric_usd_kwh * float(g["tdu_import_kwh"].sum())
@@ -192,6 +225,7 @@ def simulate(
                 "import_kwh": import_kwh,
                 "export_kwh": export_kwh,
                 "energy_cost": energy_cost,
+                "ev_free_kwh": ev_free_kwh,
                 "base": base,
                 "tdu": tdu_charge,
                 "bill_credit": bill_credit,
@@ -210,6 +244,7 @@ def simulate(
             "import_kwh",
             "export_kwh",
             "energy_cost",
+            "ev_free_kwh",
             "base",
             "tdu",
             "bill_credit",

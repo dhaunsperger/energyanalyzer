@@ -13,6 +13,7 @@ from energyanalyzer.core.models import (
     Buyback,
     BuybackKind,
     EnergyRate,
+    EvFreeCharging,
     Plan,
     RateWindow,
     RtwRate,
@@ -123,6 +124,49 @@ def test_free_night_window():
     expected_energy = paid_intervals * 1.0 * 0.20
     assert row["energy_cost"] == pytest.approx(expected_energy)
     assert row["bill"] == pytest.approx(expected_energy)
+
+
+# --------------------------------------------------------------------------- #
+# 2b. Free EV charging: capped, energy-only, does not free whole-home load
+# --------------------------------------------------------------------------- #
+def test_ev_free_charging_caps_and_leaves_tdu():
+    # 2 days, 1 kWh/interval. Charging window = local hours 0-5 (6h x 4 x 2 days
+    # = 48 window kWh). Cap 20 kWh/month -> free 20 kWh at the 10c energy rate.
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1, 2, 3, 4, 5])
+    plan = base_plan(
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+        tdu_passthrough=True,
+        ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=20.0),
+    )
+    tdu = flat_tdu(fixed=10.0, volumetric_ckwh=5.0)
+    result = simulate(plan, intervals, tdu)
+    row = result.monthly.iloc[0]
+
+    total_kwh = 2 * 96
+    # Only 20 kWh are freed (cap), even though 48 kWh fell in the window.
+    assert row["ev_free_kwh"] == pytest.approx(20.0)
+    # Energy charge = (all kWh - 20 free) x 10c.
+    assert row["energy_cost"] == pytest.approx((total_kwh - 20) * 0.10)
+    # TDU is charged on ALL import kWh -- the free benefit waives energy only.
+    assert row["tdu"] == pytest.approx(10.0 + 0.05 * total_kwh)
+    # Sanity: an identical plan without the benefit costs exactly 20 x 10c more.
+    plain = base_plan(energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=True)
+    plain_row = simulate(plain, intervals, tdu).monthly.iloc[0]
+    assert plain_row["bill"] - row["bill"] == pytest.approx(20 * 0.10)
+
+
+def test_ev_free_charging_cap_exceeds_window_usage_frees_all():
+    # Cap larger than the window usage -> frees exactly the window kWh, no more.
+    intervals = make_intervals("2024-01-08", days=1, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1])  # 2h x 4 = 8 window kWh in the day
+    plan = base_plan(
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+        ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=500.0),
+    )
+    row = simulate(plan, intervals, flat_tdu()).monthly.iloc[0]
+    assert row["ev_free_kwh"] == pytest.approx(8.0)  # not the full 500 cap
+    assert row["energy_cost"] == pytest.approx((96 - 8) * 0.10)
 
 
 # --------------------------------------------------------------------------- #
