@@ -7,7 +7,7 @@ decisions without noting an open question at the bottom.
 
 ## 1. What this app does
 
-Replicates the "Texas Power Guide" solar electric plan analysis service:
+Replicates a solar electric plan analysis service:
 
 1. Ingest 12 months of 15-minute interval usage (grid **import** and solar
    **export**) from SmartMeter Texas (SMT) exports.
