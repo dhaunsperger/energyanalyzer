@@ -29,6 +29,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     invalidate_plans_cache,
     load_draft_raw,
     parse_downloaded_efls,
+    plan_is_stale,
     plan_summary_row,
     ptc_efl_resolution_report,
     refresh_market_data,
@@ -63,7 +64,11 @@ st.divider()
 # --------------------------------------------------------------------------- #
 st.subheader("Plan detail")
 if plans:
-    plan_labels = {f"{p.retailer} — {p.name} ({p.id})": p.id for p in plans}
+    detail_plans = sorted(plans, key=lambda p: not plan_is_stale(p))
+    plan_labels = {
+        f"{'(STALE) ' if plan_is_stale(p) else ''}{p.retailer} — {p.name} ({p.id})": p.id
+        for p in detail_plans
+    }
     label = st.selectbox("Select a plan", list(plan_labels.keys()), key="detail_select")
     selected_plan = next(p for p in plans if p.id == plan_labels[label])
     if selected_plan.needs_review:
