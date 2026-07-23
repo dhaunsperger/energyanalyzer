@@ -1,0 +1,42 @@
+<!--
+  Synthetic Octopus plans-page fragment for tests. Mirrors the confirmed real
+  structure: each plan card has an <h2 data-cy="product-title"> and an
+  "Electricity Facts Label" link to octopusenergy.com/efl/<CODE>-<TDU>-<LZ>-<ts>/.
+  Octopus bundles solar buyback into every plan EXCEPT OctopusFlex, so the
+  extractor flags is_buyback = "not Flex". This fixture also includes a
+  competitor EFL (a txu.com PDFGenerator link, as Octopus's compare widget shows)
+  to prove only octopusenergy.com/efl/ URLs are taken, and a script blob naming a
+  phantom /efl/ URL to prove script stripping. No PII, no real EFL, no network.
+-->
+<html>
+<body>
+<div class="plan-grid">
+
+  <div class="MuiBox-root card">
+    <h2 class="cxYASs" data-cy="product-title"><strong>Octopus Flex</strong> </h2>
+    <div class="rate">$143 <a href="https://octopusenergy.com/efl/OCTOPUS-FLEX-ONCOR-LZ_SOUTH-202607091030/">Electricity Facts Label</a></div>
+  </div>
+
+  <div class="MuiBox-root card">
+    <h2 class="cxYASs" data-cy="product-title"><strong>Octo Green 12</strong> </h2>
+    <div class="rate">$146 <a href="https://octopusenergy.com/efl/OCTO-GREEN-12-ONCOR-LZ_SOUTH-202607141200/">Electricity Facts Label</a></div>
+  </div>
+
+  <div class="MuiBox-root card">
+    <h2 class="cxYASs" data-cy="product-title"><strong>Octopus Lite 12</strong> </h2>
+    <div class="rate">$116 Save $125 when you use 1000 kWh or more
+      <a href="https://octopusenergy.com/efl/OCTOLITE-12M-ONCOR-LZ_SOUTH-202607131815/">Electricity Facts Label</a></div>
+  </div>
+
+  <!-- competitor comparison widget: must NOT be picked up -->
+  <div class="compare-widget">
+    <a href="https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel&amp;comProdId=ONXSIMRTND12BL&amp;efldate=2026-07-23&amp;tdsp=ONCOR&amp;lang=en&amp;custClass=Residential">Competitor EFL</a>
+  </div>
+
+</div>
+<script>
+  // Phantom /efl/ URL in a data blob -- must be stripped, never discovered.
+  window.__octo = {"efl":"https://octopusenergy.com/efl/GHOST-ONCOR-LZ_SOUTH-000/"};
+</script>
+</body>
+</html>

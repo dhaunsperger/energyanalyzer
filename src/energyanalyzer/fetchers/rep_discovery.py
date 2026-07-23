@@ -178,6 +178,28 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+# Some REP sites require PII to render plans (e.g. Octopus needs an ESI ID when a
+# ZIP spans load zones). That never belongs in code or git -- it's read at render
+# time from a gitignored secrets file (data/* is ignored; only data/README.md is
+# tracked). Keyed by REP: {rep_key: {esiid, address_button, ...}}.
+_SECRETS_PATH = Path("data/rep_discovery_secrets.yaml")
+
+
+def _load_rep_secret(rep_key: str, path: Optional[Path] = None) -> dict:
+    """Read a REP's private render inputs from the gitignored secrets file.
+    Returns {} if the file or the REP's entry is absent. ``path`` resolves to the
+    module ``_SECRETS_PATH`` at call time (not import time) so it stays patchable."""
+    if path is None:
+        path = _SECRETS_PATH
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    return data.get(rep_key, {}) or {}
+
+
 # --------------------------------------------------------------------------- #
 # Green Mountain static extractor
 # --------------------------------------------------------------------------- #
@@ -580,6 +602,61 @@ def extract_ambit(html: str, config: RepConfig) -> list[DiscoveredPlan]:
                 buyback_ckwh=None,
                 extraction_method="static",
                 context=f"[comProdId={product_id}] {card_text[:600]}",
+            )
+        )
+    return plans
+
+
+# --------------------------------------------------------------------------- #
+# Octopus Energy static extractor
+# --------------------------------------------------------------------------- #
+# Octopus self-labels: each plan card has an <h2 data-cy="product-title"> and an
+# "Electricity Facts Label" link to octopusenergy.com/efl/<CODE>-<TDU>-<LZ>-<ts>/.
+# Buyback isn't a separate plan -- the page states "Solar buyback is automatically
+# included in all of our plans except OctopusFlex" -- so every plan but Flex is
+# buyback. (Octopus requires an ESI ID to render the list when a ZIP spans load
+# zones; that PII is read from a gitignored secrets file by _octopus_render, not
+# stored here. A stray competitor EFL, e.g. a txu.com PDFGenerator link, is
+# ignored: only octopusenergy.com/efl/ URLs are taken.)
+_OCTOPUS_TITLE_RE = re.compile(r'data-cy="product-title"[^>]*>(.*?)</h2>', re.I | re.S)
+_OCTOPUS_EFL_RE = re.compile(r'href="(https://octopusenergy\.com/efl/[^"]+)"', re.I)
+
+
+def extract_octopus(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Octopus's rendered plans page.
+
+    Each plan's EFL self-labels via an ``octopusenergy.com/efl/...`` link; the
+    plan name is the nearest preceding ``<h2 data-cy="product-title">``. Buyback
+    is bundled into every plan except OctopusFlex (per the page's own statement),
+    so ``is_buyback`` is just "not Flex". Rate isn't on the page (it's in the
+    EFL), so ``buyback_ckwh`` stays None.
+    """
+    html = _SCRIPT_RE.sub("", _strip_comments(html))
+    titles = [
+        (m.start(), _clean_plan_name(_strip_tags(m.group(1))))
+        for m in _OCTOPUS_TITLE_RE.finditer(html)
+    ]
+
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for m in _OCTOPUS_EFL_RE.finditer(html):
+        url = m.group(1)
+        if url in seen:
+            continue
+        seen.add(url)
+        prior = [name for off, name in titles if off < m.start()]
+        plan_name = prior[-1] if prior else url
+        # "...included in all of our plans except OctopusFlex."
+        is_buyback = "flex" not in _normalize_name(plan_name)
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name,
+                efl_url=url,
+                is_buyback=is_buyback,
+                buyback_ckwh=None,
+                extraction_method="static",
+                context="Electricity Facts Label",
             )
         )
     return plans
@@ -1191,6 +1268,53 @@ AMBIT = RepConfig(
 )
 
 
+def _octopus_render(page: object, zip_code: str) -> None:
+    """Octopus nav flow. Octopus rejects a bare ZIP that spans load zones and
+    requires an ESI ID (PII) -- read from the gitignored secrets file, never
+    hardcoded. Enters ZIP -> Explore plans -> the address/ESI-ID panel -> ESI ID
+    -> confirm the matched address. `fetch_rendered_html` handles goto + settle.
+
+    NOTE: the solar/EV/thermostat qualification checkboxes from the codegen are
+    intentionally omitted -- they use obfuscated styled-component classes that
+    drift across deploys, and they don't gate which plans (or EFLs) appear
+    (buyback is bundled in all plans but Flex regardless). Not yet validated
+    against the live site; the "please enter your address" / "Alternatively"
+    link+button names may need tuning."""
+    secret = _load_rep_secret("octopus")
+    esiid = secret.get("esiid")
+    if not esiid:
+        raise RuntimeError(
+            "Octopus requires an ESI ID to render plans (ZIP spans load zones). "
+            "Add octopus.esiid to data/rep_discovery_secrets.yaml (gitignored)."
+        )
+    address_button = secret.get("address_button")
+
+    def _try(action) -> bool:
+        try:
+            action()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    page.get_by_role("textbox", name="Zip code").fill(zip_code)  # type: ignore[attr-defined]
+    page.get_by_role("button", name="Explore our plans").click()  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("link", name="please enter your address or").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="Alternatively, if you know").click(timeout=8000))  # type: ignore[attr-defined]
+    page.get_by_role("textbox", name="Enter your ESI ID Number").fill(esiid)  # type: ignore[attr-defined]
+    page.get_by_role("button", name="Get a quote").click()  # type: ignore[attr-defined]
+    if address_button:
+        _try(lambda: page.get_by_role("button", name=address_button).click(timeout=10000))  # type: ignore[attr-defined]
+
+
+OCTOPUS = RepConfig(
+    key="octopus",
+    retailer="Octopus Energy",
+    homepage="https://octopusenergy.com/",
+    extractor=extract_octopus,
+    render=_octopus_render,
+)
+
+
 # --------------------------------------------------------------------------- #
 # Champion Energy interactive harvester (EFL URL is JS-computed, not in the DOM)
 # --------------------------------------------------------------------------- #
@@ -1291,5 +1415,5 @@ CHAMPION = RepConfig(
 
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
-    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT, CHAMPION)
+    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT, OCTOPUS, CHAMPION)
 }

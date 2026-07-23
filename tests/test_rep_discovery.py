@@ -23,6 +23,7 @@ TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
 CHARIOT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_chariot_sample.html"
 GEXA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_gexa_sample.html"
 AMBIT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_ambit_sample.html"
+OCTOPUS_FIXTURE = Path(__file__).parent / "fixtures" / "rep_octopus_sample.html"
 
 
 # --------------------------------------------------------------------------- #
@@ -296,6 +297,113 @@ def test_ambit_registered_with_no_render():
     # WAF-blocked: Ambit is manual-capture only, so it has no render() flow.
     assert rd.REP_CONFIGS["ambit"].retailer == "Ambit Energy"
     assert rd.REP_CONFIGS["ambit"].render is None
+
+
+# --------------------------------------------------------------------------- #
+# Octopus static extractor (buyback = all plans except OctopusFlex)
+# --------------------------------------------------------------------------- #
+def _extract_octopus():
+    html = OCTOPUS_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.OCTOPUS, use_llm_fallback=False)
+
+
+def test_octopus_extractor_finds_all_cards():
+    plans = _extract_octopus()
+    assert len(plans) == 3
+    assert all(p.retailer == "Octopus Energy" for p in plans)
+    assert all("octopusenergy.com/efl/" in p.efl_url for p in plans)
+
+
+def test_octopus_buyback_is_all_plans_except_flex():
+    by_name = {p.plan_name: p for p in _extract_octopus()}
+    assert by_name["Octopus Flex"].is_buyback is False
+    assert by_name["Octo Green 12"].is_buyback is True
+    assert by_name["Octopus Lite 12"].is_buyback is True
+
+
+def test_octopus_ignores_competitor_and_script_efls():
+    urls = {p.efl_url for p in _extract_octopus()}
+    # The txu.com PDFGenerator competitor link isn't an Octopus plan.
+    assert not any("txu.com" in u for u in urls)
+    # The script blob's GHOST /efl/ URL must be stripped, not discovered.
+    assert not any("GHOST" in u for u in urls)
+
+
+def test_octopus_plan_name_from_product_title():
+    names = {p.plan_name for p in _extract_octopus()}
+    assert {"Octopus Flex", "Octo Green 12", "Octopus Lite 12"} <= names
+
+
+def test_octopus_registered_in_rep_configs():
+    assert rd.REP_CONFIGS["octopus"].retailer == "Octopus Energy"
+    assert rd.REP_CONFIGS["octopus"].render is not None
+
+
+# --------------------------------------------------------------------------- #
+# Octopus render reads ESI ID (PII) from the gitignored secrets file
+# --------------------------------------------------------------------------- #
+def test_load_rep_secret_reads_yaml(tmp_path):
+    p = tmp_path / "secrets.yaml"
+    p.write_text("octopus:\n  esiid: 'TEST-ESIID'\n  address_button: '1 MAIN ST'\n")
+    got = rd._load_rep_secret("octopus", path=p)
+    assert got["esiid"] == "TEST-ESIID"
+    assert rd._load_rep_secret("nope", path=p) == {}
+
+
+def test_load_rep_secret_missing_file_returns_empty(tmp_path):
+    assert rd._load_rep_secret("octopus", path=tmp_path / "absent.yaml") == {}
+
+
+class _RecordingPage:
+    """Records role/name interactions so the render flow can be asserted
+    without a browser. fill/click are no-ops that just log."""
+
+    def __init__(self):
+        self.filled = {}
+        self.clicked = []
+
+    def get_by_role(self, role, name=None, **k):
+        return _RecordingLoc(self, name)
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+class _RecordingLoc:
+    def __init__(self, page, name):
+        self.page = page
+        self.name = name
+
+    @property
+    def first(self):
+        return self
+
+    def fill(self, value, **k):
+        self.page.filled[self.name] = value
+
+    def click(self, **k):
+        self.page.clicked.append(self.name)
+
+
+def test_octopus_render_reads_esiid_from_secrets(tmp_path, monkeypatch):
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("octopus:\n  esiid: 'ESI-123'\n  address_button: '1 MAIN ST'\n")
+    monkeypatch.setattr(rd, "_SECRETS_PATH", secrets)
+    page = _RecordingPage()
+    rd._octopus_render(page, "78665")
+    # ZIP + the ESI ID (from secrets, not hardcoded) reach the form.
+    assert page.filled.get("Zip code") == "78665"
+    assert page.filled.get("Enter your ESI ID Number") == "ESI-123"
+    assert "Get a quote" in page.clicked
+    assert "1 MAIN ST" in page.clicked  # matched-address confirmation
+
+
+def test_octopus_render_errors_without_esiid(tmp_path, monkeypatch):
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("octopus:\n  address_button: '1 MAIN ST'\n")  # no esiid
+    monkeypatch.setattr(rd, "_SECRETS_PATH", secrets)
+    with pytest.raises(RuntimeError, match="requires an ESI ID"):
+        rd._octopus_render(_RecordingPage(), "78665")
 
 
 # --------------------------------------------------------------------------- #
