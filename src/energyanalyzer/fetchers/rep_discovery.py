@@ -107,8 +107,11 @@ class RepConfig:
     retailer: str
     homepage: str
     extractor: Callable[[str, "RepConfig"], list[DiscoveredPlan]]
-    # render(page, zip_code) -> None: drive the ZIP gate / "View Plans" flow.
-    render: Optional[Callable[[object, str], None]] = None
+    # render(page, zip_code): drive the ZIP gate / "View Plans" flow. Returns
+    # None (caller captures page.content() once) OR, for a paginated listing, a
+    # string of concatenated per-page HTML the render collected itself (the
+    # extractor splits on plan cards and dedups, so page boundaries don't matter).
+    render: Optional[Callable[[object, str], Optional[str]]] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -311,6 +314,91 @@ def extract_txu(html: str, config: RepConfig) -> list[DiscoveredPlan]:
                 buyback_ckwh=None,
                 extraction_method="static",
                 context=f"[comProdId={product_id}] {card_text}",
+            )
+        )
+    return plans
+
+
+# --------------------------------------------------------------------------- #
+# Chariot Energy static extractor
+# --------------------------------------------------------------------------- #
+# Chariot renders each plan as a <div class="planbox"> card. Its solar-buyback
+# products (Shine / PowerBank / GreenVolt) live behind a "My home has solar
+# panels" gate -- the general shop-rates listing has none -- so this extractor
+# is always driven with the solar render flow (see _chariot_render).
+_CHARIOT_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="planbox")')
+_CHARIOT_NAME_RE = re.compile(r'<p\b[^>]*\bclass="planname"[^>]*>(.*?)</p>', re.I | re.S)
+# The EFL link IS the self-label: /Home/EFl?productId=<id> (the sibling TOS/YRAC
+# links use /Home/TOS? and /Home/YRAC?, so this pattern won't catch them). The
+# \d+ requirement also skips the un-rendered #:ProductId# template row.
+_CHARIOT_EFL_URL_RE = re.compile(r'href="(/Home/EFl\?productId=\d+[^"]*)"', re.I)
+_CHARIOT_PRODID_RE = re.compile(r"productId=(\d+)", re.I)
+# Buyback self-label: "buyback" / "excess energy" appear in every solar card's
+# visible description and in none of the non-solar plans. ("rooftop solar" is
+# deliberately NOT a signal -- the non-solar plans carry a "Restrictions apply
+# for customers with rooftop solar and/or batteries" disclaimer.)
+_CHARIOT_BUYBACK_RE = re.compile(r"buyback|excess energy", re.I)
+# Published buyback rate, when fixed: "...buyback rate of 3 Cents per kWh..." or
+# a "Fixed 7¢ Buyback" tagline. Shine advertises a "real-time market buyback
+# rate" with no number, so buyback_ckwh stays None for it.
+_CHARIOT_RATE_RE = re.compile(r"buyback rate\s+of\s+(\d+(?:\.\d+)?)\s*(?:¢|cents?)\b", re.I)
+_CHARIOT_RATE_ALT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*¢\s*buyback", re.I)
+
+
+def _chariot_buyback_ckwh(text: str) -> Optional[float]:
+    """Parse a fixed buyback ¢/kWh rate from a card's visible text, or None for
+    a market-rate plan (no published number)."""
+    m = _CHARIOT_RATE_RE.search(text) or _CHARIOT_RATE_ALT_RE.search(text)
+    return float(m.group(1)) if m else None
+
+
+def extract_chariot(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Chariot's rendered plans page(s).
+
+    Chariot self-labels like TXU: each plan is a ``planbox`` card with a
+    ``planname`` title and an EFL link that is its own label
+    (``/Home/EFl?productId=<id>``). The card's ``plandescription`` announces
+    buyback ("Earn a fixed buyback rate of 3 Cents per kWh for excess energy
+    from your panels") and often the fixed rate, which we parse into
+    ``buyback_ckwh`` (None for Shine's market-rate plans).
+
+    The listing is paginated; ``_chariot_render`` concatenates the pages, so we
+    dedup cards by product id. Comments/scripts/SVGs are stripped first (the
+    page is dense with inline icon ``<svg>`` path data that would pollute the
+    card text).
+    """
+    html = _strip_comments(html)
+    html = _SCRIPT_RE.sub("", html)
+    html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
+    cards = [c for c in _CHARIOT_CARD_SPLIT_RE.split(html) if 'class="planbox"' in c[:60]]
+    base = config.homepage
+
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for card in cards:
+        url_m = _CHARIOT_EFL_URL_RE.search(card)
+        if not url_m:
+            continue
+        efl_url = urljoin(base, unescape(url_m.group(1)))
+        pid_m = _CHARIOT_PRODID_RE.search(efl_url)
+        product_id = pid_m.group(1) if pid_m else efl_url
+        if product_id in seen:  # same plan repeated across concatenated pages
+            continue
+        seen.add(product_id)
+        name_m = _CHARIOT_NAME_RE.search(card)
+        plan_name = _clean_plan_name(_strip_tags(name_m.group(1))) if name_m else product_id
+        card_text = _strip_tags(unescape(card))
+        is_buyback = bool(_CHARIOT_BUYBACK_RE.search(card_text))
+        buyback_ckwh = _chariot_buyback_ckwh(card_text) if is_buyback else None
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name,
+                efl_url=efl_url,
+                is_buyback=is_buyback,
+                buyback_ckwh=buyback_ckwh,
+                extraction_method="static",
+                context=f"[productId={product_id}] {card_text[:600]}",
             )
         )
     return plans
@@ -594,10 +682,15 @@ def fetch_rendered_html(
         page = context.new_page()
         try:
             page.goto(config.homepage, wait_until="domcontentloaded", timeout=timeout_ms)
-            config.render(page, zip_code)
-            if settle_ms:
-                page.wait_for_timeout(settle_ms)
-            html = page.content()
+            rendered = config.render(page, zip_code)
+            if isinstance(rendered, str):
+                # Paginated render collected + concatenated the pages itself
+                # (and did its own per-page settling); use it verbatim.
+                html = rendered
+            else:
+                if settle_ms:
+                    page.wait_for_timeout(settle_ms)
+                html = page.content()
         finally:
             context.close()
             browser.close()
@@ -767,5 +860,58 @@ TXU = RepConfig(
     render=_txu_render,
 )
 
+
+def _chariot_render(page: object, zip_code: str) -> str:
+    """Chariot nav flow, adapted from a `playwright codegen` recording. Chariot's
+    solar-buyback plans (Shine/PowerBank/GreenVolt) are gated behind a "My home
+    has solar panels" path -- the general shop-rates listing has none -- so this
+    flow selects Residential, the solar-owner option, then the ZIP gate.
+
+    The listing is paginated, so this render captures every page's HTML itself
+    and returns the concatenation (extract_chariot dedups by product id); the
+    "Go to the next page" link is followed until it disappears. Steps that don't
+    always appear (cookie modal, the solar interstitial + its "I Understand"
+    confirm when solar is already selected) are best-effort."""
+
+    def _try(action) -> None:
+        try:
+            action()
+        except Exception:  # noqa: BLE001
+            pass
+
+    _try(lambda: page.get_by_role("button", name="Close").click(timeout=5000))  # type: ignore[attr-defined]
+    page.get_by_role("link", name="Residential").click()  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_text("My home has solar panels.").click(timeout=5000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="I Understand").click(timeout=5000))  # type: ignore[attr-defined]
+    # The ZIP widget id (#zip-form-widget-<hash>) is auto-generated per render,
+    # so match it by id prefix rather than the exact hash.
+    zipbox = page.locator('[id^="zip-form-widget-"]')  # type: ignore[attr-defined]
+    zipbox.get_by_role("textbox", name="Enter ZIP Code").fill(zip_code)
+    zipbox.get_by_role("button", name="Shop Rates").click()
+    page.get_by_role("link", name="ALL Products").click()  # type: ignore[attr-defined]
+
+    parts: list[str] = []
+    for _ in range(12):  # safety cap; real listing is ~2 pages
+        page.wait_for_load_state("networkidle")  # type: ignore[attr-defined]
+        parts.append(page.content())  # type: ignore[attr-defined]
+        nxt = page.get_by_role("link", name="Go to the next page")  # type: ignore[attr-defined]
+        if nxt.count() == 0:
+            break
+        try:
+            nxt.first.click(timeout=4000)
+            page.wait_for_timeout(1500)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            break  # link present but not clickable (last page) -> done
+    return "\n".join(parts)
+
+
+CHARIOT = RepConfig(
+    key="chariot",
+    retailer="Chariot Energy",
+    homepage="https://chariotenergy.com/",
+    extractor=extract_chariot,
+    render=_chariot_render,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
-REP_CONFIGS: dict[str, RepConfig] = {c.key: c for c in (GREEN_MOUNTAIN, TXU)}
+REP_CONFIGS: dict[str, RepConfig] = {c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT)}

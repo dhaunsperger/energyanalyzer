@@ -20,6 +20,7 @@ from energyanalyzer.fetchers import rep_discovery as rd
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rep_green_mountain_sample.html"
 TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
+CHARIOT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_chariot_sample.html"
 
 
 # --------------------------------------------------------------------------- #
@@ -123,6 +124,68 @@ def test_txu_buyback_efl_url_carries_product_id():
 def test_txu_registered_in_rep_configs():
     assert rd.REP_CONFIGS["txu"].retailer == "TXU Energy"
     assert rd.REP_CONFIGS["txu"].render is not None
+
+
+# --------------------------------------------------------------------------- #
+# Chariot static extractor
+# --------------------------------------------------------------------------- #
+def _extract_chariot():
+    html = CHARIOT_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.CHARIOT, use_llm_fallback=False)
+
+
+def test_chariot_extractor_finds_all_cards():
+    plans = _extract_chariot()
+    # 4 unique plans: the #:ProductId# template row is skipped and the
+    # PowerBank card duplicated across the two concatenated pages is deduped.
+    assert len(plans) == 4
+    assert all(p.retailer == "Chariot Energy" for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+    assert all("/Home/EFl?productId=" in p.efl_url for p in plans)
+
+
+def test_chariot_extractor_dedups_across_pages_and_skips_template():
+    names = [p.plan_name for p in _extract_chariot()]
+    assert names.count("PowerBank 12") == 1  # deduped across pages
+    assert not any("#:" in n or "Title" == n for n in names)  # template skipped
+
+
+def test_chariot_extractor_flags_solar_buyback_plans():
+    by_name = {p.plan_name: p for p in _extract_chariot()}
+    assert by_name["Shine 12"].is_buyback is True
+    assert by_name["PowerBank 12"].is_buyback is True
+    assert by_name["GreenVolt 24"].is_buyback is True
+
+
+def test_chariot_extractor_does_not_flag_rooftop_solar_disclaimer():
+    # "Free Days 12" carries a "Restrictions apply for customers with rooftop
+    # solar and/or batteries" disclaimer -- that must NOT read as buyback.
+    by_name = {p.plan_name: p for p in _extract_chariot()}
+    assert by_name["Free Days 12"].is_buyback is False
+    assert by_name["Free Days 12"].buyback_ckwh is None
+
+
+def test_chariot_extractor_parses_fixed_buyback_rate():
+    by_name = {p.plan_name: p for p in _extract_chariot()}
+    # "...buyback rate of 3 Cents per kWh..."
+    assert by_name["PowerBank 12"].buyback_ckwh == pytest.approx(3.0)
+    # "Fixed 7¢ Buyback" tagline (the alt-rate pattern).
+    assert by_name["GreenVolt 24"].buyback_ckwh == pytest.approx(7.0)
+    # Market-rate plan advertises no number -> None despite being buyback.
+    assert by_name["Shine 12"].is_buyback is True
+    assert by_name["Shine 12"].buyback_ckwh is None
+
+
+def test_chariot_extractor_unescapes_efl_url_and_ignores_tos_yrac():
+    urls = {p.efl_url for p in _extract_chariot()}
+    # &amp; in the href decoded; sibling TOS/YRAC links not picked up.
+    assert "https://chariotenergy.com/Home/EFl?productId=40536&Promo=15225" in urls
+    assert not any("/Home/TOS?" in u or "/Home/YRAC?" in u for u in urls)
+
+
+def test_chariot_registered_in_rep_configs():
+    assert rd.REP_CONFIGS["chariot"].retailer == "Chariot Energy"
+    assert rd.REP_CONFIGS["chariot"].render is not None
 
 
 # --------------------------------------------------------------------------- #
