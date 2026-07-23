@@ -1,0 +1,73 @@
+<!--
+  Synthetic Gexa plans-page fragment for tests. Mirrors the confirmed real
+  structure: each plan is a div.row.plan-list-padding with an <h3> name, a
+  nested .EFL_PlanCard holding the EFL link (self-labeled via
+  eflviewer.aspx?...prodcode=<code>), and a <ul class="plan-list"> whose
+  "Plan Type: <b>Solar Buyback</b>" line is the buyback self-label. The
+  free-floating .Product-tab "Solar Buyback" ribbon is DOM-positioned at the end
+  of the PREVIOUS card, so this fixture puts one at the end of a NON-buyback card
+  (Gexa 12) to prove the extractor keys on "Plan Type: Solar Buyback" and is not
+  fooled by a stray ribbon. A trailing EV plan (SavEV) placed right after a
+  buyback card proves per-card splitting kills cross-card text bleed. A
+  "Gexa Stable Plans" section header row has no EFL and must be skipped. The
+  &amp; entity and a %2b-encoded prodcode exercise URL handling; the script blob
+  proves script stripping. No real EFL content, no network.
+-->
+<html>
+<body>
+<div class="plan-list-container">
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Gexa 12</h3>
+    <strong>Get the same low price - all day, every day</strong>
+    <div class="EFL_PlanCard"><a class="efl" target="_blank" href="https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&amp;prodcode=GXA12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Fixed</b> Pay the same amount each month</li><li>Best for: Budgeters</li></ul></div>
+</div>
+<!-- ribbon belongs (visually) to the NEXT card; must NOT flag Gexa 12 -->
+<div class="Product-tab" style="background:#DAA520;width:auto"><div class="font">Solar Buyback</div></div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Gexa Solar Buyback 12</h3>
+    <strong>Earn bill credits on all excess energy exported to the grid</strong>
+    <div class="EFL_PlanCard"><a class="efl" target="_blank" href="https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&amp;prodcode=GXA_TOU_SOLBB12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Solar Buyback</b> <br> Earn energy credit for all excess energy you export to the grid</li><li>Designed for: Rooftop solar owners</li></ul></div>
+</div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Gexa Battery Benefits 12</h3>
+    <strong>Supercharge your energy savings</strong>
+    <div class="EFL_PlanCard"><a class="efl" target="_blank" href="https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&amp;prodcode=GXA_TOU_BATBNF12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Solar Buyback</b> <br> Earn energy credit for all excess energy you export to the grid</li><li>Roll-over credits available</li><li>Designed for: Rooftop solar owners with installed home batteries</li></ul></div>
+</div>
+
+<!-- EV plan right after a buyback card: "export to the grid" above must not bleed in -->
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Gexa SavEV 12</h3>
+    <strong>Get FREE energy for EV charging every night</strong>
+    <div class="EFL_PlanCard"><a class="efl" target="_blank" href="https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&amp;prodcode=GXA_TOU_SAVEV12&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>12 months</b></li><li>Plan Type: <b>Fixed</b> Free energy for nighttime charging from 11PM to 5AM</li><li>Designed for: EV charging at home</li></ul></div>
+</div>
+
+<div class="row  text-center plan-list-padding" style="border-top:1px solid lightgrey;">
+  <div class="col-lg-4 col-12 pt-3 p-0"><h3>Gexa 55+</h3>
+    <strong>Aged 55+? Enjoy discounted electricity</strong>
+    <div class="EFL_PlanCard"><a class="efl" target="_blank" href="https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&amp;prodcode=GXA55%2b&amp;tdspcode=ONCOR_ELEC">Electricity Facts Label</a></div>
+  </div>
+  <div class="col-lg-4 p-0 pt-4"><ul class="plan-list"><li>Term: <b>24 months</b></li><li>Plan Type: <b>Fixed</b> Budget stability with a locked-in price</li></ul></div>
+</div>
+
+<!-- Section-header row with no EFL: must be skipped. -->
+<div class="row  text-center plan-list-padding"><div class="col-lg-12"><h3>Gexa Stable Plans</h3></div></div>
+
+</div>
+<script>
+  // Analytics config naming a "Solar Buyback" badge and an eflviewer URL that
+  // must be stripped, never leaking a phantom plan/EFL.
+  window.__gexa = {"badge":"Solar Buyback","efl":"https://eflviewer.gexaenergy.com/eflviewer.aspx?prodcode=GHOST"};
+</script>
+</body>
+</html>

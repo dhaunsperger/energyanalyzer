@@ -405,6 +405,74 @@ def extract_chariot(html: str, config: RepConfig) -> list[DiscoveredPlan]:
 
 
 # --------------------------------------------------------------------------- #
+# Gexa Energy static extractor
+# --------------------------------------------------------------------------- #
+# Gexa renders each plan as a <div class="row ... plan-list-padding"> card: an
+# <h3> plan name, a <ul class="plan-list"> with "Plan Type: <b>Solar Buyback</b>"
+# for buyback plans, and an EFL link inside a nested .EFL_PlanCard. The
+# "Solar Buyback & EV" category is a client-side filter -- all plans stay in the
+# DOM -- so this extractor sees every plan and flags buyback per card.
+_GEXA_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="row[^"]*\bplan-list-padding\b)')
+_GEXA_NAME_RE = re.compile(r"<h3\b[^>]*>(.*?)</h3>", re.I | re.S)
+# The EFL link IS the self-label: an eflviewer.aspx URL carrying the prodcode.
+_GEXA_EFL_URL_RE = re.compile(r'href="([^"]*eflviewer\.aspx\?[^"]*)"', re.I)
+_GEXA_PRODCODE_RE = re.compile(r"prodcode=([^&\"]+)", re.I)
+# Buyback self-label (matched on tag-stripped card text): the plan-list line
+# "Plan Type: Solar Buyback", or the export-credit wording. A bare "Solar
+# Buyback" ribbon (the .Product-tab badge, which the DOM positions at the end of
+# the *previous* card) is deliberately NOT a signal.
+_GEXA_BUYBACK_RE = re.compile(r"Plan Type:\s*Solar Buyback", re.I)
+_GEXA_EXPORT_RE = re.compile(r"excess energy[^.]{0,40}(?:export|grid)", re.I)
+
+
+def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Gexa's rendered plans page.
+
+    Each plan is a ``plan-list-padding`` row: the ``<h3>`` is the name and the
+    EFL link self-labels via an ``eflviewer.aspx?...&prodcode=<code>`` URL.
+    Buyback plans carry ``Plan Type: Solar Buyback`` in their feature list (plus
+    export-credit wording); we key on that per card rather than the free-floating
+    ``Solar Buyback`` ribbon, whose DOM position belongs to the *next* card.
+    Scripts/SVGs are stripped first. Rate isn't published on this page (it's in
+    the EFL PDF), so ``buyback_ckwh`` stays None.
+    """
+    html = _strip_comments(html)
+    html = _SCRIPT_RE.sub("", html)
+    html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
+    cards = [c for c in _GEXA_CARD_SPLIT_RE.split(html) if "plan-list-padding" in c[:80]]
+    base = config.homepage
+
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for card in cards:
+        url_m = _GEXA_EFL_URL_RE.search(card)
+        if not url_m:  # a section-header row ("Gexa Stable Plans") with no EFL
+            continue
+        efl_url = urljoin(base, unescape(url_m.group(1)))
+        code_m = _GEXA_PRODCODE_RE.search(efl_url)
+        product_code = code_m.group(1) if code_m else efl_url
+        if product_code in seen:
+            continue
+        seen.add(product_code)
+        name_m = _GEXA_NAME_RE.search(card)
+        plan_name = _clean_plan_name(_strip_tags(name_m.group(1))) if name_m else product_code
+        card_text = _strip_tags(unescape(card))
+        is_buyback = bool(_GEXA_BUYBACK_RE.search(card_text) or _GEXA_EXPORT_RE.search(card_text))
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name,
+                efl_url=efl_url,
+                is_buyback=is_buyback,
+                buyback_ckwh=None,
+                extraction_method="static",
+                context=f"[prodcode={product_code}] {card_text[:600]}",
+            )
+        )
+    return plans
+
+
+# --------------------------------------------------------------------------- #
 # LLM fallback classifier (Ollama, lfm2.5, JSON-forced)
 # --------------------------------------------------------------------------- #
 _CLASSIFIER_SYSTEM = (
@@ -913,5 +981,31 @@ CHARIOT = RepConfig(
     render=_chariot_render,
 )
 
+
+def _gexa_render(page: object, zip_code: str) -> None:
+    """Gexa nav flow, adapted from a `playwright codegen` recording. Enters the
+    ZIP gate, opens the plans page, then selects the "Solar Buyback & EV"
+    category (best-effort -- it's a client-side filter that leaves every plan in
+    the DOM, so extract_gexa still sees them all if the tab label shifts).
+    `fetch_rendered_html` handles goto() and the post-render settle wait -- Gexa
+    holds a connection open, so rely on that fixed settle, not network-idle."""
+    page.get_by_role("textbox", name="Enter Your Zip Code").fill(zip_code)  # type: ignore[attr-defined]
+    page.get_by_role("link", name="Shop Plans").click()  # type: ignore[attr-defined]
+    try:
+        page.get_by_role("link", name="Solar Buyback & EV").click(timeout=6000)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+
+
+GEXA = RepConfig(
+    key="gexa",
+    retailer="Gexa Energy",
+    homepage="https://www.gexaenergy.com/",
+    extractor=extract_gexa,
+    render=_gexa_render,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
-REP_CONFIGS: dict[str, RepConfig] = {c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT)}
+REP_CONFIGS: dict[str, RepConfig] = {
+    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA)
+}

@@ -21,6 +21,7 @@ from energyanalyzer.fetchers import rep_discovery as rd
 FIXTURE = Path(__file__).parent / "fixtures" / "rep_green_mountain_sample.html"
 TXU_FIXTURE = Path(__file__).parent / "fixtures" / "rep_txu_sample.html"
 CHARIOT_FIXTURE = Path(__file__).parent / "fixtures" / "rep_chariot_sample.html"
+GEXA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_gexa_sample.html"
 
 
 # --------------------------------------------------------------------------- #
@@ -186,6 +187,57 @@ def test_chariot_extractor_unescapes_efl_url_and_ignores_tos_yrac():
 def test_chariot_registered_in_rep_configs():
     assert rd.REP_CONFIGS["chariot"].retailer == "Chariot Energy"
     assert rd.REP_CONFIGS["chariot"].render is not None
+
+
+# --------------------------------------------------------------------------- #
+# Gexa static extractor
+# --------------------------------------------------------------------------- #
+def _extract_gexa():
+    html = GEXA_FIXTURE.read_text(encoding="utf-8")
+    return rd.discover(html, rd.GEXA, use_llm_fallback=False)
+
+
+def test_gexa_extractor_finds_all_cards():
+    plans = _extract_gexa()
+    # 5 plans: the "Gexa Stable Plans" section-header row (no EFL) is skipped.
+    assert len(plans) == 5
+    assert all(p.retailer == "Gexa Energy" for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+    assert all("eflviewer.aspx" in p.efl_url for p in plans)
+
+
+def test_gexa_extractor_flags_only_solar_buyback_plans():
+    by_name = {p.plan_name: p for p in _extract_gexa()}
+    assert by_name["Gexa Solar Buyback 12"].is_buyback is True
+    assert by_name["Gexa Battery Benefits 12"].is_buyback is True
+    # SavEV is an EV plan, not buyback -- and the preceding buyback card's
+    # "export to the grid" wording must not bleed across the card boundary.
+    assert by_name["Gexa SavEV 12"].is_buyback is False
+    assert by_name["Gexa 55+"].is_buyback is False
+
+
+def test_gexa_extractor_ignores_solar_buyback_ribbon():
+    # A .Product-tab "Solar Buyback" ribbon sits (in the DOM) at the end of the
+    # Gexa 12 card, but Gexa 12 is a Fixed plan -- keying on the ribbon rather
+    # than "Plan Type: Solar Buyback" would wrongly flag it.
+    by_name = {p.plan_name: p for p in _extract_gexa()}
+    assert by_name["Gexa 12"].is_buyback is False
+
+
+def test_gexa_extractor_url_handling_and_no_phantom_from_script():
+    by_name = {p.plan_name: p for p in _extract_gexa()}
+    # &amp; decoded; %2b-encoded prodcode preserved.
+    assert (
+        by_name["Gexa 55+"].efl_url
+        == "https://eflviewer.gexaenergy.com/eflviewer.aspx?lang=EN&prodcode=GXA55%2b&tdspcode=ONCOR_ELEC"
+    )
+    # The script blob's "GHOST" eflviewer URL must be stripped, not discovered.
+    assert not any("GHOST" in p.efl_url for p in _extract_gexa())
+
+
+def test_gexa_registered_in_rep_configs():
+    assert rd.REP_CONFIGS["gexa"].retailer == "Gexa Energy"
+    assert rd.REP_CONFIGS["gexa"].render is not None
 
 
 # --------------------------------------------------------------------------- #
