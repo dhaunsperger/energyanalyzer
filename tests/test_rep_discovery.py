@@ -299,6 +299,168 @@ def test_ambit_registered_with_no_render():
 
 
 # --------------------------------------------------------------------------- #
+# Champion interactive harvester (EFL URL read from a popup, not the DOM)
+# --------------------------------------------------------------------------- #
+class _FakeLoc:
+    """A minimal Playwright-locator stand-in for the harvester's needs."""
+
+    def __init__(self, page, name=None):
+        self.page = page
+        self.name = name
+        self._nth = 0
+
+    @property
+    def first(self):
+        return self
+
+    def nth(self, i):
+        self._nth = i
+        return self
+
+    def count(self):
+        if self.name == "See More Plan Details":
+            return len(self.page.plans)
+        return 1
+
+    def fill(self, value, **k):
+        pass
+
+    def inner_text(self, **k):
+        # The "Details of <plan>" modal heading for the currently open plan.
+        if self.page.current is not None:
+            return f"Details of {self.page.plans[self.page.current]['name']}"
+        return ""
+
+    def click(self, **k):
+        if self.name == "See More Plan Details":
+            self.page.current = self._nth
+        elif self.name == "Electricity Facts Label":
+            # The click that (in a real browser) spawns the EFL popup.
+            self.page._pending_popup = self.page.plans[self.page.current]["efl"]
+        elif self.name == "Close this dialog":
+            self.page.current = None
+        # nav buttons (View Rates, New Service, zip text) are no-ops
+
+
+class _FakePopupCtx:
+    def __init__(self, page):
+        self.page = page
+
+    def __enter__(self):
+        self.page._pending_popup = None
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    @property
+    def value(self):
+        return _FakePopup(self.page._pending_popup)
+
+
+class _FakePopup:
+    def __init__(self, url):
+        self.url = url
+
+    def wait_for_load_state(self, *a, **k):
+        pass
+
+    def close(self):
+        pass
+
+
+class _FakeChampionPage:
+    def __init__(self, plans):
+        self.plans = plans  # [{"name":..., "efl":...}]
+        self.current = None
+        self._pending_popup = None
+
+    def get_by_role(self, role, name=None, **k):
+        return _FakeLoc(self, name=name)
+
+    def get_by_text(self, text, **k):
+        return _FakeLoc(self, name="__text__")
+
+    def expect_popup(self):
+        return _FakePopupCtx(self)
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+_CHAMPION_PLANS = [
+    {"name": "Champ Saver-24",
+     "efl": "https://docs.championenergyservices.com/ExternalDocs?planName=PN2388&state=TX&language=EN"},
+    {"name": "Green Energy-24",
+     "efl": "https://docs.championenergyservices.com/ExternalDocs?planName=PN5129&state=TX&language=EN"},
+    {"name": "EV Saver-12",
+     "efl": "https://docs.championenergyservices.com/ExternalDocs?planName=PN5130&state=TX&language=EN"},
+]
+
+
+def test_champion_harvester_reads_efl_url_from_popup():
+    page = _FakeChampionPage(_CHAMPION_PLANS)
+    plans = rd._champion_harvest(page, "78665", rd.CHAMPION)
+    assert len(plans) == 3
+    assert all(p.extraction_method == "harvest" for p in plans)
+    assert all(p.is_buyback is True for p in plans)  # all bundle indexed buyback
+    by_name = {p.plan_name: p for p in plans}
+    assert "planName=PN5129" in by_name["Green Energy-24"].efl_url
+    assert "planName=PN5130" in by_name["EV Saver-12"].efl_url
+
+
+def test_champion_harvester_dedups_by_plan_code():
+    dupes = _CHAMPION_PLANS + [_CHAMPION_PLANS[1]]  # Green Energy twice
+    plans = rd._champion_harvest(_FakeChampionPage(dupes), "78665", rd.CHAMPION)
+    codes = [p.efl_url for p in plans]
+    assert len(codes) == len(set(codes)) == 3  # the repeat is deduped
+
+
+def test_champion_harvester_skips_plan_when_popup_has_no_url():
+    plans_in = [
+        _CHAMPION_PLANS[0],
+        {"name": "Broken Plan", "efl": None},  # popup yields no URL
+        _CHAMPION_PLANS[2],
+    ]
+    plans = rd._champion_harvest(_FakeChampionPage(plans_in), "78665", rd.CHAMPION)
+    names = {p.plan_name for p in plans}
+    assert "Broken Plan" not in names and len(plans) == 2
+
+
+def test_champion_registered_as_harvester_only():
+    cfg = rd.REP_CONFIGS["champion"]
+    assert cfg.harvester is not None
+    assert cfg.extractor is None and cfg.render is None
+
+
+def test_discover_rejects_harvester_only_config():
+    # discover() is the static path; a harvester-only REP must route to
+    # harvest_live() instead, with a clear error rather than a None crash.
+    with pytest.raises(ValueError, match="no static extractor"):
+        rd.discover("<html></html>", rd.CHAMPION)
+
+
+def test_repconfig_requires_extractor_or_harvester():
+    with pytest.raises(ValueError, match="must define either an extractor"):
+        rd.RepConfig(key="bad", retailer="X", homepage="https://x/")
+
+
+def test_harvest_live_without_playwright_raises_clear_error(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name.startswith("playwright"):
+            raise ImportError("No module named 'playwright'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(RuntimeError, match="Playwright is required"):
+        rd.harvest_live(rd.CHAMPION, "78665")
+
+
+# --------------------------------------------------------------------------- #
 # LLM fallback classifier
 # --------------------------------------------------------------------------- #
 def test_classify_link_llm_parses_json_via_chat_fn():

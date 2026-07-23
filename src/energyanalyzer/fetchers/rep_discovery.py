@@ -90,7 +90,7 @@ class DiscoveredPlan:
     efl_url: str
     is_buyback: Optional[bool] = None  # None = undetermined
     buyback_ckwh: Optional[float] = None
-    extraction_method: str = "static"  # "static" | "llm"
+    extraction_method: str = "static"  # "static" | "llm" | "harvest"
     llm_confidence: Optional[float] = None
     context: str = ""  # link text / surrounding snippet (audit trail)
 
@@ -101,17 +101,39 @@ class RepConfig:
     ``render`` is a per-REP function (record it once with
     ``playwright codegen <homepage>`` and adapt), and ``extractor`` is a per-REP
     static parser over the rendered HTML. Start with Green Mountain and add REPs
-    without touching the rest of the module."""
+    without touching the rest of the module.
+
+    Most REPs self-label an EFL URL in their rendered HTML, so they set
+    ``extractor`` (parsed by :func:`discover`). A few compute the EFL URL only on
+    interaction -- e.g. Champion's EFL is a JS ``<button>`` that opens the PDF in
+    a popup, with no URL anywhere in the DOM. Those set ``harvester`` instead: an
+    interactive function that drives the browser and returns ``DiscoveredPlan``s
+    directly (run by :func:`harvest_live`). A config must set at least one of the
+    two."""
 
     key: str
     retailer: str
     homepage: str
-    extractor: Callable[[str, "RepConfig"], list[DiscoveredPlan]]
+    extractor: Optional[Callable[[str, "RepConfig"], list[DiscoveredPlan]]] = None
     # render(page, zip_code): drive the ZIP gate / "View Plans" flow. Returns
     # None (caller captures page.content() once) OR, for a paginated listing, a
     # string of concatenated per-page HTML the render collected itself (the
     # extractor splits on plan cards and dedups, so page boundaries don't matter).
     render: Optional[Callable[[object, str], Optional[str]]] = None
+    # harvester(page, zip_code, config) -> [DiscoveredPlan]: for REPs whose EFL
+    # URLs aren't in the DOM. Drives the browser (open each plan's details, click
+    # the EFL trigger, read the popup URL) and returns plans directly -- no HTML
+    # extract step. Mutually complementary with `extractor`; a config needs one.
+    harvester: Optional[
+        Callable[[object, str, "RepConfig"], list[DiscoveredPlan]]
+    ] = None
+
+    def __post_init__(self) -> None:
+        if self.extractor is None and self.harvester is None:
+            raise ValueError(
+                f"RepConfig {self.key!r} must define either an extractor "
+                "(static HTML parse) or a harvester (interactive browser flow)."
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -703,6 +725,11 @@ def discover(
     All LLM tiers are best-effort: a failure (Ollama down) is swallowed and the
     deterministic result stands.
     """
+    if config.extractor is None:
+        raise ValueError(
+            f"RepConfig {config.key!r} has no static extractor (its EFL URLs "
+            "aren't in the DOM); use harvest_live() to drive its interactive flow."
+        )
     plans = list(config.extractor(html, config))
 
     if not plans and use_llm_fallback:
@@ -858,6 +885,61 @@ def fetch_rendered_html(
     snapshot_path = snapshot_dir / f"{config.key}_{ts}.html"
     snapshot_path.write_text(html, encoding="utf-8")
     return html, snapshot_path
+
+
+def harvest_live(
+    config: RepConfig,
+    zip_code: str,
+    headless: bool = True,
+    timeout_ms: int = 60000,
+    check_robots: bool = True,
+    llm_review: bool = False,
+    review_min_confidence: float = 0.7,
+    **llm_kwargs: object,
+) -> list[DiscoveredPlan]:
+    """Drive a REP's interactive ``harvester`` flow and return its plans.
+
+    The counterpart to :func:`fetch_rendered_html` + :func:`discover` for REPs
+    whose EFL URLs aren't in the DOM (see ``RepConfig.harvester``). Champion's
+    EFL, for instance, is a JS ``<button>`` that opens the PDF in a popup; the
+    harvester opens each plan's details, clicks the button, and reads the popup
+    URL. Same politeness (robots.txt, rate limit) and optional upgrade-only
+    ``llm_review`` as the static path. Raises RuntimeError if Playwright is
+    missing, ValueError if the config has no harvester.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for live REP-site discovery but is not installed. "
+            "Install it with:  pip install 'energyanalyzer[discovery]' && playwright install chromium"
+        ) from exc
+
+    if config.harvester is None:
+        raise ValueError(f"RepConfig {config.key!r} has no harvester() flow defined")
+
+    host = urlparse(config.homepage).netloc
+    if check_robots and not robots_allows(config.homepage):
+        raise RuntimeError(
+            f"robots.txt at {host} disallows automated fetching of {config.homepage}. "
+            "Aborting out of politeness."
+        )
+    _respect_rate_limit(host)
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=headless)
+        context = browser.new_context(user_agent=_USER_AGENT)
+        page = context.new_page()
+        try:
+            page.goto(config.homepage, wait_until="domcontentloaded", timeout=timeout_ms)
+            plans = list(config.harvester(page, zip_code, config))
+        finally:
+            context.close()
+            browser.close()
+
+    if llm_review and plans:
+        _llm_review_plans(plans, review_min_confidence, **llm_kwargs)
+    return plans
 
 
 # --------------------------------------------------------------------------- #
@@ -1108,7 +1190,103 @@ AMBIT = RepConfig(
     render=None,
 )
 
+
+# --------------------------------------------------------------------------- #
+# Champion Energy interactive harvester (EFL URL is JS-computed, not in the DOM)
+# --------------------------------------------------------------------------- #
+# Champion's "Electricity Facts Label" is a <button> whose click handler opens
+# the plan-specific EFL PDF in a popup (docs.championenergyservices.com/
+# ExternalDocs?planName=PN####). The URL is nowhere in the DOM -- not even after
+# expanding a plan's "See More Plan Details" modal -- so there's no static
+# extractor; instead the harvester drives the browser and reads the popup URL.
+# Every Champion plan bundles "Indexed Solar Buyback", so all are flagged buyback.
+_CHAMPION_PLANNAME_PARAM_RE = re.compile(r"planName=([^&]+)", re.I)
+_CHAMPION_MODAL_TITLE_RE = re.compile(r"Details of\s+(.+)", re.I)
+
+
+def _champion_plan_name(page: object) -> str:
+    """Read the open details modal's "Details of <plan>" heading."""
+    try:
+        txt = page.get_by_text(_CHAMPION_MODAL_TITLE_RE).first.inner_text()  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        return ""
+    m = _CHAMPION_MODAL_TITLE_RE.search(txt or "")
+    return _clean_plan_name(m.group(1)) if m else ""
+
+
+def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Interactive harvester for Champion (see the section comment). For each
+    plan card: open its "See More Plan Details" modal, click "Electricity Facts
+    Label", capture the popup's URL (the EFL), then close the popup and modal.
+    `harvest_live` handles goto() and browser lifecycle."""
+
+    def _try(action) -> bool:
+        try:
+            action()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    _try(lambda: page.get_by_text("Enter Your Address or Zip Code").first.click())  # type: ignore[attr-defined]
+    # The ZIP input id (_r_g_) is a React-generated id that changes per render;
+    # target the focused textbox instead.
+    _try(lambda: page.get_by_role("textbox").first.fill(zip_code))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="View Rates and Plans").first.click())  # type: ignore[attr-defined]
+    # Session-dependent interstitials -- best-effort.
+    _try(lambda: page.get_by_role("button", name="New Service").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+
+    details = page.get_by_role("button", name="See More Plan Details")  # type: ignore[attr-defined]
+    count = details.count()
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for i in range(count):
+        if not _try(lambda i=i: details.nth(i).click(timeout=6000)):
+            continue
+        _try(lambda: page.wait_for_timeout(500))  # type: ignore[attr-defined]
+        plan_name = _champion_plan_name(page)
+        efl_url: Optional[str] = None
+        try:
+            with page.expect_popup() as pop:  # type: ignore[attr-defined]
+                page.get_by_role("button", name="Electricity Facts Label").click()  # type: ignore[attr-defined]
+            popup = pop.value
+            _try(lambda: popup.wait_for_load_state())
+            efl_url = popup.url
+            _try(lambda: popup.close())
+        except Exception:  # noqa: BLE001
+            efl_url = None
+        # Close the one-at-a-time modal before moving to the next plan.
+        _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
+        if not efl_url:
+            continue
+        code_m = _CHAMPION_PLANNAME_PARAM_RE.search(efl_url)
+        key = code_m.group(1) if code_m else efl_url
+        if key in seen:
+            continue
+        seen.add(key)
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=plan_name or key,
+                efl_url=efl_url,
+                is_buyback=True,  # all Champion plans bundle Indexed Solar Buyback
+                buyback_ckwh=None,  # indexed (variable), no fixed rate on the EFL page
+                extraction_method="harvest",
+                context=f"[{key}] Champion plan; all plans include Indexed Solar Buyback",
+            )
+        )
+    return plans
+
+
+CHAMPION = RepConfig(
+    key="champion",
+    retailer="Champion Energy",
+    homepage="https://championenergyservices.com/",
+    harvester=_champion_harvest,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
-    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT)
+    c.key: c for c in (GREEN_MOUNTAIN, TXU, CHARIOT, GEXA, AMBIT, CHAMPION)
 }
