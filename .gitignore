@@ -2,6 +2,11 @@
 data/*
 !data/README.md
 
+# Frozen benchmark archive: the plan YAMLs, tariff, and README are tracked,
+# but the interval usage CSV is private user data (same reason as data/) —
+# keep it local-only. The benchmark test skips gracefully when it's absent.
+tests/fixtures/benchmark_2026_07/IntervalData.csv
+
 # Draft plans are regenerated on every "Refresh market data" run — scratch
 # review space, not part of the git-versioned plan database in plans/.
 plans/drafts/

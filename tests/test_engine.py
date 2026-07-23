@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -22,7 +21,17 @@ from energyanalyzer.core.models import (
 from energyanalyzer.engine.cost import rank, simulate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DATA_CSV = REPO_ROOT / "data" / "IntervalData.csv"
+
+# Frozen July-2026 report benchmark archive (see the folder's README). Every
+# input the benchmark depends on is pinned here -- the plan YAMLs, the Oncor
+# tariff, and the exact interval usage CSV -- so refreshing live usage data,
+# adding a new Oncor tariff, or pruning the live plans/ database can't move the
+# expected dollar figures. See test_integration_report_benchmarks.
+BENCHMARK_DIR = Path(__file__).parent / "fixtures" / "benchmark_2026_07"
+BENCHMARK_PLANS_DIR = BENCHMARK_DIR / "plans"
+BENCHMARK_TDU_YAML = BENCHMARK_DIR / "oncor.yaml"
+# Private usage data (gitignored, same as data/); the test skips when absent.
+BENCHMARK_CSV = BENCHMARK_DIR / "IntervalData.csv"
 
 
 # --------------------------------------------------------------------------- #
@@ -443,12 +452,30 @@ def _load_intervals_for_integration_test() -> pd.DataFrame:
     try:
         from energyanalyzer.ingest.smt import load_intervals  # type: ignore
 
-        return load_intervals(DATA_CSV)
+        return load_intervals(BENCHMARK_CSV)
     except Exception:
-        return _load_smt_csv_minimal(DATA_CSV)
+        return _load_smt_csv_minimal(BENCHMARK_CSV)
 
 
-@pytest.mark.skipif(not DATA_CSV.exists(), reason="data/IntervalData.csv not present")
+def _benchmark_tdu():
+    """Oncor tariff pinned in the benchmark archive; use the latest record for
+    all 12 forward-looking months (same rule as plans_io.current_tdu, but read
+    from the frozen archive so a new live tariff can't move the benchmark)."""
+    import yaml
+
+    from energyanalyzer.core.models import TduTariff
+
+    raw = yaml.safe_load(BENCHMARK_TDU_YAML.read_text())
+    tariffs = sorted(
+        (TduTariff.model_validate(r) for r in raw["tariffs"]), key=lambda t: t.effective
+    )
+    return tariffs[-1]
+
+
+@pytest.mark.skipif(
+    not BENCHMARK_CSV.exists(),
+    reason="benchmark interval CSV not present (private, gitignored)",
+)
 def test_integration_report_benchmarks():
     """Validate simulate() against the report benchmarks in ARCHITECTURE.md §1,
     using the real SMT interval data.
@@ -473,11 +500,11 @@ def test_integration_report_benchmarks():
        tolerance -- its exact free-window hours are an assumption), and
        txu_free_nights (no flag) ~$1887.67 vs $1907.
     """
-    from energyanalyzer.core.plans_io import current_tdu, load_plans
+    from energyanalyzer.core.plans_io import load_plans
 
     intervals = _load_intervals_for_integration_test()
-    tdu = current_tdu()
-    plans = {p.id: p for p in load_plans()}
+    tdu = _benchmark_tdu()
+    plans = {p.id: p for p in load_plans(BENCHMARK_PLANS_DIR)}
 
     strict_benchmarks = {
         "pulse_current": (1031, 15),

@@ -1,0 +1,9 @@
+# Oncor residential delivery tariff history (update on Mar/Sep changes).
+# Sources: 2023 EFL (Pulse Power, 9/15/2023); Texas Power Guide report July 2026.
+tariffs:
+  - effective: 2023-09-01
+    fixed_usd_month: 4.23
+    volumetric_ckwh: 5.0339
+  - effective: 2026-03-01
+    fixed_usd_month: 4.06
+    volumetric_ckwh: 6.12
