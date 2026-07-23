@@ -1162,6 +1162,25 @@ def _extract_rtw_cap(text: str) -> Optional[float]:
     return None
 
 
+# Buyback credits that offset only the energy charge -- never the base charge,
+# TDU delivery, or taxes/fees. Searched across the FULL EFL text (not just the
+# window around the rate label) because the scope prose is often in a separate
+# paragraph well after the rate table -- e.g. Ambit states "Buyback Rate: 3.5c"
+# in the price table but "...can offset up to 100% of your Energy Charges each
+# month (excluding base charge, TDU charges, and all other taxes and fees)"
+# ~600 chars later. "exclud\w*" catches "excludes"/"excluding".
+_OFFSET_ENERGY_ONLY_RE = re.compile(
+    r"not\s*offsettable|energy\s*charges?\s*only|exclud\w*\s+(?:the\s+)?(?:base|tdu)",
+    re.I,
+)
+
+
+def _buyback_offset_scope(text: str) -> str:
+    """'energy_only' if the EFL restricts buyback credits to the energy charge
+    (excluding base/TDU/taxes), else 'all_charges'."""
+    return "energy_only" if _OFFSET_ENERGY_ONLY_RE.search(text) else "all_charges"
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
@@ -1173,6 +1192,15 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         if "plan name" in preceding or "product name" in preceding:
             continue
         candidates.append(m)
+
+    # Prefer candidates that disclose a rate on the label line itself (e.g.
+    # Ambit's "Buyback Rate: Per kWh (c) 3.5c", pulse's "Buyback Rate $0.158 per
+    # kWh") over generic title/prose mentions ("...Texas Solar Buyback 12"), whose
+    # wide context window can otherwise sweep an unrelated "Average Price per kWh"
+    # estimate and read it as the buyback rate. Stable sort keeps document order
+    # within each group, so a prose-only EFL (TXU: "Solar Buyback: ...at a rate of
+    # 3.0 cents per kWh" on the next line) still resolves via its lone candidate.
+    candidates.sort(key=lambda m: 0 if _rate_ckwh_from_snippet(m.group(0)) is not None else 1)
 
     if not candidates:
         return {"kind": "none"}, 0.95, ""
@@ -1210,11 +1238,7 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         if rate is None:
             continue
 
-        offset_scope = "all_charges"
-        if re.search(
-            r"not\s*offsettable|energy\s*charges?\s*only|excludes?\s*(?:base|tdu)", context, re.I
-        ):
-            offset_scope = "energy_only"
+        offset_scope = _buyback_offset_scope(text)
         return {"kind": "fixed", "rate_ckwh": rate, "offset_scope": offset_scope}, 0.85, evidence
 
     # None of the candidates yielded a rate. If they read like a marketing

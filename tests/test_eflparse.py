@@ -1032,13 +1032,54 @@ class TestCorpusChariotShine36:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusAmbitSolarBuyback12:
+    """Ambit Energy Texas Solar Buyback 12 (Oncor): the price table lists
+    'Energy Charge: Per kWh (c) 12.7000c' and 'Buyback Rate: Per kWh (c) 3.5c',
+    but the plan TITLE ('...Texas Solar Buyback 12SM') is itself a buyback-label
+    match with no rate on its own line, so the old scan fell through to its wide
+    context window and read the '17.6c' Average-Price-per-kWh estimate (the 500
+    kWh column) as the buyback rate. The fix prefers candidates that disclose a
+    rate on the label line itself, so the '3.5c' from the 'Buyback Rate:' line
+    wins. Also, the offset-scope prose ('...offset up to 100% of your Energy
+    Charges each month (excluding base charge, TDU charges, and all other taxes
+    and fees)') sits ~600 chars after the rate, beyond the local window, so
+    offset scope is resolved over the full text -> energy_only."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("AMBIT_ENERGY_Texas_Solar_Buyback_12.txt")
+
+    def test_buyback_rate_is_the_labeled_rate_not_the_average_price(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "fixed"
+        # 3.5c from "Buyback Rate:", NOT 17.6c (the 500 kWh Average Price estimate).
+        assert bb["rate_ckwh"] == pytest.approx(3.5)
+
+    def test_buyback_offset_scope_is_energy_only(self, draft):
+        # Ambit buyback credits offset Energy Charges only -- not base/TDU/taxes.
+        assert draft.plan_dict["buyback"]["offset_scope"] == "energy_only"
+
+    def test_buyback_not_1to1_with_energy_charge(self, draft):
+        bb = draft.plan_dict["buyback"]
+        energy = draft.plan_dict["energy_rates"][-1]["rate_ckwh"]
+        assert bb["rate_ckwh"] != pytest.approx(energy)
+
+    def test_confidence_recorded_for_buyback(self, draft):
+        assert draft.confidence["buyback"] >= 0.8
+        assert draft.evidence["buyback"]
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 22
+    assert len(real_files) == 23
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)
