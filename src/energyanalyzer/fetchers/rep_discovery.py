@@ -423,6 +423,15 @@ _GEXA_PRODCODE_RE = re.compile(r"prodcode=([^&\"]+)", re.I)
 # the *previous* card) is deliberately NOT a signal.
 _GEXA_BUYBACK_RE = re.compile(r"Plan Type:\s*Solar Buyback", re.I)
 _GEXA_EXPORT_RE = re.compile(r"excess energy[^.]{0,40}(?:export|grid)", re.I)
+# The .Product-tab category ribbon is DOM-positioned at the END of a card, but
+# it labels the NEXT one -- so a "Solar Buyback" ribbon trails the *previous*
+# (often non-buyback) card. The deterministic buyback check already ignores it
+# (it keys on the plan-list "Plan Type"), but it must also be stripped so it
+# can't leak into a plan's `context` and mislead the optional LLM review: an
+# lfm2.5 probe of the Gexa capture false-upgraded "Energy Saver 12" solely
+# because its context ended in the trailing "Solar Buyback" ribbon, and the
+# model (correctly, given the flattened text) read it as part of the plan.
+_GEXA_RIBBON_RE = re.compile(r"<div\b[^>]*\bProduct-tab\b.*?</div>\s*</div>", re.I | re.S)
 
 
 def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
@@ -439,6 +448,9 @@ def extract_gexa(html: str, config: RepConfig) -> list[DiscoveredPlan]:
     html = _strip_comments(html)
     html = _SCRIPT_RE.sub("", html)
     html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
+    # Drop the category ribbons before splitting: they carry no plan we need and
+    # would otherwise trail into a card's context and mislead the LLM review.
+    html = _GEXA_RIBBON_RE.sub(" ", html)
     cards = [c for c in _GEXA_CARD_SPLIT_RE.split(html) if "plan-list-padding" in c[:80]]
     base = config.homepage
 

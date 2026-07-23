@@ -235,6 +235,15 @@ def test_gexa_extractor_url_handling_and_no_phantom_from_script():
     assert not any("GHOST" in p.efl_url for p in _extract_gexa())
 
 
+def test_gexa_ribbon_does_not_leak_into_context():
+    # The trailing "Solar Buyback" ribbon must be stripped from a plan's context
+    # too, not just ignored by the buyback check -- otherwise it misleads the
+    # optional LLM review (an lfm2.5 probe false-upgraded a plan whose context
+    # ended in that ribbon). Gexa 12 carries the ribbon in the DOM.
+    by_name = {p.plan_name: p for p in _extract_gexa()}
+    assert "Solar Buyback" not in by_name["Gexa 12"].context
+
+
 def test_gexa_registered_in_rep_configs():
     assert rd.REP_CONFIGS["gexa"].retailer == "Gexa Energy"
     assert rd.REP_CONFIGS["gexa"].render is not None
