@@ -115,9 +115,12 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
 
     download_calls = {}
 
-    def _fake_download_discovered(plans, dest, headless=True, progress_callback=None):
+    def _fake_download_discovered(
+        plans, dest, headless=True, buyback_only=True, progress_callback=None
+    ):
         download_calls["plans"] = list(plans)
         download_calls["dest"] = dest
+        download_calls["buyback_only"] = buyback_only
         if progress_callback:
             progress_callback(1, 1, "done")
         return {"downloaded": ["a.pdf"], "skipped": [], "failed": [], "filtered_out": 0}
@@ -153,6 +156,8 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
         "Ambit Buyback",
     }
     assert download_calls["dest"] == efl_dir
+    # Discovery now pulls ALL plans, not just buyback ones.
+    assert download_calls["buyback_only"] is False
 
     assert parse_calls["pdf_paths"] == [Path("a.pdf")]
     assert result["downloaded"] == {"downloaded": ["a.pdf"], "skipped": [], "failed": [], "filtered_out": 0}
@@ -213,7 +218,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     monkeypatch.setattr(
         rd_module,
         "download_discovered",
-        lambda plans, dest, headless=True, progress_callback=None: {
+        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None: {
             "downloaded": ["gexa.pdf"],
             "skipped": [],
             "failed": [],

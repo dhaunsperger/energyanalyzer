@@ -97,6 +97,76 @@ def _plan_supersedes(meter_plan: Plan, auth_plan: Plan) -> bool:
     return n_meter <= n_auth
 
 
+# Filler/trademark tokens dropped from plan names before comparing identity.
+_NAME_FILLER_TOKENS = frozenset(
+    {"plan", "sm", "tm", "new", "customer", "special", "product", "residential", "meters", "meter"}
+)
+
+
+def _term_from_name(name: str) -> Optional[int]:
+    """Best-effort contract term (months) parsed from a plan name, e.g.
+    "Champ Saver 12" -> 12, "Sun Confidence 24 month" -> 24. Returns None when
+    no plausible term (1..60) is present -- REP plan names often omit it."""
+    for match in re.finditer(r"\b(\d{1,2})\b", name or ""):
+        val = int(match.group(1))
+        if 1 <= val <= 60:
+            return val
+    return None
+
+
+def _discovered_plan_in_ptc(retailer: str, plan_name: str, ptc_index: list) -> bool:
+    """True if a discovered REP plan is already covered by the PTC listing.
+
+    Conservative on purpose (discovery plans carry no explicit term, and names
+    diverge across sources): only a *confident* duplicate is reported, so a real
+    REP-exclusive or variant plan is never dropped. Requires overlapping retailer
+    brand tokens, an equal term (parsed from the discovered name -- if none is
+    present we keep the plan), and *equal* distinctive name-token sets (retailer
+    brand, term, and filler/trademark tokens removed from both).
+
+    ``ptc_index`` is a list of ``(retailer_tokens, name_tokens, term)`` built by
+    the caller from the filtered PTC DataFrame.
+    """
+    d_ret = _significant_tokens(retailer)
+    if not d_ret:
+        return False
+    d_term = _term_from_name(plan_name)
+    if d_term is None:
+        return False
+    d_name = _significant_tokens(plan_name, extra_drop=frozenset(d_ret | _NAME_FILLER_TOKENS))
+    if not d_name:
+        return False
+    for p_ret, p_name, p_term in ptc_index:
+        if p_term != d_term:
+            continue
+        if not (d_ret <= p_ret or p_ret <= d_ret):
+            continue
+        if d_name == p_name:
+            return True
+    return False
+
+
+def _build_ptc_identity_index(ptc_df) -> list:
+    """Build a ``[(retailer_tokens, name_tokens, term), ...]`` index from a PTC
+    DataFrame for :func:`_discovered_plan_in_ptc` (name tokens have the retailer
+    brand + filler tokens removed; term comes from the PTC term column)."""
+    index: list = []
+    if ptc_df is None:
+        return index
+    for _, row in ptc_df.iterrows():
+        retailer = str(row.get("retailer") or "")
+        name = str(row.get("plan_name") or "")
+        r_tokens = _significant_tokens(retailer)
+        n_tokens = _significant_tokens(name, extra_drop=frozenset(r_tokens | _NAME_FILLER_TOKENS))
+        term_raw = row.get("term_months")
+        try:
+            term = int(term_raw) if pd.notna(term_raw) else None
+        except (TypeError, ValueError):
+            term = None
+        index.append((r_tokens, n_tokens, term))
+    return index
+
+
 def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
     """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
     that a real/authoritative plan now covers, and return the removals as a list
@@ -377,12 +447,19 @@ def _run_rep_discovery(
     headless: bool = True,
     snapshot_dir: Path = REP_DISCOVERY_DIR,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ptc_df=None,
 ) -> dict:
-    """Discover solar-buyback plan EFLs on individual REP marketing sites that
-    Power to Choose and meterplan.com miss (ARCHITECTURE.md §7), download the
-    buyback EFLs into `efl_dir`, and parse the newly downloaded PDFs into drafts
-    (so `refresh_market_data`'s auto-promote step handles them like any other
-    draft).
+    """Discover plan EFLs on individual REP marketing sites that Power to Choose
+    and meterplan.com miss (ARCHITECTURE.md §7), download the EFLs into
+    `efl_dir`, and parse the newly downloaded PDFs into drafts (so
+    `refresh_market_data`'s auto-promote step handles them like any other draft).
+
+    All plans found on each REP site are pulled (not just solar buyback), so
+    REP-exclusive/website-only plans PTC lacks are captured too. When `ptc_df`
+    (the filtered PTC listing) is given, discovered plans PTC already carries are
+    deduped out first (`_discovered_plan_in_ptc`, conservative -- see there) so
+    we don't re-download/duplicate what PTC already has; the count is reported as
+    `ptc_deduped`.
 
     Each REP is dispatched by how its `RepConfig` is wired
     (`fetchers.rep_discovery.REP_CONFIGS`):
@@ -403,9 +480,9 @@ def _run_rep_discovery(
     gitignored `data/rep_discovery_secrets.yaml`, never passed in here.
 
     Returns `{'reps': {key: {'retailer', 'status', 'plans_found', 'buyback',
-    'detail'}, ...}, 'downloaded': <download_discovered() summary>, 'parsed':
-    <parse_downloaded_efls() summary>}` where `status` is one of `'ok'`,
-    `'error'`, or `'manual-needed'`.
+    'detail'}, ...}, 'ptc_deduped': int, 'downloaded': <download_discovered()
+    summary>, 'parsed': <parse_downloaded_efls() summary>}` where `status` is one
+    of `'ok'`, `'error'`, or `'manual-needed'`.
     """
     from energyanalyzer.fetchers import rep_discovery as rd
 
@@ -420,6 +497,7 @@ def _run_rep_discovery(
 
     result: dict = {
         "reps": {},
+        "ptc_deduped": 0,
         "downloaded": {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0},
         "parsed": {"parsed": [], "skipped": [], "failed": []},
     }
@@ -500,12 +578,24 @@ def _run_rep_discovery(
     if not all_plans:
         return result
 
-    # Download the discovered buyback EFLs into efl_dir (writes its own
-    # rep_discovery manifest so downstream can tell these from PTC/meterplan).
+    # Drop discovered plans PTC already carries (conservative -- only confident
+    # duplicates), so we don't re-download/duplicate what PTC has.
+    ptc_index = _build_ptc_identity_index(ptc_df)
+    if ptc_index:
+        kept = [p for p in all_plans if not _discovered_plan_in_ptc(p.retailer, p.plan_name, ptc_index)]
+        result["ptc_deduped"] = len(all_plans) - len(kept)
+        all_plans = kept
+
+    if not all_plans:
+        return result
+
+    # Download ALL discovered EFLs (not just buyback) into efl_dir (writes its
+    # own rep_discovery manifest so downstream can tell these from PTC/meterplan).
     result["downloaded"] = rd.download_discovered(
         all_plans,
         dest=efl_dir,
         headless=headless,
+        buyback_only=False,
         progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
     )
 
@@ -736,6 +826,7 @@ def refresh_market_data(
         snapshot_path = newest_snapshot
         notes.append("fetch=False -- using existing snapshot without contacting powertochoose.org")
 
+    ptc_df_for_dedup = None  # filtered PTC listing, reused by discovery dedup
     if snapshot_path is None:
         notes.append(
             "No Power to Choose snapshot available (live fetch failed/skipped and none on "
@@ -747,6 +838,7 @@ def refresh_market_data(
         # --- 3. load + filter ------------------------------------------#
         df_raw = load_ptc(snapshot_path)
         df = filter_plans(df_raw, tdu=tdu, language=language)
+        ptc_df_for_dedup = df
 
         # --- 4. download EFLs -------------------------------------------#
         summary["downloaded"] = download_efls(
@@ -883,6 +975,7 @@ def refresh_market_data(
                     reps=discovery_reps,
                     headless=discovery_headless,
                     progress_callback=progress_callback,
+                    ptc_df=ptc_df_for_dedup,
                 )
             )
         except Exception as exc:  # noqa: BLE001 -- discovery must never abort the refresh

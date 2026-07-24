@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 from energyanalyzer.app import common as app_common
@@ -124,3 +125,44 @@ def test_supersede_never_removes_the_current_plan(tmp_path):
     removed = app_common.supersede_meterplan_plans(plans_dir)
     assert removed == []
     assert (plans_dir / f"{app_common.CURRENT_PLAN_ID}.yaml").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Discovery-vs-PTC dedup: conservative, term-aware, variant-safe
+# --------------------------------------------------------------------------- #
+def _ptc_index():
+    df = pd.DataFrame(
+        [
+            {"retailer": "Champion Energy Services LLC", "plan_name": "Champ Saver-12", "term_months": 12},
+            {"retailer": "TXU Energy Retail Company LLC", "plan_name": "Solar Buyback Plus", "term_months": 12},
+        ]
+    )
+    return app_common._build_ptc_identity_index(df)
+
+
+def test_discovered_plan_in_ptc_skips_confident_duplicate():
+    idx = _ptc_index()
+    assert app_common._discovered_plan_in_ptc("Champion Energy", "Champ Saver 12", idx)
+    # verbose legal name on the discovered side matches the short PTC brand too
+    assert app_common._discovered_plan_in_ptc("TXU Energy", "Solar Buyback Plus 12", idx)
+
+
+def test_discovered_plan_in_ptc_keeps_variants_and_other_terms():
+    idx = _ptc_index()
+    # different term -> not a dup
+    assert not app_common._discovered_plan_in_ptc("Champion Energy", "Champ Saver 24", idx)
+    # different plan (extra distinctive token) -> not a dup
+    assert not app_common._discovered_plan_in_ptc("Champion Energy", "Free Weekends 24", idx)
+    # a REP-exclusive plan not in PTC -> kept
+    assert not app_common._discovered_plan_in_ptc("Reliant Energy", "Truly Free Nights 12", idx)
+
+
+def test_discovered_plan_in_ptc_keeps_when_term_unknown():
+    # No term in the discovered name -> we can't be sure, so we keep it (never
+    # drop a possibly-distinct plan on a weak signal).
+    idx = _ptc_index()
+    assert not app_common._discovered_plan_in_ptc("TXU Energy", "Solar Buyback Plus", idx)
+
+
+def test_build_ptc_identity_index_empty_for_none():
+    assert app_common._build_ptc_identity_index(None) == []

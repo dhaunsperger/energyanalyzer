@@ -405,15 +405,15 @@ refresh_confirm = st.checkbox(
     "I understand auto-imported plans will be replaced", key="refresh_confirm"
 )
 run_discovery = st.checkbox(
-    "Also discover solar buyback plans from retailer sites (slow)",
+    "Also discover plans from retailer sites (slow)",
     key="refresh_run_discovery",
     help=(
         "Beyond Power to Choose and meterplan.com, query individual retailer marketing "
         "sites (Green Mountain, TXU, Chariot, Gexa, Frontier, Octopus, Champion, Direct Energy, "
-        "Reliant, Atlantex, Ambit) for solar "
-        "**buyback** EFLs the aggregators miss. Each site is a live browser session, so a "
-        "full sweep takes several minutes; per-retailer results appear below when it "
-        "finishes.\n\n"
+        "Reliant, Atlantex, Ambit) for **all** plans the aggregators miss (solar buyback plus "
+        "any website-only plans); plans PTC already carries are skipped. Each site is a live "
+        "browser session and every found EFL is downloaded, so a full sweep takes several "
+        "minutes; per-retailer results appear below when it finishes.\n\n"
         "**Requires the Playwright browser:** `pip install 'energyanalyzer[discovery]' && "
         "playwright install chromium`. A retailer whose browser step fails is reported as "
         "an error and the rest still run.\n\n"
@@ -536,7 +536,8 @@ if refresh_summary is not None:
         n_ok = sum(1 for r in disc_reps.values() if r.get("status") == "ok")
         st.caption(
             f"REP-site discovery: queried {len(disc_reps)} retailer(s), {n_ok} ok; "
-            f"downloaded {len(disc_dl.get('downloaded', []))} buyback EFL(s), "
+            f"{disc_refresh.get('ptc_deduped', 0)} already-in-PTC plan(s) skipped; "
+            f"downloaded {len(disc_dl.get('downloaded', []))} EFL(s), "
             f"parsed {len(disc_parsed.get('parsed', []))} into draft(s)."
         )
         if disc_reps:
