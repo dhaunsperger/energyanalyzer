@@ -10,6 +10,8 @@ import pytest
 from energyanalyzer.core.models import Plan
 from energyanalyzer.eflparse.parser import (
     DraftPlan,
+    _defined_weekdays,
+    _weekdays_from_snippet,
     parse_efl_text,
     parse_time_range,
     save_draft,
@@ -1115,6 +1117,38 @@ class TestCorpusReliantSolarPaybackMatch12:
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
+
+
+class TestWeekendDefinition:
+    """A plan may DEFINE its own weekend/weekday span (e.g. Gexa 'Free 3 Day
+    Weekends': weekends = Fri-Sun, weekdays = Mon-Thu). The parser must read
+    that definition rather than assuming the Sat/Sun default -- otherwise
+    Friday is billed at the weekday rate instead of free."""
+
+    _DEFN = (
+        "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, including holidays. "
+        "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, including holidays."
+    )
+
+    def test_weekend_span_from_definition(self):
+        # Fri-Sun; the range ends at 12:00 AM Monday, so Monday is excluded.
+        assert _defined_weekdays(self._DEFN, "weekend") == [4, 5, 6]
+
+    def test_weekday_span_from_definition(self):
+        # Mon-Thu inclusive (ends 11:59 PM Thursday, not midnight).
+        assert _defined_weekdays(self._DEFN, "weekday") == [0, 1, 2, 3]
+
+    def test_no_definition_returns_none(self):
+        assert _defined_weekdays("no such clause here", "weekend") is None
+
+    def test_snippet_prefers_definition_over_default(self):
+        assert _weekdays_from_snippet("free on weekends", self._DEFN) == [4, 5, 6]
+
+    def test_snippet_falls_back_to_sat_sun_without_definition(self):
+        assert _weekdays_from_snippet("free on weekends", "") == [5, 6]
+
+    def test_mon_fri_weekday_default_without_definition(self):
+        assert _weekdays_from_snippet("weekday rate applies", "") == [0, 1, 2, 3, 4]
 
 
 def test_corpus_all_real_fixtures_present_and_schema_valid():

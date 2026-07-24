@@ -248,12 +248,71 @@ _WEEKDAY_WORDS = {
 }
 
 
-def _weekdays_from_snippet(s: str) -> list[int]:
+# An EFL may DEFINE what "weekend"/"weekday" means for this plan rather than
+# leaving it to the Sat/Sun default -- e.g. Gexa "Free 3 Day Weekends":
+#   "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, ..."
+#   "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, ..."
+# so Friday is a weekend day here. Parse that definition instead of assuming.
+_DAY_DEFN_RE = re.compile(
+    r"\b(weekend|weekday)s?\b[^.\n]{0,20}?defined\s+as\s+"
+    r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+"
+    r"(?:to|through|until|-)\s+"
+    r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
+    re.I,
+)
+
+
+def _is_midnight(t: str) -> bool:
+    """True for a '12:00 AM' style time (the end of a day-range that ends at
+    midnight is EXCLUSIVE of that day)."""
+    m = re.match(r"(\d{1,2}):(\d{2})\s*([ap])", t.strip(), re.I)
+    if not m:
+        return False
+    hour, minute, ap = int(m.group(1)), int(m.group(2)), m.group(3).lower()
+    return ap == "a" and hour in (0, 12) and minute == 0
+
+
+def _day_span(start: int, end: int, end_exclusive: bool) -> list[int]:
+    """Weekdays (0=Mon..6=Sun) from `start` to `end` cyclically, dropping `end`
+    itself when the range ends at midnight of that day."""
+    days: list[int] = []
+    d = start
+    for _ in range(8):  # safety cap
+        days.append(d)
+        if d == end:
+            break
+        d = (d + 1) % 7
+    if end_exclusive and len(days) > 1:
+        days = days[:-1]
+    return sorted(set(days))
+
+
+def _defined_weekdays(full_text: str, kind: str) -> Optional[list[int]]:
+    """Weekday list from an EFL's explicit '<Weekends|Weekdays> is defined as
+    <time> <day> to <time> <day>' clause, or None when there's no such clause."""
+    if not full_text:
+        return None
+    for m in _DAY_DEFN_RE.finditer(full_text):
+        if m.group(1).lower() != kind:
+            continue
+        start_day = _WEEKDAY_WORDS.get(m.group(3).lower())
+        end_day = _WEEKDAY_WORDS.get(m.group(5).lower())
+        if start_day is None or end_day is None:
+            continue
+        return _day_span(start_day, end_day, _is_midnight(m.group(4)))
+    return None
+
+
+def _weekdays_from_snippet(s: str, full_text: str = "") -> list[int]:
     low = s.lower()
     if "weekend" in low or ("saturday" in low and "sunday" in low and "monday" not in low):
-        return [5, 6]
+        # Prefer the EFL's own "Weekends is defined as ..." clause; fall back to
+        # the Sat/Sun default only when the label isn't explicitly defined.
+        return _defined_weekdays(full_text, "weekend") or [5, 6]
     if "weekday" in low or re.search(r"monday\s*(through|-|to)\s*friday", low):
-        return [0, 1, 2, 3, 4]
+        return _defined_weekdays(full_text, "weekday") or [0, 1, 2, 3, 4]
     days = sorted({v for k, v in _WEEKDAY_WORDS.items() if k in low})
     return days if days and len(days) < 7 else []
 
@@ -785,7 +844,7 @@ def _extract_free_window(text: str) -> Optional[dict]:
         if not re.search(r"night|weekend|hour|electricity|energy|power|day", low):
             continue
         hours = parse_time_range(snippet)
-        weekdays = _weekdays_from_snippet(snippet) if not hours else []
+        weekdays = _weekdays_from_snippet(snippet, text) if not hours else []
         if hours or weekdays:
             return {"hours": hours, "weekdays": weekdays, "evidence": _snippet(m)}
     return None
@@ -813,7 +872,7 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
             continue
         is_default = "off-peak" in label or "all other" in win_snip.lower() or not win_snip.strip()
         hours = [] if is_default else parse_time_range(win_snip)
-        weekdays = [] if is_default else _weekdays_from_snippet(win_snip)
+        weekdays = [] if is_default else _weekdays_from_snippet(win_snip, text)
         rows.append(
             {
                 "label": label,
