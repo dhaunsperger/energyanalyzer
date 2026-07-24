@@ -15,6 +15,92 @@ from energyanalyzer.core.models import Plan
 from energyanalyzer.fetchers import meterplan as mp
 
 FIXTURE = Path(__file__).parent / "fixtures" / "meterplan_sample.md"
+PLANS_FIXTURE = Path(__file__).parent / "fixtures" / "meterplan_plans_sample.html"
+
+
+# --------------------------------------------------------------------------- #
+# Meter's own real EFLs (JSON-LD on the /plans page)
+# --------------------------------------------------------------------------- #
+def test_parse_meterplan_efl_offers_filters_tdu_and_extracts_efl():
+    html = PLANS_FIXTURE.read_text()
+    offers = mp.parse_meterplan_efl_offers(html, tdu="Oncor")
+    # 2 Oncor offers carry an EFL; the third Oncor offer has no EFL property
+    # (dropped), and the CenterPoint offer is filtered out by TDU.
+    ids = sorted(o["offer_id"] for o in offers)
+    assert ids == ["earner-12mo-oncor", "saver-12mo-oncor"]
+    saver = next(o for o in offers if o["offer_id"] == "saver-12mo-oncor")
+    assert saver["name"] == "Meter Saver — 12 months (Oncor)"
+    # json.loads decodes the escaped presigned query string; URL is intact.
+    assert saver["efl_url"].startswith("https://light-assets.s3.amazonaws.com/efls/")
+    assert "X-Amz-Signature=deadbeef" in saver["efl_url"]
+
+
+def test_parse_meterplan_efl_offers_tdu_filter_centerpoint():
+    html = PLANS_FIXTURE.read_text()
+    offers = mp.parse_meterplan_efl_offers(html, tdu="CenterPoint")
+    assert [o["offer_id"] for o in offers] == ["saver-12mo-centerpoint"]
+
+
+def test_fetch_meterplan_efls_downloads_offer_pdfs(tmp_path, monkeypatch):
+    html = PLANS_FIXTURE.read_text()
+
+    class _Resp:
+        def __init__(self, *, text=None, content=b"", ctype="application/pdf"):
+            self.text = text or ""
+            self.content = content
+            self.headers = {"content-type": ctype}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def get(self, url, *a, **k):
+            if url.startswith(mp.METERPLAN_PLANS_URL):
+                return _Resp(text=html)
+            return _Resp(content=b"%PDF-1.7 fake meter efl")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    summary = mp.fetch_meterplan_efls(zip_code="78665", dest=tmp_path, tdu="Oncor")
+
+    assert summary["offers"] == 2
+    assert len(summary["downloaded"]) == 2
+    assert summary["failed"] == []
+    names = sorted(Path(p).name for p in summary["downloaded"])
+    assert names == ["Meter_Energy_earner_12mo_oncor.pdf", "Meter_Energy_saver_12mo_oncor.pdf"]
+    for p in summary["downloaded"]:
+        assert Path(p).read_bytes().startswith(b"%PDF")
+
+
+def test_fetch_meterplan_efls_page_failure_raises_runtimeerror(tmp_path, monkeypatch):
+    class _BoomClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def get(self, *a, **k):
+            raise OSError("network down")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _BoomClient)
+    with pytest.raises(RuntimeError, match="Meter Energy's plans page"):
+        mp.fetch_meterplan_efls(dest=tmp_path)
 
 
 # --------------------------------------------------------------------------- #

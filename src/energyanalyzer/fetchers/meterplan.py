@@ -33,6 +33,12 @@ import pandas as pd
 from energyanalyzer.eflparse.parser import slugify
 
 METERPLAN_URL = "https://meterplan.com/data/texas-solar-buyback-plans.md"
+# The human-facing plans page. Unlike the markdown index (which intentionally
+# omits document URLs), the server-rendered HTML embeds a JSON-LD OfferCatalog
+# whose offers carry the *real* EFL PDF as an `additionalProperty` -- presigned
+# S3 links valid for ~7 days. These are Meter Energy's OWN plans only (Earner /
+# Saver / Standard, plain + Battery); competitor EFLs are not exposed here.
+METERPLAN_PLANS_URL = "https://meterplan.com/plans"
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -105,6 +111,148 @@ def fetch_meterplan(dest_dir: Path = Path("data/meterplan"), timeout: float = 30
     dest_path = dest_dir / f"meterplan_{ts}.md"
     dest_path.write_bytes(resp.content)
     return dest_path
+
+
+# --------------------------------------------------------------------------- #
+# Meter's own real EFLs (from the JSON-LD on the /plans HTML page)
+# --------------------------------------------------------------------------- #
+_LD_JSON_RE = re.compile(
+    r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', re.S | re.I
+)
+
+
+def parse_meterplan_efl_offers(html: str, tdu: str = "Oncor") -> list[dict]:
+    """Parse the /plans page's JSON-LD OfferCatalog into a list of Meter's own
+    plan offers carrying a real EFL URL, filtered to `tdu`.
+
+    Each returned dict: ``{"offer_id": str, "name": str, "tdu": str,
+    "efl_url": str}``. Offers are matched to `tdu` via their ``areaServed``
+    ``AdministrativeArea`` name (e.g. "Oncor"). The EFL URL comes from the
+    offer's ``additionalProperty`` entry named "Electricity Facts Label";
+    ``json.loads`` decodes the ``\\u0026``-escaped presigned query string for
+    us. Offers with no EFL property, or not in `tdu`, are skipped. Deduped by
+    ``offer_id`` (the page lists each offer more than once).
+    """
+    import json
+
+    tdu_norm = tdu.strip().lower()
+    out: dict[str, dict] = {}
+    for block in _LD_JSON_RE.findall(html):
+        try:
+            data = json.loads(block)
+        except (ValueError, TypeError):
+            continue
+        for doc in data if isinstance(data, list) else [data]:
+            if not isinstance(doc, dict):
+                continue
+            offers = doc.get("itemListElement") or []
+            for off in offers:
+                if not isinstance(off, dict):
+                    continue
+                area = off.get("areaServed") or []
+                if isinstance(area, dict):
+                    area = [area]
+                admin = [
+                    str(a.get("name") or "").strip().lower()
+                    for a in area
+                    if isinstance(a, dict) and a.get("@type") == "AdministrativeArea"
+                ]
+                if tdu_norm not in admin:
+                    continue
+                efl_url = None
+                for prop in off.get("additionalProperty") or []:
+                    if not isinstance(prop, dict):
+                        continue
+                    if "electricity facts label" in str(prop.get("name", "")).lower():
+                        efl_url = str(prop.get("value") or "").strip()
+                        break
+                if not efl_url:
+                    continue
+                offer_id = str(off.get("@id") or off.get("name") or "").lstrip("#").strip()
+                if not offer_id or offer_id in out:
+                    continue
+                out[offer_id] = {
+                    "offer_id": offer_id,
+                    "name": str(off.get("name") or "").strip(),
+                    "tdu": tdu,
+                    "efl_url": efl_url,
+                }
+    return list(out.values())
+
+
+def _meter_efl_filename(offer: dict) -> str:
+    """Stable local filename for a Meter EFL (independent of the presigned URL's
+    daily-rotating date/hash, so refreshes don't churn on-disk names)."""
+    return f"Meter_Energy_{slugify(offer['offer_id'])}.pdf"
+
+
+def fetch_meterplan_efls(
+    zip_code: str = "78665",
+    dest: Path = Path("data/efl"),
+    tdu: str = "Oncor",
+    timeout: float = 30.0,
+    progress_callback=None,
+) -> dict:
+    """Fetch Meter Energy's own real EFL PDFs from the /plans page and save them
+    into `dest`, so the billing engine can parse them like any other EFL
+    (superseding the synthetic markdown-index drafts for Meter's own plans).
+
+    Fetches ``/plans?zipcode=<zip>``, parses its JSON-LD OfferCatalog
+    (:func:`parse_meterplan_efl_offers`, filtered to `tdu`), and downloads each
+    offer's presigned EFL PDF. Existing files are skipped; non-PDF responses and
+    per-URL errors are tolerated and collected. Raises RuntimeError (with a
+    browser fallback) only if the *page itself* can't be fetched.
+
+    Returns ``{"offers": int, "downloaded": [path, ...], "skipped": [path, ...],
+    "failed": [{"url", "error"}, ...]}``.
+    """
+    import httpx
+
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    headers = {"User-Agent": _USER_AGENT, "Accept": "text/html,*/*"}
+    url = f"{METERPLAN_PLANS_URL}?zipcode={zip_code}"
+
+    summary: dict = {"offers": 0, "downloaded": [], "skipped": [], "failed": []}
+    try:
+        with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+            page = client.get(url)
+            page.raise_for_status()
+            offers = parse_meterplan_efl_offers(page.text, tdu=tdu)
+            summary["offers"] = len(offers)
+            total = len(offers)
+            for done, offer in enumerate(offers, start=1):
+                dest_path = dest / _meter_efl_filename(offer)
+                if dest_path.exists():
+                    summary["skipped"].append(str(dest_path))
+                else:
+                    try:
+                        resp = client.get(offer["efl_url"])
+                        resp.raise_for_status()
+                        content = resp.content
+                        if b"%PDF" not in content[:1024]:
+                            ctype = resp.headers.get("content-type", "?")
+                            summary["failed"].append(
+                                {
+                                    "url": offer["efl_url"],
+                                    "error": f"response was not a PDF (content-type {ctype!r}, "
+                                    f"{len(content)} bytes)",
+                                }
+                            )
+                        else:
+                            dest_path.write_bytes(content)
+                            summary["downloaded"].append(str(dest_path))
+                    except Exception as exc:  # noqa: BLE001 - tolerate per-EFL failures
+                        summary["failed"].append({"url": offer["efl_url"], "error": repr(exc)})
+                if progress_callback is not None:
+                    progress_callback(done, total, offer["name"])
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not fetch Meter Energy's plans page ({url}): {exc!r}. Open that URL in a "
+            f"browser to confirm it loads; its EFL links are presigned and valid ~7 days."
+        ) from exc
+
+    return summary
 
 
 # --------------------------------------------------------------------------- #
