@@ -244,6 +244,50 @@ def test_download_efls_rejects_non_pdf_response(tmp_path, monkeypatch):
     assert not list(dest.glob("*.pdf"))
 
 
+def test_download_efls_defers_html_viewer_urls(tmp_path, monkeypatch):
+    # An HTML-viewer "EFL" URL (e.g. octopusenergy.com/efl/...) can't be
+    # fetched as a PDF over httpx -- REP discovery renders it instead. It must
+    # be deferred (reported separately), NOT counted as a download failure, and
+    # must not even hit the network.
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "retailer": "Octopus Energy",
+                "plan_name": "Octopus Simple 12",
+                "efl_url": "https://octopusenergy.com/efl/OCTO-SIMPLE-12-ONCOR.html",
+            }
+        ]
+    )
+
+    class _NoNetClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("HTML-viewer URL should be deferred, not fetched")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _NoNetClient)
+    dest = tmp_path / "efl"
+
+    summary = ptc.download_efls(df, dest=dest)
+
+    assert summary["failed"] == []
+    assert summary["downloaded"] == []
+    assert len(summary["deferred"]) == 1
+    assert "octopusenergy.com/efl/" in summary["deferred"][0]["url"]
+    assert not list(dest.glob("*.pdf"))
+
+
 def test_efl_ssl_context_enables_legacy_server_connect():
     # Some EFL hosts (Tara/Amigo on the shared Just Energy platform) run TLS
     # stacks that require legacy renegotiation, which OpenSSL 3.x refuses by

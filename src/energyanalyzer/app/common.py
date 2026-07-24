@@ -547,7 +547,7 @@ def refresh_market_data(
         "deleted_snapshots": 0,
         "fetched": False,
         "snapshot_path": None,
-        "downloaded": {"downloaded": [], "skipped": [], "failed": []},
+        "downloaded": {"downloaded": [], "skipped": [], "failed": [], "deferred": []},
         "parsed": {"parsed": [], "skipped": [], "failed": []},
         "meterplan": {
             "fetched": False,

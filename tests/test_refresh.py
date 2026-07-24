@@ -216,7 +216,7 @@ def test_refresh_market_data_no_snapshot_available_is_graceful(refresh_dirs, mon
         meterplan_dir=meterplan_dir,
     )
     assert summary["snapshot_path"] is None
-    assert summary["downloaded"] == {"downloaded": [], "skipped": [], "failed": []}
+    assert summary["downloaded"] == {"downloaded": [], "skipped": [], "failed": [], "deferred": []}
     assert summary["parsed"] == {"parsed": [], "skipped": [], "failed": []}
     assert summary["promoted"] == []
     assert any("no power to choose snapshot available" in n.lower() for n in summary["notes"])

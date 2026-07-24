@@ -497,6 +497,14 @@ if refresh_summary is not None:
             if _parse_failed:
                 st.caption("Parse failures:")
                 st.json(_parse_failed[:25])
+    # HTML-viewer EFLs (e.g. Octopus) aren't httpx-downloadable and are captured
+    # by REP discovery's renderer instead -- report them separately from failures.
+    _dl_deferred = list(refresh_summary["downloaded"].get("deferred", []))
+    if _dl_deferred:
+        st.caption(
+            f"{len(_dl_deferred)} EFL(s) are HTML viewers (not direct PDFs) -- "
+            "enable discovery to capture them via the browser renderer."
+        )
     mp_refresh = refresh_summary.get("meterplan") or {}
     st.caption(
         f"Meterplan solar plan index: imported {len(mp_refresh.get('imported', []))} draft(s) "

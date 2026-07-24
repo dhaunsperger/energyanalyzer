@@ -27,6 +27,18 @@ _USER_AGENT = (
 )
 
 
+# EFL "URLs" that are actually an HTML viewer page, not a PDF -- a plain httpx
+# GET returns HTML and the %PDF guard (correctly) rejects it. These are handled
+# by REP discovery's headless-render path (`rep_discovery._render_efl_pdf`), so
+# the PTC download path defers them instead of logging a bogus "failed" download.
+_HTML_VIEWER_URL_RE = re.compile(r"octopusenergy\.com/efl/", re.I)
+
+
+def _is_html_viewer_url(url: str) -> bool:
+    """True if `url` serves an HTML EFL viewer (needs rendering, not httpx)."""
+    return bool(_HTML_VIEWER_URL_RE.search(url or ""))
+
+
 def _efl_ssl_context():
     """TLS context that tolerates a few EFL hosts' legacy servers.
 
@@ -338,7 +350,7 @@ def download_efls(
     if limit is not None:
         rows = rows.head(limit)
 
-    summary: dict = {"downloaded": [], "skipped": [], "failed": []}
+    summary: dict = {"downloaded": [], "skipped": [], "failed": [], "deferred": []}
     headers = {"User-Agent": _USER_AGENT, "Accept": "application/pdf,*/*"}
     total = len(rows)
     done = 0
@@ -361,6 +373,18 @@ def download_efls(
             dest_path = dest / _efl_filename(row)
             if dest_path.exists():
                 summary["skipped"].append(str(dest_path))
+                _report(name)
+                continue
+            if _is_html_viewer_url(url):
+                # Not a PDF over httpx -- REP discovery renders these to PDF.
+                # Defer rather than record a spurious download "failure".
+                summary["deferred"].append(
+                    {
+                        "url": url,
+                        "reason": "HTML EFL viewer -- captured via REP discovery's "
+                        "renderer, not an httpx download",
+                    }
+                )
                 _report(name)
                 continue
             try:
