@@ -1327,8 +1327,10 @@ def _chariot_render(page: object, zip_code: str) -> str:
     _try(lambda: page.get_by_text("My home has solar panels.").click(timeout=5000))  # type: ignore[attr-defined]
     _try(lambda: page.get_by_role("button", name="I Understand").click(timeout=5000))  # type: ignore[attr-defined]
     # The ZIP widget id (#zip-form-widget-<hash>) is auto-generated per render,
-    # so match it by id prefix rather than the exact hash.
-    zipbox = page.locator('[id^="zip-form-widget-"]')  # type: ignore[attr-defined]
+    # so match it by id prefix rather than the exact hash. The page now renders
+    # more than one (desktop + mobile copies), so scope to the first visible one
+    # -- a bare prefix match hits both and trips Playwright's strict mode.
+    zipbox = page.locator('[id^="zip-form-widget-"]:visible').first  # type: ignore[attr-defined]
     zipbox.get_by_role("textbox", name="Enter ZIP Code").fill(zip_code)
     zipbox.get_by_role("button", name="Shop Rates").click()
     page.get_by_role("link", name="ALL Products").click()  # type: ignore[attr-defined]

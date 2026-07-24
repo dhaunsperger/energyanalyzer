@@ -490,13 +490,34 @@ if st.button("Refresh market data", key="refresh_market_btn", disabled=not refre
 
 refresh_summary = st.session_state.get("refresh_summary")
 if refresh_summary is not None:
+    # Aggregate EFL download/parse across ALL sources (PTC + Meter's own EFLs +
+    # REP discovery) so the numbers reconcile with the all-source promote/review
+    # counts below -- reporting only the PTC leg here made "promoted" look larger
+    # than "parsed".
+    _me = refresh_summary.get("meterplan_efl") or {}
+    _me_dl = _me.get("downloaded") or {}
+    _me_ps = _me.get("parsed") or {}
+    _dsc = refresh_summary.get("discovery") or {}
+    _dsc_dl = _dsc.get("downloaded") or {}
+    _dsc_ps = _dsc.get("parsed") or {}
+    _total_dl = (
+        len(refresh_summary["downloaded"]["downloaded"])
+        + len(_me_dl.get("downloaded", []))
+        + len(_dsc_dl.get("downloaded", []))
+    )
+    _total_parsed = (
+        len(refresh_summary["parsed"]["parsed"])
+        + len(_me_ps.get("parsed", []))
+        + len(_dsc_ps.get("parsed", []))
+    )
+    _mp_imported = len((refresh_summary.get("meterplan") or {}).get("imported", []))
     st.success(
         f"Deleted {len(refresh_summary['deleted_plans'])} old imported plan(s), "
         f"{refresh_summary['deleted_drafts']} draft(s), {refresh_summary['deleted_efls']} EFL(s). "
-        f"Downloaded {len(refresh_summary['downloaded']['downloaded'])}, "
-        f"parsed {len(refresh_summary['parsed']['parsed'])}, "
-        f"auto-promoted {len(refresh_summary['promoted'])}, "
-        f"{len(refresh_summary['needing_review'])} draft(s) left for review."
+        f"Downloaded {_total_dl} EFL(s) (PTC + Meter + discovery), parsed {_total_parsed} into "
+        f"drafts; imported {_mp_imported} meterplan-index draft(s). "
+        f"Auto-promoted {len(refresh_summary['promoted'])} plan(s), "
+        f"{len(refresh_summary['needing_review'])} left for review."
     )
     _console = st.session_state.get("refresh_console")
     if _console:
