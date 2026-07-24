@@ -26,6 +26,24 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
+
+def _efl_ssl_context():
+    """TLS context that tolerates a few EFL hosts' legacy servers.
+
+    Some REP EFL hosts (e.g. Tara Energy / Amigo Energy on the shared Just
+    Energy `webs.*.com/Generate_Docs` platform) run TLS stacks that need
+    legacy renegotiation, which OpenSSL 3.x refuses by default -- httpx then
+    fails the download with a bare ``ConnectError`` (SSL routines: unsafe
+    legacy renegotiation disabled). Re-enabling ``OP_LEGACY_SERVER_CONNECT``
+    lets those handshakes complete; verification is otherwise unchanged. Only
+    affects hosts that actually request legacy renegotiation.
+    """
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+    return ctx
+
 # Canonical field -> accepted raw header spellings. PTC has tweaked its
 # export headers over time; matching is done after stripping everything but
 # letters/digits and lowercasing, so "Fees/Credits", "FeesCredits", and
@@ -171,7 +189,9 @@ def fetch_ptc_csv(dest_dir: Path = Path("data/ptc"), timeout: float = 30.0) -> P
     headers = {"User-Agent": _USER_AGENT, "Accept": "text/csv,*/*"}
 
     try:
-        with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+        with httpx.Client(
+        timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
+    ) as client:
             resp = client.get(PTC_EXPORT_URL)
             resp.raise_for_status()
     except Exception as exc:
@@ -329,7 +349,9 @@ def download_efls(
         if progress_callback is not None:
             progress_callback(done, total, name)
 
-    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
+    ) as client:
         for _, row in rows.iterrows():
             name = str(row.get("plan_name") or row.get("retailer") or _efl_filename(row))
             url = str(row["efl_url"]).strip()

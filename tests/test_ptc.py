@@ -244,6 +244,20 @@ def test_download_efls_rejects_non_pdf_response(tmp_path, monkeypatch):
     assert not list(dest.glob("*.pdf"))
 
 
+def test_efl_ssl_context_enables_legacy_server_connect():
+    # Some EFL hosts (Tara/Amigo on the shared Just Energy platform) run TLS
+    # stacks that require legacy renegotiation, which OpenSSL 3.x refuses by
+    # default -- the download would fail with a bare ConnectError. The EFL
+    # client must opt back into OP_LEGACY_SERVER_CONNECT so those handshakes
+    # complete (verification otherwise unchanged).
+    import ssl
+
+    ctx = ptc._efl_ssl_context()
+    assert ctx.options & ssl.OP_LEGACY_SERVER_CONNECT
+    # Still a verifying context -- we relaxed renegotiation, not trust.
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
 # --------------------------------------------------------------------------- #
 # Issue: statewide PTC snapshot includes Spanish-language duplicate rows,
 # which made a correct tdu-filtered result look "truncated". `filter_plans`

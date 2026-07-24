@@ -1169,8 +1169,12 @@ def download_discovered(
             "file": str(file_path),
         }
 
+    from energyanalyzer.fetchers.ptc import _efl_ssl_context
+
     entries: list[dict] = []
-    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
+    ) as client:
         for i, plan in enumerate(targets, start=1):
             host = urlparse(plan.efl_url).netloc
             file_path = dest / _efl_filename(plan)

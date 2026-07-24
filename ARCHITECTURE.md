@@ -297,7 +297,10 @@ platform as TXU): the collapsed list page hides the EFL link until a "See Plan
 Details" expansion, so it **constructs** the `PDFGenerator?...&comProdId=<id>`
 EFL URL from each card's `data-productid` rather than scraping it. Ambit sits
 behind a WAF that blocks Playwright (so its `RepConfig` has no `render()` — HTML
-is captured manually) *and* 403s a plain-httpx EFL download, so its 2 buyback
+is captured manually: save the plans page as `data/rep_discovery/ambit_<ts>.html`;
+discovery globs `ambit_*.html` and parses the *newest*, so use a sortable UTC
+stamp — `mv ambit_rendered.html "ambit_$(date -u +%Y%m%dT%H%M%SZ).html"`) *and*
+403s a plain-httpx EFL download, so its 2 buyback
 EFLs are opened/downloaded via a browser, not `download_discovered`. `extract_octopus` reads Octopus's `<h2 data-cy="product-title">` cards +
 `octopusenergy.com/efl/` links (buyback is bundled in every plan *except*
 OctopusFlex per the page's own statement, so `is_buyback = not Flex`; a
