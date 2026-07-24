@@ -205,9 +205,10 @@ def test_download_efls_skips_existing_and_downloads_new(tmp_path, monkeypatch):
         assert Path(path_str).read_bytes().startswith(b"%PDF")
 
 
-def test_download_efls_rejects_non_pdf_response(tmp_path, monkeypatch):
-    # A 200 response whose body is an HTML error/redirect/captcha page (not a
-    # PDF) must NOT be saved as a .pdf -- it would only fail the parser later.
+def test_download_efls_defers_html_response(tmp_path, monkeypatch):
+    # A 200 response whose body is HTML (a browser-rendered EFL viewer / SPA
+    # shell, e.g. the Vistra shopping.* PDFGenerator endpoint) must NOT be saved
+    # as a .pdf. It's not a real failure -- it's deferred (needs a browser).
     df = ptc.load_ptc(FIXTURE).head(2)
 
     class _HtmlResponse:
@@ -238,10 +239,44 @@ def test_download_efls_rejects_non_pdf_response(tmp_path, monkeypatch):
     summary = ptc.download_efls(df, dest=dest)
 
     assert summary["downloaded"] == []
-    assert len(summary["failed"]) == 2
-    assert "not a PDF" in summary["failed"][0]["error"]
+    assert summary["failed"] == []
+    assert len(summary["deferred"]) == 2
+    assert "HTML response" in summary["deferred"][0]["reason"]
     # Nothing written to disk.
     assert not list(dest.glob("*.pdf"))
+
+
+def test_download_efls_non_html_non_pdf_stays_failed(tmp_path, monkeypatch):
+    # A non-PDF, non-HTML body (a stale link / truncated response) is a genuine
+    # failure, NOT a deferrable browser-rendered viewer.
+    df = ptc.load_ptc(FIXTURE).head(1)
+
+    class _JunkResponse:
+        content = b"garbage-not-a-pdf"
+        headers = {"content-type": "application/octet-stream"}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            return _JunkResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    summary = ptc.download_efls(df, dest=tmp_path / "efl")
+    assert summary["deferred"] == []
+    assert len(summary["failed"]) == 1
 
 
 def test_download_efls_defers_html_viewer_urls(tmp_path, monkeypatch):

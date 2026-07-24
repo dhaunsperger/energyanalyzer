@@ -397,13 +397,28 @@ def download_efls(
                 # begins with the "%PDF" signature (allow a little leading junk).
                 if b"%PDF" not in content[:1024]:
                     ctype = resp.headers.get("content-type", "?")
-                    summary["failed"].append(
-                        {
-                            "url": url,
-                            "error": f"response was not a PDF (content-type {ctype!r}, "
-                            f"{len(content)} bytes) -- likely an HTML error/redirect page",
-                        }
-                    )
+                    # An HTML body (not a real error) is a browser-rendered EFL
+                    # viewer / SPA shell (e.g. the Vistra shopping.* PDFGenerator
+                    # endpoint) -- the PDF is generated client-side. Defer these
+                    # (needs a browser) rather than logging a spurious failure;
+                    # genuine errors (connection/404, a truncated non-HTML body)
+                    # still count as failures.
+                    if "html" in ctype.lower():
+                        summary["deferred"].append(
+                            {
+                                "url": url,
+                                "reason": f"HTML response (content-type {ctype!r}) -- a "
+                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                            }
+                        )
+                    else:
+                        summary["failed"].append(
+                            {
+                                "url": url,
+                                "error": f"response was not a PDF (content-type {ctype!r}, "
+                                f"{len(content)} bytes) -- likely a stale link or error page",
+                            }
+                        )
                     _report(name)
                     continue
                 dest_path.write_bytes(content)

@@ -967,9 +967,10 @@ def test_download_discovered_renders_html_viewer_to_pdf(tmp_path, monkeypatch):
     assert saved.exists() and saved.read_bytes().startswith(b"%PDF")
 
 
-def test_download_discovered_rejects_non_pdf_response(tmp_path, monkeypatch):
-    # A discovered EFL URL that resolves to an HTML viewer/error page (not a PDF)
-    # must be recorded as failed, not saved as a .pdf.
+def test_download_discovered_defers_html_response(tmp_path, monkeypatch):
+    # A discovered EFL URL that resolves to an HTML viewer/SPA shell (not a PDF)
+    # -- e.g. the Vistra shopping.* PDFGenerator endpoint -- is deferred (needs a
+    # browser), not counted as a download failure and not saved as a .pdf.
     class _HtmlResponse:
         content = b"<!DOCTYPE html><html><body>viewer</body></html>"
         headers = {"content-type": "text/html"}
@@ -989,10 +990,11 @@ def test_download_discovered_rejects_non_pdf_response(tmp_path, monkeypatch):
     summary = rd.download_discovered(_sample_plans(), dest=dest, buyback_only=True)
 
     assert summary["downloaded"] == []
-    assert len(summary["failed"]) == 1
-    assert "not a PDF" in summary["failed"][0]["error"]
+    assert summary["failed"] == []
+    assert len(summary["deferred"]) == 1
+    assert "HTML response" in summary["deferred"][0]["reason"]
     assert not list(dest.glob("*.pdf"))
-    # A rejected download writes no manifest entry either.
+    # A deferred download writes no manifest entry either.
     assert not (dest / "rep_discovery_manifest.jsonl").exists()
 
 

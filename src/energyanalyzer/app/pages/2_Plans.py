@@ -555,13 +555,16 @@ if refresh_summary is not None:
             if _parse_failed:
                 st.caption("Parse failures:")
                 st.json(_parse_failed[:25])
-    # HTML-viewer EFLs (e.g. Octopus) aren't httpx-downloadable and are captured
-    # by REP discovery's renderer instead -- report them separately from failures.
-    _dl_deferred = list(refresh_summary["downloaded"].get("deferred", []))
+    # HTML-viewer/SPA EFLs (Octopus, the Vistra shopping.* PDFGenerator endpoint)
+    # aren't httpx-downloadable -- report them separately from real failures.
+    _dl_deferred = list(refresh_summary["downloaded"].get("deferred", [])) + list(
+        (_dsc_dl or {}).get("deferred", [])
+    )
     if _dl_deferred:
         st.caption(
-            f"{len(_dl_deferred)} EFL(s) are HTML viewers (not direct PDFs) -- "
-            "enable discovery to capture them via the browser renderer."
+            f"{len(_dl_deferred)} EFL(s) are browser-rendered viewers/SPAs (not direct PDFs), "
+            "so they weren't downloaded here. Most are conventional plans already covered by "
+            "Power to Choose."
         )
     me_refresh = refresh_summary.get("meterplan_efl") or {}
     if me_refresh.get("fetched"):

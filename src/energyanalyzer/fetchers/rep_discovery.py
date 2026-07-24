@@ -146,6 +146,13 @@ class RepConfig:
     # user opted to treat a single rate-limited fetch of their own shopping page
     # as outside that intent. Never a blanket default.
     check_robots: bool = True
+    # Whether to keep ALL of this REP's discovered plans (True) or only its solar
+    # buyback ones (False). Default True -- pulling every plan captures the
+    # website-only plans PTC misses. Set False for REPs whose EFL URLs aren't
+    # httpx-downloadable (the Vistra shopping.* PDFGenerator endpoint TXU/Ambit
+    # use returns an HTML SPA shell), so their many conventional plans -- already
+    # on Power to Choose -- don't flood the run with un-downloadable EFLs.
+    broaden: bool = True
 
     def __post_init__(self) -> None:
         if self.extractor is None and self.harvester is None:
@@ -1165,6 +1172,7 @@ def download_discovered(
         "downloaded": [],
         "skipped": [],
         "failed": [],
+        "deferred": [],
         "filtered_out": len(plans) - len(targets),
     }
     headers = {"User-Agent": _USER_AGENT, "Accept": "application/pdf,*/*"}
@@ -1219,13 +1227,25 @@ def download_discovered(
                 # parser later, so reject anything without the "%PDF" signature.
                 if b"%PDF" not in content[:1024]:
                     ctype = resp.headers.get("content-type", "?")
-                    summary["failed"].append(
-                        {
-                            "url": plan.efl_url,
-                            "error": f"response was not a PDF (content-type {ctype!r}, "
-                            f"{len(content)} bytes) -- likely an HTML viewer/error page",
-                        }
-                    )
+                    # An HTML body is a browser-rendered EFL viewer/SPA shell (the
+                    # Vistra shopping.* PDFGenerator endpoint TXU/Ambit use returns
+                    # the app shell to httpx) -- defer, don't count as a failure.
+                    if "html" in ctype.lower():
+                        summary["deferred"].append(
+                            {
+                                "url": plan.efl_url,
+                                "reason": f"HTML response (content-type {ctype!r}) -- a "
+                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                            }
+                        )
+                    else:
+                        summary["failed"].append(
+                            {
+                                "url": plan.efl_url,
+                                "error": f"response was not a PDF (content-type {ctype!r}, "
+                                f"{len(content)} bytes) -- likely a stale link or error page",
+                            }
+                        )
                     if progress_callback:
                         progress_callback(i, total, plan.plan_name)
                     continue
@@ -1301,6 +1321,9 @@ TXU = RepConfig(
     homepage="https://www.txu.com/",
     extractor=extract_txu,
     render=_txu_render,
+    # EFLs are the Vistra shopping.txu.com/PDFGenerator endpoint, which returns
+    # an HTML SPA shell to httpx -- keep only buyback plans (the rest are on PTC).
+    broaden=False,
 )
 
 
@@ -1429,6 +1452,9 @@ AMBIT = RepConfig(
     homepage="https://www.ambitenergy.com/",
     extractor=extract_ambit,
     render=None,
+    # Same Vistra shopping.ambitenergy.com/PDFGenerator endpoint as TXU (HTML to
+    # httpx); keep only buyback plans -- the rest are on PTC.
+    broaden=False,
 )
 
 

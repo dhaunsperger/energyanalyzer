@@ -164,6 +164,46 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
     assert result["parsed"] == {"parsed": ["x"], "skipped": [], "failed": []}
 
 
+def test_non_broaden_rep_keeps_only_buyback(discovery_dirs, monkeypatch):
+    # A REP flagged broaden=False (EFLs not httpx-downloadable, e.g. TXU/Ambit's
+    # Vistra PDFGenerator) contributes only its buyback plans, even though
+    # discovery otherwise pulls every plan.
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    cfg = _render_config("txu", "TXU")
+    cfg.broaden = False
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", {"txu": cfg})
+    monkeypatch.setattr(
+        rd_module,
+        "fetch_rendered_html",
+        lambda c, z, headless=True, snapshot_dir=None, check_robots=True: ("<html></html>", snapshot_dir / "x.html"),
+    )
+    buyback = _plan("TXU", "TXU Solar Buyback", buyback=True)
+    conventional = _plan("TXU", "TXU Energy Saver 12", buyback=False)
+    monkeypatch.setattr(rd_module, "discover", lambda html, c: [buyback, conventional])
+
+    captured: dict = {}
+
+    def _fake_dl(plans, dest, headless=True, buyback_only=True, progress_callback=None):
+        captured["plans"] = list(plans)
+        return {"downloaded": [], "skipped": [], "failed": [], "deferred": [], "filtered_out": 0}
+
+    monkeypatch.setattr(rd_module, "download_discovered", _fake_dl)
+    monkeypatch.setattr(
+        app_common,
+        "parse_downloaded_efls",
+        lambda p, drafts_dir=None, plans_dir=None, progress_callback=None: {
+            "parsed": [], "skipped": [], "failed": []
+        },
+    )
+
+    result = app_common._run_rep_discovery("78665", efl_dir=efl_dir, drafts_dir=drafts_dir, plans_dir=plans_dir, snapshot_dir=snapshot_dir)
+
+    # Both plans were found (reported), but only the buyback one is downloaded.
+    assert result["reps"]["txu"]["plans_found"] == 2
+    assert result["reps"]["txu"]["buyback"] == 1
+    assert [p.plan_name for p in captured["plans"]] == ["TXU Solar Buyback"]
+
+
 # --------------------------------------------------------------------------- #
 # 2. manual-needed
 # --------------------------------------------------------------------------- #

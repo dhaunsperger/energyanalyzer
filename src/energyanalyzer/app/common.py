@@ -570,12 +570,21 @@ def _run_rep_discovery(
                 "detail": repr(exc),
             }
             continue
+        found = len(plans)
         buyback = sum(1 for p in plans if p.is_buyback)
-        logger.info("%s: %s -- %d plan(s), %d buyback", label, detail, len(plans), buyback)
+        # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
+        # TXU/Ambit) keep only their buyback plans -- pulling every conventional
+        # plan would just add un-downloadable EFLs for plans already on PTC.
+        if not getattr(config, "broaden", True):
+            plans = [p for p in plans if p.is_buyback]
+        logger.info(
+            "%s: %s -- %d plan(s) found, %d buyback, %d kept",
+            label, detail, found, buyback, len(plans),
+        )
         result["reps"][key] = {
             "retailer": label,
             "status": "ok",
-            "plans_found": len(plans),
+            "plans_found": found,
             "buyback": buyback,
             "detail": detail,
         }
