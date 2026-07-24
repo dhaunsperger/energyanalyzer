@@ -1,0 +1,47 @@
+id: tesla_electric_fixed_oncor
+retailer: Tesla Energy Ventures (Tesla Electric)
+name: Tesla Electric Fixed Plan - Oncor
+term_months: 12
+tdu: ONCOR
+# Tesla's only REP monthly charge is the $25 Home Charging Fee (per Tesla EV) --
+# the cost of the unlimited free overnight charging. The $4.06 Oncor *base*
+# charge and 6.1196c/kWh delivery come from the ONCOR TDU tariff via
+# tdu_passthrough, so they're NOT repeated here.
+base_charge_usd: 25.0
+# TOU energy rate (first match wins; last entry is the catch-all default):
+#   Wind Hours   12am-4am  -> 7.1c
+#   Standard     4am-12am  -> 12.5c
+energy_rates:
+  - label: Wind Hours (12am-4am)
+    rate_ckwh: 7.1
+    window:
+      hours: [0, 1, 2, 3]
+  - label: Standard Hours (4am-12am)
+    rate_ckwh: 12.5
+# Energy Sellback Rate (solar buyback): 5c/kWh.
+buyback:
+  kind: fixed
+  rate_ckwh: 5.0
+  offset_scope: all_charges
+  rollover: true
+# Free ("Unlimited") EV charging during Eligible Hours 12am-6am. Capped at 200
+# kWh/mo to reflect Doug's 120V charging limit (~1-1.2 kW -> ~7 kWh over the 6h
+# window/day). Raise the cap if a 240V circuit is added. Only the energy charge
+# is waived; TDU delivery still applies on those kWh.
+ev_free_charging:
+  window:
+    hours: [0, 1, 2, 3, 4, 5]
+  monthly_kwh_cap: 200.0
+  label: Unlimited EV charging (12am-6am)
+tdu_passthrough: true
+rate_type: fixed
+renewable_pct: 100.0
+source: manual
+efl_url: https://digitalassets-energy.tesla.com/image/upload/v1780367143/programs/tesla_electric/texas/2026/06/Fixed/TE_FIXED_PLAN_JUN_2026_ONCOR.pdf
+notes: >-
+  Tesla Electric Fixed (Oncor), EFL dated 2026-06-02. Free EV charging modeled as
+  ev_free_charging (energy-only, window 12am-6am, capped 200 kWh/mo per Doug's
+  120V limit). $25/mo Home Charging Fee -> base_charge. NOT modeled: the VPP
+  Credit ($33.333/mo per enrolled Powerwall, capped $100) -- add as a bill credit
+  only if Doug has a Powerwall enrolled in the VPP pilot.
+needs_review: false
