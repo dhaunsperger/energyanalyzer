@@ -1658,6 +1658,181 @@ DIRECT_ENERGY = RepConfig(
     harvester=_direct_energy_harvest,
 )
 
+
+# --------------------------------------------------------------------------- #
+# Reliant Energy interactive harvester (sibling NRG shop; EFL from a backend URL)
+# --------------------------------------------------------------------------- #
+# Reliant (shop.reliant.com) is another NRG shop but a DIFFERENT SPA flow from
+# Direct Energy: enter an address -> pick the first autocomplete result -> answer
+# "moving? no" / "renting? no" -> "show plans" -> a "Solar Plans" filter narrows
+# to the solar plans. Plan cards use build-hashed CSS-module classes
+# (OfferPlanContained-module--plan-container--<hash>) -- fragile -- but the hash
+# is only a suffix, so an xpath class *substring* match ("plan-container") is
+# stable, and the nav/EFL controls have stable data-testids. Each plan's EFL
+# opens from a backend PDF (myaccount.reliant.com/files/<id>.pdf, plain
+# application/pdf) captured from the network response. Targets Reliant's solar
+# plans ("Reliant Solar Payback Match ...").
+_RELIANT_SEARCH_URL = "https://shop.reliant.com/search-for-plans/"
+_RELIANT_EFL_RESP_RE = re.compile(r"reliant\.com/[^\"']*?files/[^\"'?]+\.pdf", re.I)
+
+
+def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Interactive harvester for Reliant (see the section comment). ``harvest_live``
+    handles the initial goto()/lifecycle; this runs the address/segmentation
+    prelude, applies the Solar Plans filter, and captures each solar plan's
+    backend EFL PDF URL from the network."""
+
+    def _try(action) -> bool:
+        try:
+            action()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    _try(lambda: page.goto(_RELIANT_SEARCH_URL, wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("search_address-textfield").fill(zip_code))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(2500))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("search-results__0-text").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.locator("#segmentation-moving-no").check(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.locator("#segmentation-renting-no").check(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("show-plans-button").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("Solar Plans-check-box").check(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+
+    # The EFL PDF is fetched inside the popup the "efl-text" click opens, so a
+    # page-scoped expect_response never sees it -- listen at the CONTEXT level.
+    efl_seen: list[str] = []
+    ctx = getattr(page, "context", None)
+    if ctx is not None:
+        ctx.on("response", lambda r: efl_seen.append(r.url) if _RELIANT_EFL_RESP_RE.search(r.url) else None)
+
+    names = page.get_by_test_id("planName-text")  # type: ignore[attr-defined]
+    count = names.count()
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for i in range(count):
+        try:
+            raw = names.nth(i).inner_text(timeout=3000)
+        except Exception:  # noqa: BLE001
+            continue
+        name = _clean_plan_name(re.sub(r"\bplan\s*$", "", raw, flags=re.I).strip())
+        if "solar" not in _normalize_name(name) or name in seen:
+            continue
+        seen.add(name)
+        # Nearest ancestor plan card (class *contains* the hashed "plan-container").
+        card = names.nth(i).locator(
+            "xpath=ancestor::div[contains(@class,'plan-container')][1]"
+        )
+        # A card carries desktop + mobile view-details; click a visible one.
+        if not _try(lambda card=card: card.locator(".analyticsProductViewDetails:visible").first.click(timeout=6000)):
+            continue
+        _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
+        before = len(efl_seen)
+        _try(lambda card=card: card.locator('[data-testid="efl-text"]:visible').first.click(timeout=8000))
+        efl_url: Optional[str] = None
+        for _ in range(24):  # wait up to ~12s for the popup's PDF fetch
+            if len(efl_seen) > before:
+                efl_url = efl_seen[-1].split("?")[0]  # drop the ?_gl= analytics query
+                break
+            _try(lambda: page.wait_for_timeout(500))  # type: ignore[attr-defined]
+        for extra in list(ctx.pages if ctx else [])[1:]:
+            _try(lambda extra=extra: extra.close())
+        _try(lambda: page.keyboard.press("Escape"))  # type: ignore[attr-defined]
+        if not efl_url:
+            continue
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=name,
+                efl_url=efl_url,
+                is_buyback=True,
+                extraction_method="harvest",
+                context="Reliant solar plan; EFL PDF via myaccount.reliant.com/files",
+            )
+        )
+    return plans
+
+
+RELIANT = RepConfig(
+    key="reliant",
+    retailer="Reliant Energy",
+    homepage="https://shop.reliant.com/",
+    harvester=_reliant_harvest,
+)
+
+
+# --------------------------------------------------------------------------- #
+# Atlantex Power interactive harvester (ASP.NET; EFL is a direct efl.aspx PDF)
+# --------------------------------------------------------------------------- #
+# Atlantex's enrollment site is classic ASP.NET WebForms. Its solar plan ("Solar
+# Buy Back Plan") only appears with the ?promoCode=tpgsolar query, so the flow
+# navigates there, enters the ZIP, clicks Continue, expands "More info", and
+# clicks "Electricity Facts Label" -- which opens the EFL. The popup is flaky to
+# read, but the click fetches a direct PDF from an efl.aspx endpoint
+# (enroll.atlantexpower.com/EmailHTML/efl.aspx?RateID=..&BrandID=..&PromoCodeID=..,
+# plain application/pdf, httpx-downloadable) captured from the network response.
+_ATLANTEX_URL = "https://enroll.atlantexpower.com/Enrollment/Default.aspx?promoCode=tpgsolar"
+_ATLANTEX_EFL_RESP_RE = re.compile(r"atlantexpower\.com/[^\"']*efl\.aspx[^\"']*", re.I)
+
+
+def _atlantex_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Interactive harvester for Atlantex (see the section comment). The solar
+    plan is promoCode-gated; ``harvest_live`` handles goto()/lifecycle but this
+    re-navigates to the promoCode URL to reveal it."""
+
+    def _try(action) -> bool:
+        try:
+            action()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    efl_seen: list[str] = []
+    ctx = getattr(page, "context", None)
+    if ctx is not None:
+        ctx.on("response", lambda r: efl_seen.append(r.url) if _ATLANTEX_EFL_RESP_RE.search(r.url) else None)
+
+    _try(lambda: page.goto(_ATLANTEX_URL, wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+    _try(lambda: page.locator("#ctl00_EnrollmentPlaceHolder_txtZipCode").fill(zip_code))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="Continue").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("link", name="More info").first.click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(1000))  # type: ignore[attr-defined]
+
+    before = len(efl_seen)
+    _try(lambda: page.get_by_role("link", name="Electricity Facts Label").first.click(timeout=8000))  # type: ignore[attr-defined]
+    efl_url: Optional[str] = None
+    for _ in range(24):
+        if len(efl_seen) > before:
+            efl_url = efl_seen[-1]
+            break
+        _try(lambda: page.wait_for_timeout(500))  # type: ignore[attr-defined]
+    for extra in list(ctx.pages if ctx else [])[1:]:
+        _try(lambda extra=extra: extra.close())
+    if not efl_url:
+        return []
+    return [
+        DiscoveredPlan(
+            retailer=config.retailer,
+            plan_name="Solar Buy Back Plan",
+            efl_url=efl_url,
+            is_buyback=True,
+            extraction_method="harvest",
+            context="Atlantex solar buyback plan (promoCode tpgsolar); EFL via efl.aspx",
+        )
+    ]
+
+
+ATLANTEX = RepConfig(
+    key="atlantex",
+    retailer="Atlantex Power",
+    homepage="https://enroll.atlantexpower.com/",
+    harvester=_atlantex_harvest,
+)
+
 # Registry of configured REPs. Add more here as their flows are recorded.
 REP_CONFIGS: dict[str, RepConfig] = {
     c.key: c
@@ -1671,5 +1846,7 @@ REP_CONFIGS: dict[str, RepConfig] = {
         OCTOPUS,
         CHAMPION,
         DIRECT_ENERGY,
+        RELIANT,
+        ATLANTEX,
     )
 }

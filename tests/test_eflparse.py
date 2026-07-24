@@ -1094,13 +1094,36 @@ class TestCorpusDirectSolarUnlimited12:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusReliantSolarPaybackMatch12:
+    """Reliant 'Solar Payback Match 12' (Oncor): also a 'Solar Grid Credit' plan,
+    but its credit is the ERCOT 15-minute Real-Time Settlement Point Price
+    (RTSPP), floored at zero -- an RTW buyback, not a fixed rate. The RTSPP
+    wording sits ~400 chars after the buyback label, so RTW detection uses a
+    wider window than the fixed-rate context (but only specific market signals --
+    RTSPP/settlement point/real-time market -- never bare 'real-time' or
+    'ERCOT', which appear in unrelated EFL prose/boilerplate)."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("RELIANT_Solar_Payback_Match_12.txt")
+
+    def test_buyback_is_rtw_not_fixed(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "rtw"
+        assert "rate_ckwh" not in bb  # RTW, no fixed rate
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 24
+    assert len(real_files) == 26
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)

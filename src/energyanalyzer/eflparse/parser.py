@@ -1223,9 +1223,21 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         context = text[max(0, m.start() - 30) : m.end() + 240]
         evidence = _snippet(m)
 
+        # RTW/market-indexed signal -- searched in a WIDER window than the rate
+        # context, because the "...ERCOT 15-minute Real-Time Settlement Point
+        # Price (RTSPP)..." prose can sit several sentences after the buyback
+        # label (e.g. Reliant's Solar Payback Match: label and RTSPP wording are
+        # ~400 chars apart). Kept separate from the rate context (still +240) so
+        # a distant number can't be misread as a fixed rate.
+        rtw_context = text[max(0, m.start() - 30) : m.end() + 800]
+        # Specific market-index signals only -- deliberately NOT bare "ERCOT",
+        # which appears in the boilerplate "...changes to the Electric Reliability
+        # Council of Texas administrative fees..." that most EFLs carry and would
+        # false-flag a fixed buyback as RTW in this wider window.
         if re.search(
-            r"real\s*-?\s*time|wholesale|market\s*pric|ERCOT\s*(?:price|settlement)|hourly",
-            context,
+            r"RTSPP|settlement\s*point|wholesale|market\s*pric|hourly"
+            r"|real\s*-?\s*time\s*(?:market|settlement|energy|price|pric)",
+            rtw_context,
             re.I,
         ):
             rtw: dict = {"multiplier": 1.0, "adder_ckwh": 0.0}

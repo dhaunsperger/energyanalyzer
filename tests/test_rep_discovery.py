@@ -408,6 +408,20 @@ def test_direct_energy_registered_as_harvester():
     assert cfg.extractor is None and cfg.render is None
 
 
+def test_reliant_registered_as_harvester():
+    cfg = rd.REP_CONFIGS["reliant"]
+    assert cfg.retailer == "Reliant Energy"
+    assert cfg.harvester is not None
+    assert cfg.extractor is None and cfg.render is None
+
+
+def test_atlantex_registered_as_harvester():
+    cfg = rd.REP_CONFIGS["atlantex"]
+    assert cfg.retailer == "Atlantex Power"
+    assert cfg.harvester is not None
+    assert cfg.extractor is None and cfg.render is None
+
+
 # --------------------------------------------------------------------------- #
 # Octopus render reads ESI ID (PII) from the gitignored secrets file
 # --------------------------------------------------------------------------- #
