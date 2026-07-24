@@ -342,6 +342,25 @@ def test_meterplan_to_drafts_dedupe_existing(tmp_path: Path):
     assert not any("tesla" in pid for pid in summary["imported"])
 
 
+def test_meterplan_to_drafts_skip_retailers_excludes_own(tmp_path: Path):
+    # When Meter's real EFLs were fetched, its synthetic markdown rows are
+    # excluded (skip_retailers) so the two don't duplicate. All Meter Energy
+    # rows -- including any "+ Battery" ones -- count as skipped_own, not
+    # skipped_battery/imported.
+    df = mp.load_meterplan(FIXTURE)
+    oncor = mp.filter_meterplan(df, tdu="Oncor")
+    meter_rows = (oncor["retailer"].str.strip().str.lower() == "meter energy").sum()
+    assert meter_rows > 0  # fixture has Meter's own Oncor rows
+
+    summary = mp.meterplan_to_drafts(
+        oncor, tmp_path, existing_plan_keys=set(), skip_retailers={"Meter Energy"}
+    )
+    assert summary["skipped_own"] == int(meter_rows)
+    assert not any(pid.startswith("mp_meter_energy") for pid in summary["imported"])
+    # Non-Meter competitor rows are still imported.
+    assert len(summary["imported"]) > 0
+
+
 def test_meterplan_to_drafts_free_night_structure_and_needs_review(tmp_path: Path):
     df = mp.load_meterplan(FIXTURE)
     oncor = mp.filter_meterplan(df, tdu="Oncor")

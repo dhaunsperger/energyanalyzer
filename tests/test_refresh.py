@@ -100,6 +100,13 @@ def _fake_parse_efl(pdf_path) -> eflparser.DraftPlan:
     )
 
 
+def _boom_meter_efls(*args, **kwargs):
+    """Stand-in for the Meter /plans EFL fetch (a live network call). Blocked
+    here like the other fetchers -- the refresh stage catches it, notes it, and
+    leaves Meter's markdown rows in place (the fetch-unavailable fallback)."""
+    raise RuntimeError("network blocked")
+
+
 def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
     plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
 
@@ -134,6 +141,7 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
         raise RuntimeError("network blocked")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     import httpx
 
@@ -207,6 +215,7 @@ def test_refresh_market_data_no_snapshot_available_is_graceful(refresh_dirs, mon
         raise RuntimeError("network blocked")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     summary = app_common.refresh_market_data(
         plans_dir=plans_dir,
@@ -238,6 +247,11 @@ def test_refresh_market_data_fetch_false_skips_network(refresh_dirs, monkeypatch
         raise AssertionError("fetch_meterplan should not be called when fetch=False")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fail_meterplan_if_called)
+
+    def _fail_meter_efls_if_called(*a, **k):
+        raise AssertionError("fetch_meterplan_efls should not be called when fetch=False")
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _fail_meter_efls_if_called)
 
     import httpx
 
@@ -283,6 +297,9 @@ def test_refresh_market_data_meterplan_stage(refresh_dirs, monkeypatch):
         return dest_path
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fake_fetch_meterplan)
+    # Meter's /plans EFL fetch unavailable here -> Meter's markdown rows import
+    # normally (this test exercises the markdown fallback path).
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     # A manual plan matching one Lubbock row by (retailer, name, term) should
     # dedupe it out via existing_plan_keys, and must survive (source=manual).

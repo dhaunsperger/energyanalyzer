@@ -505,11 +505,21 @@ if refresh_summary is not None:
             f"{len(_dl_deferred)} EFL(s) are HTML viewers (not direct PDFs) -- "
             "enable discovery to capture them via the browser renderer."
         )
+    me_refresh = refresh_summary.get("meterplan_efl") or {}
+    if me_refresh.get("fetched"):
+        _me_dl = me_refresh.get("downloaded") or {}
+        _me_parsed = me_refresh.get("parsed") or {}
+        st.caption(
+            f"Meter Energy real EFLs (/plans page): {me_refresh.get('offers', 0)} offer(s), "
+            f"downloaded {len(_me_dl.get('downloaded', []))} real EFL PDF(s), "
+            f"parsed {len(_me_parsed.get('parsed', []))} into draft(s)."
+        )
     mp_refresh = refresh_summary.get("meterplan") or {}
     st.caption(
         f"Meterplan solar plan index: imported {len(mp_refresh.get('imported', []))} draft(s) "
         f"({mp_refresh.get('skipped_battery', 0)} battery-required skipped, "
         f"{mp_refresh.get('skipped_existing', 0)} already in the plan database, "
+        f"{mp_refresh.get('skipped_own', 0)} Meter-own superseded by real EFLs, "
         f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
     disc_refresh = refresh_summary.get("discovery") or {}

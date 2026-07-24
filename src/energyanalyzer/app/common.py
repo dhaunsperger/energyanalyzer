@@ -527,6 +527,7 @@ def refresh_market_data(
     from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
     from energyanalyzer.fetchers.meterplan import (
         fetch_meterplan,
+        fetch_meterplan_efls,
         filter_meterplan,
         load_meterplan,
         meterplan_to_drafts,
@@ -555,7 +556,14 @@ def refresh_market_data(
             "imported": [],
             "skipped_battery": 0,
             "skipped_existing": 0,
+            "skipped_own": 0,
             "flagged_for_review": 0,
+        },
+        "meterplan_efl": {
+            "fetched": False,
+            "offers": 0,
+            "downloaded": {"downloaded": [], "skipped": [], "failed": []},
+            "parsed": {"parsed": [], "skipped": [], "failed": []},
         },
         "discovery": {
             "enabled": run_discovery,
@@ -660,6 +668,43 @@ def refresh_market_data(
             progress_callback=lambda d, t, n: _report("parse", d, t, n),
         )
 
+    # --- 6a. Meter Energy's own real EFLs (from the /plans HTML page) -------#
+    # The markdown index (step 6) omits document URLs, but Meter's /plans page
+    # embeds the *real* EFL PDFs (presigned, ~7-day). Fetch + parse those so
+    # Meter's own plans come from real EFLs, not the synthetic markdown rows.
+    # When it succeeds we exclude Meter's markdown rows below (step 6) so the
+    # two don't duplicate. Skipped when fetch=False (there's no on-disk fallback
+    # for the HTML page); fully tolerant -- failure is noted, never raised.
+    meter_efl_ok = False
+    if fetch:
+        _report("meter-efl", 0, 1, "fetching Meter Energy EFLs")
+        try:
+            me_dl = fetch_meterplan_efls(
+                zip_code=discovery_zip,
+                dest=efl_dir,
+                tdu=tdu,
+                progress_callback=lambda d, t, n: _report("meter-efl", d, t, n),
+            )
+            summary["meterplan_efl"]["fetched"] = True
+            summary["meterplan_efl"]["offers"] = me_dl.get("offers", 0)
+            summary["meterplan_efl"]["downloaded"] = me_dl
+            meter_efl_ok = bool(me_dl.get("downloaded") or me_dl.get("skipped"))
+            me_pdfs = [Path(p) for p in me_dl.get("downloaded", [])]
+            if me_pdfs:
+                summary["meterplan_efl"]["parsed"] = parse_downloaded_efls(
+                    me_pdfs,
+                    drafts_dir=drafts_dir,
+                    plans_dir=plans_dir,
+                    progress_callback=lambda d, t, n: _report("meter-efl-parse", d, t, n),
+                )
+        except Exception as exc:  # noqa: BLE001 -- Meter EFL fetch must never abort the run
+            notes.append(f"Meter Energy /plans EFL fetch failed: {exc!r}")
+            _report("meter-efl", 1, 1, "meter EFL fetch failed")
+    else:
+        notes.append(
+            "fetch=False -- skipped Meter Energy /plans EFL fetch (no on-disk fallback for it)."
+        )
+
     # --- 6. meterplan.com solar buyback plan index --------------------------#
     # Independent of the PTC stages above (runs even if PTC's live fetch/disk
     # snapshot was unavailable) -- it's a different site, covering solar
@@ -707,7 +752,12 @@ def refresh_market_data(
                 for p in surviving_plans
             }
 
-            mp_summary = meterplan_to_drafts(mp_df, drafts_dir, existing_plan_keys)
+            # When we fetched Meter's own real EFLs above, drop Meter Energy's
+            # synthetic markdown rows so the two don't duplicate the same plans.
+            skip_own = {"Meter Energy"} if meter_efl_ok else None
+            mp_summary = meterplan_to_drafts(
+                mp_df, drafts_dir, existing_plan_keys, skip_retailers=skip_own
+            )
             summary["meterplan"].update(mp_summary)
             _report(
                 "meterplan",

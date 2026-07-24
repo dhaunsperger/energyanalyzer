@@ -456,6 +456,7 @@ def meterplan_to_drafts(
     drafts_dir: Path,
     existing_plan_keys: set,
     retrieved: Optional[dt.date] = None,
+    skip_retailers: Optional[set] = None,
 ) -> dict:
     """Turn each row of a tidy meterplan DataFrame (see `load_meterplan`) into
     a draft plan YAML in `drafts_dir` (same `_parse` confidence/evidence
@@ -486,17 +487,24 @@ def meterplan_to_drafts(
       `(retailer.lower(), plan_name.lower(), term_months)` is already in
       `existing_plan_keys` (the caller's set of keys from currently-known
       plans -- see `app.common.refresh_market_data`).
+    - `skip_retailers` (case-insensitive retailer names): rows from these
+      retailers are skipped entirely and counted `skipped_own`. Used to drop
+      Meter Energy's own rows when their *real* EFLs were fetched from the
+      /plans page (:func:`fetch_meterplan_efls`) -- so the synthetic
+      markdown-derived draft doesn't compete with the real parsed EFL.
 
     Returns `{"imported": [plan_id, ...], "skipped_battery": int,
-    "skipped_existing": int, "flagged_for_review": int}`.
+    "skipped_existing": int, "skipped_own": int, "flagged_for_review": int}`.
     """
     drafts_dir = Path(drafts_dir)
     drafts_dir.mkdir(parents=True, exist_ok=True)
+    skip_norm = {r.strip().lower() for r in (skip_retailers or set())}
 
     summary = {
         "imported": [],
         "skipped_battery": 0,
         "skipped_existing": 0,
+        "skipped_own": 0,
         "flagged_for_review": 0,
     }
 
@@ -507,6 +515,10 @@ def meterplan_to_drafts(
         retailer = str(row["retailer"])
         term_months = row["term_months"]
         term_months = int(term_months) if pd.notna(term_months) else None
+
+        if retailer.strip().lower() in skip_norm:
+            summary["skipped_own"] += 1
+            continue
 
         if bool(row.get("battery_required")):
             summary["skipped_battery"] += 1
