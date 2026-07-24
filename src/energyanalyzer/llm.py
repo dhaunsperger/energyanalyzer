@@ -24,7 +24,13 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "lfm2.5"
+# Default to the SMALL model. Measured on the dev box (RTX 3070, 8 GB VRAM, WSL
+# capped at 7.7 GiB RAM): `lfm2.5-thinking` is 1.2B / 0.73 GB and loads
+# "100% GPU" (per `ollama ps`) at ~2.7s cold / ~0.8s warm. The 8.5B `lfm2.5`
+# (5.16 GB) is marginal against 8 GB VRAM once the desktop is using some, and
+# any spill goes to WSL system RAM -- which exhausted the pagefile and hung the
+# machine. Override per-call if you have the VRAM headroom.
+OLLAMA_MODEL = "lfm2.5-thinking"
 # Ollama's model-list endpoint, derived from OLLAMA_URL, for the availability
 # probe (a cheap GET that doesn't run inference).
 OLLAMA_TAGS_URL = OLLAMA_URL.replace("/api/chat", "/api/tags")

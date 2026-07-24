@@ -21,6 +21,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from energyanalyzer import llm as _llm
 from energyanalyzer.core.models import Plan, TduTariff, add_local_columns
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, current_tdu, load_plans, save_plan
 from energyanalyzer.ingest.smt import QualityReport, load_intervals
@@ -117,18 +118,89 @@ def _term_from_name(name: str) -> Optional[int]:
     return None
 
 
-def _discovered_plan_in_ptc(retailer: str, plan_name: str, ptc_index: list) -> bool:
+_SAME_PLAN_SYSTEM = (
+    "You decide whether two Texas retail-electricity plan listings describe the "
+    "SAME underlying plan. The two listings come from different sources, so the "
+    "retailer may appear as a short brand or a full legal name, and the plan name "
+    "may add or drop a marketing suffix, a term number, or a trademark. That does "
+    "NOT make them different plans.\n"
+    "They are DIFFERENT plans if the names carry different distinguishing product "
+    "features (e.g. 'Free Weekends' vs plain, 'Plus' vs 'Saver', EV vs non-EV, "
+    "solar-buyback vs conventional) or different contract terms.\n"
+    'Respond with exactly: {"same_plan": true|false, "confidence": 0..1, '
+    '"reasoning": "one short sentence"}'
+)
+
+
+def _llm_same_plan(
+    a: dict,
+    b: dict,
+    *,
+    min_confidence: float = 0.7,
+    chat_fn=None,
+    model: str = _llm.OLLAMA_MODEL,
+    ollama_url: str = _llm.OLLAMA_URL,
+    timeout: float = 60.0,
+) -> Optional[bool]:
+    """Ask the local LLM whether two plan listings are the same plan.
+
+    ``a``/``b`` are ``{"retailer", "plan_name", "term"}``. Returns True/False, or
+    **None** when the LLM is unavailable, returns junk, or isn't confident enough
+    -- callers must treat None as "no opinion" and fall back to deterministic
+    behaviour (keep the plan).
+    """
+    user = (
+        f"Listing A: retailer={a.get('retailer')!r}, plan={a.get('plan_name')!r}, "
+        f"term_months={a.get('term')}\n"
+        f"Listing B: retailer={b.get('retailer')!r}, plan={b.get('plan_name')!r}, "
+        f"term_months={b.get('term')}"
+    )
+    parsed = _llm.chat_json(
+        [{"role": "system", "content": _SAME_PLAN_SYSTEM}, {"role": "user", "content": user}],
+        model=model,
+        ollama_url=ollama_url,
+        timeout=timeout,
+        chat_fn=chat_fn,
+    )
+    if not parsed:
+        return None
+    try:
+        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if confidence < min_confidence:
+        return None
+    return bool(parsed.get("same_plan", False))
+
+
+def _discovered_plan_in_ptc(
+    retailer: str,
+    plan_name: str,
+    ptc_index: list,
+    *,
+    llm_adjudicate: bool = False,
+    max_llm_candidates: int = 3,
+    chat_fn=None,
+    model: str = _llm.OLLAMA_MODEL,
+    ollama_url: str = _llm.OLLAMA_URL,
+    timeout: float = 60.0,
+) -> bool:
     """True if a discovered REP plan is already covered by the PTC listing.
 
-    Conservative on purpose (discovery plans carry no explicit term, and names
-    diverge across sources): only a *confident* duplicate is reported, so a real
-    REP-exclusive or variant plan is never dropped. Requires overlapping retailer
-    brand tokens, an equal term (parsed from the discovered name -- if none is
-    present we keep the plan), and *equal* distinctive name-token sets (retailer
-    brand, term, and filler/trademark tokens removed from both).
+    Deterministic-first: a discovered plan must share retailer brand tokens and an
+    equal term with a PTC row to be a *candidate* at all (term is parsed from the
+    discovered name -- discovery plans carry no term field, and with no term we
+    keep the plan). Candidates whose distinctive name tokens match exactly are
+    duplicates outright, with no LLM involved.
 
-    ``ptc_index`` is a list of ``(retailer_tokens, name_tokens, term)`` built by
-    the caller from the filtered PTC DataFrame.
+    When ``llm_adjudicate`` is set, the remaining *ambiguous* candidates (same
+    retailer + term, similar-but-not-identical names -- e.g. "e-Plus 12" vs
+    "e-Plus 12 Choice") are put to the LLM, which token matching can't settle
+    without brittle suffix allow-lists. The LLM is only ever asked about
+    already-narrowed candidates (at most ``max_llm_candidates``), and "no opinion"
+    (LLM down / unsure) falls back to keeping the plan.
+
+    ``ptc_index`` is built by :func:`_build_ptc_identity_index`.
     """
     d_ret = _significant_tokens(retailer)
     if not d_ret:
@@ -139,20 +211,45 @@ def _discovered_plan_in_ptc(retailer: str, plan_name: str, ptc_index: list) -> b
     d_name = _significant_tokens(plan_name, extra_drop=frozenset(d_ret | _NAME_FILLER_TOKENS))
     if not d_name:
         return False
-    for p_ret, p_name, p_term in ptc_index:
-        if p_term != d_term:
-            continue
-        if not (d_ret <= p_ret or p_ret <= d_ret):
-            continue
-        if d_name == p_name:
+
+    candidates = [
+        e
+        for e in ptc_index
+        if e["term"] == d_term and (d_ret <= e["r_tokens"] or e["r_tokens"] <= d_ret)
+    ]
+    if not candidates:
+        return False
+    # Exact distinctive-name match -> duplicate, deterministically.
+    if any(e["n_tokens"] == d_name for e in candidates):
+        return True
+    if not llm_adjudicate:
+        return False
+
+    for entry in candidates[:max_llm_candidates]:
+        verdict = _llm_same_plan(
+            {"retailer": retailer, "plan_name": plan_name, "term": d_term},
+            {"retailer": entry["retailer"], "plan_name": entry["plan_name"], "term": entry["term"]},
+            chat_fn=chat_fn,
+            model=model,
+            ollama_url=ollama_url,
+            timeout=timeout,
+        )
+        if verdict:
+            logger.info(
+                "LLM dedup: %r (%s) == PTC %r (%s)",
+                plan_name, retailer, entry["plan_name"], entry["retailer"],
+            )
             return True
     return False
 
 
 def _build_ptc_identity_index(ptc_df) -> list:
-    """Build a ``[(retailer_tokens, name_tokens, term), ...]`` index from a PTC
-    DataFrame for :func:`_discovered_plan_in_ptc` (name tokens have the retailer
-    brand + filler tokens removed; term comes from the PTC term column)."""
+    """Build the PTC plan-identity index for :func:`_discovered_plan_in_ptc`.
+
+    Each entry is ``{"r_tokens", "n_tokens", "term", "retailer", "plan_name"}`` --
+    tokens for the deterministic pass, and the raw strings so an ambiguous pair
+    can be described to the LLM adjudicator.
+    """
     index: list = []
     if ptc_df is None:
         return index
@@ -166,7 +263,15 @@ def _build_ptc_identity_index(ptc_df) -> list:
             term = int(term_raw) if pd.notna(term_raw) else None
         except (TypeError, ValueError):
             term = None
-        index.append((r_tokens, n_tokens, term))
+        index.append(
+            {
+                "r_tokens": r_tokens,
+                "n_tokens": n_tokens,
+                "term": term,
+                "retailer": retailer,
+                "plan_name": name,
+            }
+        )
     return index
 
 

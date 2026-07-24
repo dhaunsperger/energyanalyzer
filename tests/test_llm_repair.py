@@ -82,12 +82,14 @@ def test_confident_static_field_not_overridden():
 def test_free_window_rebuilds_energy_rates():
     draft = _draft({"energy_charge": 0.4, "free_window": 0.4, "base_charge": 0.9})
     payload = {
-        "energy": {
-            "flat_rate_ckwh": None,
-            "free_hours": [21, 22, 23, 0, 1, 2, 3, 4, 5],
-            "free_rate_ckwh": 0.0,
-            "other_rate_ckwh": 14.5,
-        },
+        "energy_rates": [
+            {
+                "rate_ckwh": 0.0,
+                "label": "free nights",
+                "window": {"hours": [21, 22, 23, 0, 1, 2, 3, 4, 5]},
+            },
+            {"rate_ckwh": 14.5, "window": None},
+        ],
         "confidence": {"energy_charge": 0.85, "free_window": 0.85},
     }
     repaired, report = llm_repair_draft(draft, "text", chat_fn=_chat(payload))
