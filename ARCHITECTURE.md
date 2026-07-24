@@ -264,9 +264,28 @@ egress here is restricted too; a committed reference snapshot
 (`tests/fixtures/meterplan_sample.md`) is the format reference and test
 fixture.
 
-`fetchers/rep_discovery.py`: solar **buyback** EFL discovery on individual REP
-marketing sites — the plans PTC and meterplan.com both miss (see
-`rep_discovery_handoff.md`). REP sites are client-rendered SPAs, so
+The markdown index omits document URLs, but Meter's **/plans?zipcode=<zip>**
+HTML embeds Meter's OWN plans' *real* EFL PDFs in a JSON-LD `OfferCatalog`
+(presigned S3, ~7-day). `fetch_meterplan_efls`/`parse_meterplan_efl_offers`
+pull + download those (filtered to a TDU via `areaServed`), so Meter's own
+plans (Earner/Saver/Standard ± Battery) come from real parsed EFLs; when that
+succeeds, `meterplan_to_drafts(skip_retailers={"Meter Energy"})` drops the
+synthetic markdown rows for them. No competitor EFLs are exposed here. Synthetic
+markdown plans for *any* retailer are later removed by refresh step 8
+(`app.common.supersede_meterplan_plans`) once a real/authoritative plan
+(PTC/discovery/Meter EFL, or manual) covers the same plan — matched by a
+conservative significant-token compare (`_plan_supersedes`: equal term,
+overlapping retailer brand tokens, synthetic name-tokens ⊆ real name), which
+distinguishes same-name variants and only ever deletes `source="meterplan"`
+plans.
+
+`fetchers/rep_discovery.py`: EFL discovery on individual REP marketing sites —
+the plans PTC and meterplan.com both miss (see `rep_discovery_handoff.md`). The
+extractors still flag solar **buyback** plans specifically, but the refresh
+stage now downloads *all* discovered plans (`download_discovered(buyback_only=
+False)`), deduped against the PTC listing first (`_discovered_plan_in_ptc`,
+conservative — term parsed from the discovered name, kept when absent) so only
+PTC-missed plans are added. REP sites are client-rendered SPAs, so
 `fetch_rendered_html` drives a real browser via Playwright (optional dep:
 `pip install 'energyanalyzer[discovery]' && playwright install chromium`;
 lazily imported, raises a clear install/manual-fallback message when absent).
