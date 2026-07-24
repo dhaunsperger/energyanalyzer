@@ -11,6 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 import subprocess
 from pathlib import Path
@@ -23,6 +24,8 @@ import yaml
 from energyanalyzer.core.models import Plan, TduTariff, add_local_columns
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, current_tdu, load_plans, save_plan
 from energyanalyzer.ingest.smt import QualityReport, load_intervals
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = REPO_ROOT / "data"
@@ -517,6 +520,7 @@ def _run_rep_discovery(
             }
             continue
         label = config.retailer
+        logger.info("=== Discovery %d/%d: %s ===", i, total, label)
         _report("discovery", i, total, f"{label} (querying site)")
         try:
             if config.harvester is not None:
@@ -557,6 +561,7 @@ def _run_rep_discovery(
                 plans = rd.discover(html, config)
                 detail = f"from manual capture {newest.name}"
         except Exception as exc:  # noqa: BLE001 -- one REP's failure mustn't abort the rest
+            logger.info("%s: FAILED -- %r", label, exc)
             result["reps"][key] = {
                 "retailer": label,
                 "status": "error",
@@ -566,6 +571,7 @@ def _run_rep_discovery(
             }
             continue
         buyback = sum(1 for p in plans if p.is_buyback)
+        logger.info("%s: %s -- %d plan(s), %d buyback", label, detail, len(plans), buyback)
         result["reps"][key] = {
             "retailer": label,
             "status": "ok",

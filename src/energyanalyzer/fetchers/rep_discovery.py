@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import time
 import unicodedata
@@ -61,6 +62,12 @@ from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
+
+# Discovery is slow (live browser per REP). These INFO logs narrate each step so
+# a caller can stream them into a live "console" (the Plans page attaches a
+# handler to the "energyanalyzer" logger during a refresh) -- so a long-running
+# harvester shows what it's doing, not just a frozen "querying site" line.
+logger = logging.getLogger(__name__)
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -981,11 +988,14 @@ def fetch_rendered_html(
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as pw:
+        logger.info("%s: launching browser (headless=%s)", config.retailer, headless)
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(user_agent=_USER_AGENT)
         page = context.new_page()
         try:
+            logger.info("%s: opening %s", config.retailer, config.homepage)
             page.goto(config.homepage, wait_until="domcontentloaded", timeout=timeout_ms)
+            logger.info("%s: running render flow (entering ZIP, waiting for plans)", config.retailer)
             rendered = config.render(page, zip_code)
             if isinstance(rendered, str):
                 # Paginated render collected + concatenated the pages itself
@@ -995,6 +1005,7 @@ def fetch_rendered_html(
                 if settle_ms:
                     page.wait_for_timeout(settle_ms)
                 html = page.content()
+            logger.info("%s: captured %d chars of rendered HTML", config.retailer, len(html))
         finally:
             context.close()
             browser.close()
@@ -1045,12 +1056,16 @@ def harvest_live(
     _respect_rate_limit(host)
 
     with sync_playwright() as pw:
+        logger.info("%s: launching browser (headless=%s)", config.retailer, headless)
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(user_agent=_USER_AGENT)
         page = context.new_page()
         try:
+            logger.info("%s: opening %s", config.retailer, config.homepage)
             page.goto(config.homepage, wait_until="domcontentloaded", timeout=timeout_ms)
+            logger.info("%s: running interactive harvester (this can take a minute)", config.retailer)
             plans = list(config.harvester(page, zip_code, config))
+            logger.info("%s: harvester returned %d plan(s)", config.retailer, len(plans))
         finally:
             context.close()
             browser.close()
@@ -1171,11 +1186,15 @@ def download_discovered(
 
     from energyanalyzer.fetchers.ptc import _efl_ssl_context
 
+    logger.info("Downloading %d discovered EFL(s)", total)
     entries: list[dict] = []
     with httpx.Client(
         timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
     ) as client:
         for i, plan in enumerate(targets, start=1):
+            logger.info(
+                "Download %d/%d: %s (%s)", i, total, plan.plan_name, plan.retailer
+            )
             host = urlparse(plan.efl_url).netloc
             file_path = dest / _efl_filename(plan)
             if file_path.exists():
@@ -1494,6 +1513,7 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
         except Exception:  # noqa: BLE001
             return False
 
+    logger.info("Champion Energy: entering ZIP %s and loading plans", zip_code)
     _try(lambda: page.get_by_text("Enter Your Address or Zip Code").first.click())  # type: ignore[attr-defined]
     # The ZIP input id (_r_g_) is a React-generated id that changes per render;
     # target the focused textbox instead.
@@ -1506,22 +1526,33 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
 
     details = page.get_by_role("button", name="See More Plan Details")  # type: ignore[attr-defined]
     count = details.count()
+    logger.info("Champion Energy: found %d plan card(s); harvesting EFLs one by one", count)
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
     for i in range(count):
+        logger.info("Champion Energy: plan %d/%d -- opening details", i + 1, count)
         if not _try(lambda i=i: details.nth(i).click(timeout=6000)):
+            logger.info("Champion Energy: plan %d/%d -- could not open details, skipping", i + 1, count)
             continue
         _try(lambda: page.wait_for_timeout(500))  # type: ignore[attr-defined]
         plan_name = _champion_plan_name(page)
         efl_url: Optional[str] = None
         try:
+            logger.info(
+                "Champion Energy: plan %d/%d (%s) -- clicking EFL, waiting for popup",
+                i + 1,
+                count,
+                plan_name or "?",
+            )
             with page.expect_popup() as pop:  # type: ignore[attr-defined]
                 page.get_by_role("button", name="Electricity Facts Label").click()  # type: ignore[attr-defined]
             popup = pop.value
             _try(lambda: popup.wait_for_load_state())
             efl_url = popup.url
             _try(lambda: popup.close())
+            logger.info("Champion Energy: plan %d/%d -- captured EFL URL", i + 1, count)
         except Exception:  # noqa: BLE001
+            logger.info("Champion Energy: plan %d/%d -- no EFL popup captured", i + 1, count)
             efl_url = None
         # Close the one-at-a-time plan-details modal before the next plan. Its
         # close button is named "Close" (per the codegen recording) -- distinct
@@ -1608,6 +1639,7 @@ def _direct_energy_harvest(
 
     cards = page.locator(".plan__wrapper")  # type: ignore[attr-defined]
     count = cards.count()
+    logger.info("Direct Energy: found %d plan card(s); harvesting solar EFLs", count)
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
     for i in range(count):
@@ -1621,6 +1653,7 @@ def _direct_energy_harvest(
         if "solar" not in _normalize_name(name) or name in seen:
             continue
         seen.add(name)
+        logger.info("Direct Energy: capturing EFL for %r", name)
         if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=6000)):
             continue
         _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
@@ -1714,6 +1747,7 @@ def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[Dis
 
     names = page.get_by_test_id("planName-text")  # type: ignore[attr-defined]
     count = names.count()
+    logger.info("Reliant Energy: found %d plan(s) after Solar filter; capturing EFLs", count)
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
     for i in range(count):
@@ -1725,6 +1759,7 @@ def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[Dis
         if "solar" not in _normalize_name(name) or name in seen:
             continue
         seen.add(name)
+        logger.info("Reliant Energy: capturing EFL for %r", name)
         # Nearest ancestor plan card (class *contains* the hashed "plan-container").
         card = names.nth(i).locator(
             "xpath=ancestor::div[contains(@class,'plan-container')][1]"
@@ -1798,6 +1833,7 @@ def _atlantex_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
     if ctx is not None:
         ctx.on("response", lambda r: efl_seen.append(r.url) if _ATLANTEX_EFL_RESP_RE.search(r.url) else None)
 
+    logger.info("Atlantex: opening promoCode-gated enrollment and entering ZIP %s", zip_code)
     _try(lambda: page.goto(_ATLANTEX_URL, wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
     _try(lambda: page.locator("#ctl00_EnrollmentPlaceHolder_txtZipCode").fill(zip_code))  # type: ignore[attr-defined]
@@ -1806,6 +1842,7 @@ def _atlantex_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
     _try(lambda: page.get_by_role("link", name="More info").first.click(timeout=8000))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(1000))  # type: ignore[attr-defined]
 
+    logger.info("Atlantex: clicking EFL link, waiting for the PDF response")
     before = len(efl_seen)
     _try(lambda: page.get_by_role("link", name="Electricity Facts Label").first.click(timeout=8000))  # type: ignore[attr-defined]
     efl_url: Optional[str] = None

@@ -1017,6 +1017,21 @@ def test_download_discovered_writes_manifest(tmp_path, monkeypatch):
     assert "discovered_at" in entry and entry["file"].endswith(".pdf")
 
 
+def test_download_discovered_logs_progress(tmp_path, monkeypatch, caplog):
+    # Discovery emits INFO logs the Plans page streams into a live "console"
+    # (attached to the "energyanalyzer" package logger). Confirm the download
+    # step narrates itself so a slow run isn't a frozen status line.
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    dest = tmp_path / "efl"
+    with caplog.at_level("INFO", logger="energyanalyzer.fetchers.rep_discovery"):
+        rd.download_discovered(_sample_plans(), dest=dest, buyback_only=True)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("Downloading" in m and "EFL" in m for m in messages)
+    assert any("Download 1/" in m for m in messages)
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 

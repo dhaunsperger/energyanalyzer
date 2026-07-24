@@ -4,6 +4,7 @@ EFL PDF import, and Power to Choose snapshot loading."""
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import sys
 from pathlib import Path
 
@@ -443,19 +444,48 @@ if st.button("Refresh market data", key="refresh_market_btn", disabled=not refre
         refresh_progress.progress(done / total if total else 1.0)
         refresh_status.caption(label)
 
-    refresh_summary = refresh_market_data(
-        plans_dir=PLANS_DIR,
-        drafts_dir=DRAFTS_DIR,
-        efl_dir=EFL_DIR,
-        ptc_dir=PTC_DIR,
-        meterplan_dir=METERPLAN_DIR,
-        progress_callback=_refresh_progress,
-        run_discovery=run_discovery,
-        discovery_zip=discovery_zip.strip() or "78665",
-    )
+    # Live console: discovery is slow (a live browser per REP), so stream the
+    # step-by-step INFO logs the fetchers emit into a scrolling box. Streamlit
+    # flushes placeholder writes mid-run (same mechanism the progress bar uses),
+    # so this updates while a harvester is still working -- you can see exactly
+    # what it's attempting instead of a frozen status line.
+    console_lines: list[str] = []
+    console_box = st.expander(
+        "Discovery console (live)", expanded=run_discovery, icon=":material/terminal:"
+    ).empty()
+
+    class _ConsoleHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                stamp = dt.datetime.now().strftime("%H:%M:%S")
+                console_lines.append(f"{stamp}  {record.getMessage()}")
+                console_box.code("\n".join(console_lines[-400:]), language="log")
+            except Exception:  # noqa: BLE001 -- logging must never break the refresh
+                pass
+
+    _console_handler = _ConsoleHandler(level=logging.INFO)
+    _pkg_logger = logging.getLogger("energyanalyzer")
+    _prev_level = _pkg_logger.level
+    _pkg_logger.setLevel(logging.INFO)
+    _pkg_logger.addHandler(_console_handler)
+    try:
+        refresh_summary = refresh_market_data(
+            plans_dir=PLANS_DIR,
+            drafts_dir=DRAFTS_DIR,
+            efl_dir=EFL_DIR,
+            ptc_dir=PTC_DIR,
+            meterplan_dir=METERPLAN_DIR,
+            progress_callback=_refresh_progress,
+            run_discovery=run_discovery,
+            discovery_zip=discovery_zip.strip() or "78665",
+        )
+    finally:
+        _pkg_logger.removeHandler(_console_handler)
+        _pkg_logger.setLevel(_prev_level)
     refresh_progress.progress(1.0)
     invalidate_plans_cache()
     st.session_state["refresh_summary"] = refresh_summary
+    st.session_state["refresh_console"] = console_lines
     st.rerun()
 
 refresh_summary = st.session_state.get("refresh_summary")
@@ -468,6 +498,13 @@ if refresh_summary is not None:
         f"auto-promoted {len(refresh_summary['promoted'])}, "
         f"{len(refresh_summary['needing_review'])} draft(s) left for review."
     )
+    _console = st.session_state.get("refresh_console")
+    if _console:
+        with st.expander(
+            f"Discovery console ({len(_console)} log line(s) from the last run)",
+            icon=":material/terminal:",
+        ):
+            st.code("\n".join(_console), language="log")
     # Surface EFLs that couldn't be downloaded or turned into a draft YAML, so a
     # failed download (HTML/captcha saved as .pdf) or an unparseable PDF isn't
     # silent. Aggregates the PTC and REP-discovery download/parse failure lists.

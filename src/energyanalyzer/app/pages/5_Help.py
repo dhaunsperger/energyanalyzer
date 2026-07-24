@@ -225,8 +225,10 @@ pip install 'energyanalyzer[discovery]' && playwright install chromium
 ```
 
 It's **off by default** and slow — each site is a live browser session and every EFL it finds is
-downloaded. Per-retailer results (and any that need a manual capture) show up under the button
-when it finishes.
+downloaded. While it runs, open the **Discovery console (live)** panel to watch each step in real
+time (ZIP entry, per-plan EFL capture, downloads), so you can tell a slow site from a stuck one;
+the full log is kept after the run too. Per-retailer results (and any that need a manual capture)
+show up under the button when it finishes.
 """
         )
 
