@@ -21,7 +21,7 @@ etf_usd: 150.0
 etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
-source: efl:GEXA_ENERGY_Gexa_Solar_Buyback_12.pdf
-retrieved: '2026-07-21'
+source: efl:Gexa_Energy_Gexa_Solar_Buyback_12.pdf
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

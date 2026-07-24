@@ -20,6 +20,6 @@ etf_usd: 0.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: efl:Ranchero_Power_Ranchero_Fixed_Prime_-_48.pdf
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

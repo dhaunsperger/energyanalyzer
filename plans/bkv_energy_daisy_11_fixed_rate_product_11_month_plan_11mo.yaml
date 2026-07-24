@@ -5,7 +5,7 @@ term_months: 11
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.034
+- rate_ckwh: 6.69
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,6 +21,6 @@ etf_per_month_remaining: true
 rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_11.pdf
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false
