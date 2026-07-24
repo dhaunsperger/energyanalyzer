@@ -193,6 +193,7 @@ if editing_plan is not None:
     energy_rates_default = _default_yaml(dump.get("energy_rates", []))
     buyback_default = _default_yaml(dump.get("buyback", {"kind": "none"}))
     bill_credits_default = _default_yaml(dump.get("bill_credits", []))
+    ev_free_default = _default_yaml(dump["ev_free_charging"]) if dump.get("ev_free_charging") else ""
 else:
     defaults = dict(
         id="",
@@ -214,6 +215,7 @@ else:
     energy_rates_default = _default_yaml([{"rate_ckwh": 12.0}])
     buyback_default = _default_yaml({"kind": "none"})
     bill_credits_default = _default_yaml([])
+    ev_free_default = ""
 
 with st.form(f"plan_form_{form_key_suffix}"):
     c1, c2 = st.columns(2)
@@ -259,6 +261,15 @@ with st.form(f"plan_form_{form_key_suffix}"):
         "bill_credits", value=bill_credits_default, height=80, label_visibility="collapsed"
     )
 
+    st.markdown(
+        "**Free EV charging** -- optional YAML `{window: {hours: [...]}, monthly_kwh_cap: N}` "
+        "(e.g. Tesla: waives the energy charge on the first N kWh/mo inside the window). "
+        "Leave blank for none."
+    )
+    f_ev_free = st.text_area(
+        "ev_free_charging", value=ev_free_default, height=100, label_visibility="collapsed"
+    )
+
     f_save_target = st.radio(
         "Save to", ["Active plans (plans/)", "Drafts (plans/drafts/)"], horizontal=True
     )
@@ -285,6 +296,7 @@ if submitted:
             energy_rates=yaml.safe_load(f_energy_rates) or [],
             buyback=yaml.safe_load(f_buyback) or {"kind": "none"},
             bill_credits=yaml.safe_load(f_bill_credits) or [],
+            ev_free_charging=(yaml.safe_load(f_ev_free) if f_ev_free.strip() else None),
         )
         plan = Plan.model_validate(plan_dict)
         target_dir = PLANS_DIR if f_save_target.startswith("Active") else DRAFTS_DIR
