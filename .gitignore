@@ -11,6 +11,10 @@ tests/fixtures/benchmark_2026_07/IntervalData.csv
 # review space, not part of the git-versioned plan database in plans/.
 plans/drafts/
 
+# Streamlit agent skills (environment-specific symlinks)
+.agents/skills/developing-with-streamlit/
+.claude/skills/developing-with-streamlit/
+
 __pycache__/
 *.pyc
 *.egg-info/
