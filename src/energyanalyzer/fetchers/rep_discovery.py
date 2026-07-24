@@ -1203,6 +1203,15 @@ def download_discovered(
             logger.info(
                 "Download %d/%d: %s (%s)", i, total, plan.plan_name, plan.retailer
             )
+            # Guard against a malformed/constructed EFL URL (missing scheme, etc.)
+            # so it's a clear failure line, not an opaque httpx ValueError.
+            if not re.match(r"^https?://", str(plan.efl_url or ""), re.I):
+                summary["failed"].append(
+                    {"url": plan.efl_url, "error": "malformed or non-http EFL URL -- skipped"}
+                )
+                if progress_callback:
+                    progress_callback(i, total, plan.plan_name)
+                continue
             host = urlparse(plan.efl_url).netloc
             file_path = dest / _efl_filename(plan)
             if file_path.exists():

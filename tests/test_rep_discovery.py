@@ -998,6 +998,23 @@ def test_download_discovered_defers_html_response(tmp_path, monkeypatch):
     assert not (dest / "rep_discovery_manifest.jsonl").exists()
 
 
+def test_download_discovered_guards_malformed_url(tmp_path, monkeypatch):
+    # A malformed/constructed EFL URL (no scheme) is a clear failure line, not an
+    # opaque httpx ValueError, and never hits the network.
+    class _NoNetClient(_FakeClient):
+        def get(self, url, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("malformed URL should not be fetched")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _NoNetClient)
+    bad = rd.DiscoveredPlan(retailer="Ambit Energy", plan_name="Weird", efl_url="/", is_buyback=True)
+    summary = rd.download_discovered([bad], dest=tmp_path / "efl", buyback_only=True)
+    assert summary["downloaded"] == []
+    assert len(summary["failed"]) == 1
+    assert "malformed" in summary["failed"][0]["error"]
+
+
 def test_download_discovered_writes_manifest(tmp_path, monkeypatch):
     import httpx
 
