@@ -522,6 +522,12 @@ if refresh_summary is not None:
         f"{mp_refresh.get('skipped_own', 0)} Meter-own superseded by real EFLs, "
         f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
+    _superseded = refresh_summary.get("meterplan_superseded") or []
+    if _superseded:
+        st.caption(
+            f"Removed {len(_superseded)} synthetic meterplan plan(s) now covered by a real EFL "
+            f"(from PTC, discovery, or Meter's own EFLs)."
+        )
     disc_refresh = refresh_summary.get("discovery") or {}
     if disc_refresh.get("enabled"):
         disc_reps = disc_refresh.get("reps") or {}

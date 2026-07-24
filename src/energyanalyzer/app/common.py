@@ -11,6 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import subprocess
 from pathlib import Path
 from typing import Callable, Optional
@@ -38,6 +39,89 @@ CURRENT_PLAN_ID = "pulse_current"
 DAY_HOURS = list(range(6, 18))  # 6a-6p
 PEAK_HOURS = list(range(18, 21))  # 6p-9p
 NIGHT_HOURS = list(range(21, 24)) + list(range(0, 6))  # 9p-6a
+
+
+# --------------------------------------------------------------------------- #
+# Plan identity matching (used to supersede synthetic meterplan.com drafts with
+# a real EFL once we have one). Retailer/plan names diverge across sources --
+# the markdown index says "Reliant Energy / Solar Payback Match", the real EFL
+# parses as "Reliant Energy Retail Services LLC / Reliant Solar Payback Match
+# 12" -- so exact matching misses. We compare *significant* tokens instead:
+# strip generic corporate/industry noise + pure numbers, and treat a match as
+# "same retailer brand + same term + the synthetic plan's distinctive name
+# tokens all appear in the real plan's name". Deliberately conservative (only
+# ever used to remove source="meterplan" plans, and every removal is logged).
+# --------------------------------------------------------------------------- #
+_RETAILER_NOISE_TOKENS = frozenset(
+    {
+        "llc", "lp", "inc", "co", "company", "corp", "corporation", "retail",
+        "services", "service", "energy", "utilities", "utility", "power",
+        "electric", "electricity", "texas", "tx", "rep", "cert", "certificate",
+        "number", "no", "dba", "the", "of", "and",
+    }
+)
+
+
+def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
+    """Lowercased alphanumeric tokens with corporate/industry noise, pure
+    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`)."""
+    cleaned = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
+    drop = _RETAILER_NOISE_TOKENS | extra_drop
+    out = set()
+    for tok in cleaned.split():
+        if tok in drop or tok.isdigit() or re.fullmatch(r"\d+mo", tok):
+            continue
+        out.add(tok)
+    return out
+
+
+def _plan_supersedes(meter_plan: Plan, auth_plan: Plan) -> bool:
+    """True if `auth_plan` (a real/authoritative plan) covers the same plan as
+    the synthetic meterplan `meter_plan`: same term, overlapping retailer brand
+    tokens, and every distinctive token of the synthetic plan's name present in
+    the authoritative plan's name (retailer brand tokens removed from both)."""
+    if meter_plan.term_months != auth_plan.term_months:
+        return False
+    r_meter = _significant_tokens(meter_plan.retailer)
+    r_auth = _significant_tokens(auth_plan.retailer)
+    if not r_meter or not r_auth:
+        return False
+    # One retailer's brand tokens must be a subset of the other's (handles the
+    # short markdown name vs the verbose legal name).
+    if not (r_meter <= r_auth or r_auth <= r_meter):
+        return False
+    n_meter = _significant_tokens(meter_plan.name, extra_drop=frozenset(r_meter | {"plan"}))
+    n_auth = _significant_tokens(auth_plan.name, extra_drop=frozenset(r_auth | r_meter | {"plan"}))
+    if not n_meter:
+        return False
+    return n_meter <= n_auth
+
+
+def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
+    """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
+    that a real/authoritative plan now covers, and return the removals as a list
+    of ``(removed_plan_id, superseding_plan_id)`` tuples.
+
+    "Authoritative" is any plan whose source isn't `"meterplan"` -- a parsed EFL
+    (PTC / REP discovery / Meter's own /plans page), a manual entry, or a report
+    seed. Matching uses :func:`_plan_supersedes` (conservative token-subset).
+    The `CURRENT_PLAN_ID` plan is never removed.
+    """
+    try:
+        current_plans = load_plans(plans_dir)
+    except Exception:  # noqa: BLE001 -- defensive; degrade to "supersede nothing"
+        return []
+    meter_plans = [p for p in current_plans if str(getattr(p, "source", "")) == "meterplan"]
+    auth_plans = [p for p in current_plans if str(getattr(p, "source", "")) != "meterplan"]
+    removed: list[tuple] = []
+    for mp_plan in meter_plans:
+        if mp_plan.id == CURRENT_PLAN_ID:
+            continue
+        match = next((ap for ap in auth_plans if _plan_supersedes(mp_plan, ap)), None)
+        if match is not None:
+            (Path(plans_dir) / f"{mp_plan.id}.yaml").unlink(missing_ok=True)
+            removed.append((mp_plan.id, match.id))
+    return removed
 
 
 # --------------------------------------------------------------------------- #
@@ -496,8 +580,17 @@ def refresh_market_data(
        stamped with `retrieved = today` (and `source` defaulted to `"ptc"`
        if somehow unset), saved via `plans_io.save_plan`, and their draft
        file deleted. A single bad draft cannot abort the batch.
+    8. **Supersede** synthetic meterplan plans (`supersede_meterplan_plans`):
+       remove any `source="meterplan"` plan now covered by a real/authoritative
+       plan (parsed EFL from PTC/discovery/Meter's own /plans page, or a manual
+       entry) for the same underlying plan. Only meterplan-source plans are
+       removed; each removal is recorded in `meterplan_superseded` + `notes`.
 
-    Between meterplan (6) and auto-promote (7), if ``run_discovery`` is set, an
+    Just before step 6, a **Meter-EFL** stage (`fetch_meterplan_efls`) pulls
+    Meter Energy's own real EFLs from its /plans page and parses them, so Meter's
+    own plans come from real EFLs (and its synthetic markdown rows are excluded
+    in step 6). Between meterplan (6) and auto-promote (7), if ``run_discovery``
+    is set, an
     optional **REP-site discovery** stage (`_run_rep_discovery`, ARCHITECTURE.md
     §7) queries individual retailer marketing sites for solar-buyback EFLs that
     Power to Choose and meterplan.com miss, downloads them into `efl_dir`, and
@@ -573,6 +666,7 @@ def refresh_market_data(
         },
         "promoted": [],
         "needing_review": [],
+        "meterplan_superseded": [],
         "notes": notes,
     }
 
@@ -823,6 +917,17 @@ def refresh_market_data(
         _report("promote", i, promote_total, draft_path.name)
 
     if summary["promoted"]:
+        invalidate_plans_cache()
+
+    # --- 8. supersede synthetic meterplan plans covered by a real EFL -------#
+    # meterplan.com rows carry no EFL PDF (source="meterplan", efl_url=None). If
+    # we now have a real/authoritative plan for the same underlying plan -- from
+    # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
+    # entry -- the synthetic row is redundant and is removed (logged).
+    for mp_id, match_id in supersede_meterplan_plans(plans_dir):
+        summary["meterplan_superseded"].append(mp_id)
+        notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
+    if summary["meterplan_superseded"]:
         invalidate_plans_cache()
 
     return summary
