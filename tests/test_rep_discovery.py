@@ -95,7 +95,9 @@ def test_txu_extractor_finds_all_cards():
     assert all(p.retailer == "TXU Energy" for p in plans)
     assert all(p.extraction_method == "static" for p in plans)
     # EFL links self-label via the PDFGenerator query string.
-    assert all("formType=EnergyFactsLabel" in p.efl_url for p in plans)
+    # EFL links self-label via the Vistra query string, rewritten from the
+    # /PDFGenerator viewer to the /api/getdocument document endpoint.
+    assert all("docType=EnergyFactsLabel" in p.efl_url for p in plans)
 
 
 def test_txu_extractor_unescapes_plan_names():
@@ -121,7 +123,7 @@ def test_txu_extractor_ignores_script_buyback_badges():
 def test_txu_buyback_efl_url_carries_product_id():
     buyback = [p for p in _extract_txu() if p.is_buyback]
     assert len(buyback) == 1
-    assert "comProdId=ONXSBBSYSV00AB" in buyback[0].efl_url
+    assert "productid=ONXSBBSYSV00AB" in buyback[0].efl_url
     assert buyback[0].buyback_ckwh is None  # rate isn't published on the page
 
 
@@ -1181,3 +1183,52 @@ def test_link_base_defaults_to_homepage_when_unset():
     assert GREEN_MOUNTAIN.link_base == GREEN_MOUNTAIN.homepage
     assert CHARIOT.link_base == "https://signup.chariotenergy.com/"
     assert CHARIOT.link_base != CHARIOT.homepage
+
+
+# --------------------------------------------------------------------------- #
+# Vistra platform: /PDFGenerator is a viewer page, /api/getdocument is the doc
+# --------------------------------------------------------------------------- #
+def test_vistra_efl_urls_are_rewritten_to_the_document_endpoint():
+    """TXU and Ambit share Vistra's shopping platform, whose scraped EFL link
+    (`/PDFGenerator?formType=...&comProdId=...`) is only a VIEWER page: it returns
+    the site's Next.js HTML shell to httpx, to a session carrying the full
+    funnel's cookies, and even to a real in-browser navigation. Its JS fetches
+    the actual PDF from `/api/getdocument`, which serves application/pdf to plain
+    httpx with no session.
+
+    Left unrewritten, TXU's EFLs were silently *deferred* every refresh ("HTML
+    response -- a browser-rendered EFL viewer/SPA"), so its solar buyback plans
+    never entered the database and only the meterplan synthetic covered them.
+    Every query parameter is renamed between the two, and efldate must be full
+    ISO 8601, so this asserts them individually.
+    """
+    out = rd._rewrite_vistra_efl_url(
+        "https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel"
+        "&comProdId=ONXSBBSYSV00AB&efldate=2026-07-25&tdsp=ONCOR&lang=en&custClass=Residential"
+    )
+    assert out.startswith("https://shopping.txu.com/api/getdocument?")
+    assert "docType=EnergyFactsLabel" in out
+    assert "productid=ONXSBBSYSV00AB" in out
+    assert "efldate=2026-07-25T00:00:00" in out     # full ISO 8601, not a bare date
+    assert "tdsp=ONCOR" in out
+    assert "language=en" in out and "classification=Residential" in out
+    assert "PDFGenerator" not in out and "comProdId" not in out
+
+
+def test_vistra_rewrite_never_drops_a_url_it_does_not_understand():
+    """A rewrite that can't parse its input must pass the URL through untouched
+    -- losing an EFL URL here would silently drop a plan."""
+    for url in (
+        "https://example.com/some/efl.pdf",                       # not Vistra
+        "https://shopping.txu.com/PDFGenerator?formType=X",       # no comProdId
+        "",
+    ):
+        assert rd._rewrite_vistra_efl_url(url) == url
+
+
+def test_ambit_and_txu_share_the_same_document_endpoint_shape():
+    from energyanalyzer.fetchers.rep_discovery import _ambit_efl_url
+
+    ambit = _ambit_efl_url("ONAMTXSBBC12AA", "2026-07-25")
+    assert ambit.startswith("https://shopping.ambitenergy.com/api/getdocument?")
+    assert "productid=ONAMTXSBBC12AA" in ambit and "efldate=2026-07-25T00:00:00" in ambit

@@ -329,6 +329,59 @@ _TXU_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="[^"]*\bshow-plan\b)')
 _TXU_TITLE_RE = re.compile(r'<p\b[^>]*\bclass="([^"]*)"[^>]*>(.*?)</p>', re.I | re.S)
 # The EFL link IS its own self-label: TXU points at a PDF generator with
 # formType=EnergyFactsLabel and the plan's product id in comProdId.
+# --------------------------------------------------------------------------- #
+# Vistra platform: the EFL *document* endpoint
+# --------------------------------------------------------------------------- #
+# TXU and Ambit both run Vistra's shopping platform, and both expose an EFL link
+# of the form `<host>/PDFGenerator?formType=EnergyFactsLabel&comProdId=<id>...`.
+# That URL is a **viewer page**, not the document: it returns the site's Next.js
+# HTML shell (~8-9 KB, content-type text/html) to httpx, to a browser session
+# carrying the full funnel's cookies, and even to a real in-browser navigation.
+# Its JS then fetches the actual PDF from `/api/getdocument` and wraps it in a
+# `blob:` for display.
+#
+# `/api/getdocument` serves `application/pdf` to plain httpx with no session at
+# all, so rewriting to it keeps EFL downloads browser-free. Every query
+# parameter is renamed, and `efldate` must be full ISO 8601:
+#
+#   viewer : formType  comProdId  efldate=YYYY-MM-DD  lang      custClass
+#   backend: docType   productid  efldate=<ISO8601>   language  classification
+#
+# Found 2026-07-24 on Ambit by watching the popup's network traffic; TXU's
+# identical deferral ("HTML response -- a browser-rendered EFL viewer/SPA")
+# confirmed the same rewrite works there.
+_VISTRA_PDFGEN_RE = re.compile(r"(?i)^(https?://[^/]+)/PDFGenerator\?(.*)$")
+
+
+def _vistra_getdocument_url(
+    host: str, product_id: str, efldate: str, tdsp: str = "ONCOR"
+) -> str:
+    """Vistra's real EFL-PDF endpoint for a product id. `efldate` is YYYY-MM-DD;
+    the endpoint wants full ISO 8601, so midnight is appended."""
+    return (
+        f"{host}/api/getdocument?docType=EnergyFactsLabel&productid={product_id}"
+        f"&efldate={efldate}T00:00:00&tdsp={tdsp}"
+        f"&language=en&classification=Residential"
+    )
+
+
+def _rewrite_vistra_efl_url(url: str, tdsp: str = "ONCOR") -> str:
+    """Rewrite a scraped `/PDFGenerator?...` viewer URL to the `/api/getdocument`
+    document URL. Returns the input unchanged if it isn't a PDFGenerator URL or
+    lacks a comProdId -- callers must never lose a URL to this."""
+    m = _VISTRA_PDFGEN_RE.match(url or "")
+    if not m:
+        return url
+    host, query = m.group(1), m.group(2)
+    pid_m = re.search(r"comProdId=([A-Za-z0-9]+)", query, re.I)
+    if not pid_m:
+        return url
+    date_m = re.search(r"efldate=(\d{4}-\d{2}-\d{2})", query, re.I)
+    efldate = date_m.group(1) if date_m else dt.date.today().isoformat()
+    tdsp_m = re.search(r"tdsp=([A-Za-z]+)", query, re.I)
+    return _vistra_getdocument_url(host, pid_m.group(1), efldate, tdsp_m.group(1) if tdsp_m else tdsp)
+
+
 _TXU_EFL_URL_RE = re.compile(
     r'href="([^"]*PDFGenerator\?formType=EnergyFactsLabel[^"]*)"', re.I
 )
@@ -376,8 +429,8 @@ def extract_txu(html: str, config: RepConfig) -> list[DiscoveredPlan]:
         url_m = _TXU_EFL_URL_RE.search(card)
         if not url_m:
             continue
-        efl_url = urljoin(base, unescape(url_m.group(1)))
-        pid_m = _TXU_COMPRODID_RE.search(efl_url)
+        efl_url = _rewrite_vistra_efl_url(urljoin(base, unescape(url_m.group(1))))
+        pid_m = _TXU_COMPRODID_RE.search(efl_url) or re.search(r"productid=([A-Za-z0-9]+)", efl_url, re.I)
         product_id = pid_m.group(1) if pid_m else efl_url
         if product_id in seen:
             continue
@@ -637,11 +690,7 @@ def _ambit_efl_url(product_id: str, efldate: str) -> str:
     directly to plain httpx -- no browser, no session, so `download_discovered`
     handles Ambit like any other REP.
     """
-    return (
-        f"{_AMBIT_EFL_BASE}?docType=EnergyFactsLabel&productid={product_id}"
-        f"&efldate={efldate}T00:00:00&tdsp={_AMBIT_TDSP}"
-        f"&language=en&classification=Residential"
-    )
+    return _vistra_getdocument_url("https://shopping.ambitenergy.com", product_id, efldate, _AMBIT_TDSP)
 
 
 def extract_ambit(html: str, config: RepConfig) -> list[DiscoveredPlan]:
