@@ -1763,16 +1763,58 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
         except Exception:  # noqa: BLE001
             return False
 
+    def _enter_zip_and_wait() -> int:
+        """Run the ZIP prelude and WAIT for plan cards. Returns the card count.
+
+        A fixed sleep here used to be the whole synchronisation: on a slow load
+        the sweep found 0 cards and the REP silently contributed nothing
+        (observed 2026-07-25 -- 7 cards at 10:44, 0 at 12:03 with no other
+        change). Waiting on the cards themselves makes it depend on the page
+        being ready rather than on the site responding within 3 seconds.
+        """
+        # Champion renders the whole ZIP form TWICE (a desktop copy and a mobile
+        # one). `.first` is frequently the off-screen copy, so the fill/click
+        # silently time out and the flow never leaves the homepage -- the REP
+        # then reports "0 plan card(s)" with no error anywhere. Try each copy.
+        # The ZIP form is React-rendered; filling it the instant DOMContentLoaded
+        # fires lands before the input is wired up.
+        _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+        # NB: do NOT click the "Enter Your Address or Zip Code" label first --
+        # it matches twice and clicking the off-screen copy leaves the form in a
+        # state where the subsequent fill lands nowhere. Filling the input
+        # directly is both simpler and what actually works.
+        if not _fill_any_matching(page, "input[name='zipcode']", zip_code):
+            _fill_any_matching(page, "input[type='text']", zip_code)
+        _click_any_matching(page, "View Rates and Plans", 8000)
+        # Two interstitials, and they are SEQUENTIAL -- each appears only after
+        # the previous is dismissed, and each takes several seconds:
+        #   View Rates -> (~8s) "New Service" -> /ShopAndEnroll
+        #                -> (~9s) a dialog that COVERS the plan cards
+        # The old code fired both clicks back-to-back with 6s timeouts, so it
+        # missed the first, never reached the second, and left the flow on the
+        # homepage -- reported only as "0 plan card(s)", with no error anywhere.
+        _click_any_matching(page, "New Service", 20_000)
+        _try(lambda: page.wait_for_timeout(6000))  # type: ignore[attr-defined]
+        for closer in ("Close this dialog", "Close", "\u00d7"):
+            if _click_any_matching(page, closer, 15_000):
+                break
+        _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+        _try(lambda: page.wait_for_selector(  # type: ignore[attr-defined]
+            "button:has-text('See More Plan Details')", timeout=30_000
+        ))
+        try:
+            return page.get_by_role("button", name="See More Plan Details").count()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return 0
+
     logger.info("Champion Energy: entering ZIP %s and loading plans", zip_code)
-    _try(lambda: page.get_by_text("Enter Your Address or Zip Code").first.click())  # type: ignore[attr-defined]
-    # The ZIP input id (_r_g_) is a React-generated id that changes per render;
-    # target the focused textbox instead.
-    _try(lambda: page.get_by_role("textbox").first.fill(zip_code))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="View Rates and Plans").first.click())  # type: ignore[attr-defined]
-    # Session-dependent interstitials -- best-effort.
-    _try(lambda: page.get_by_role("button", name="New Service").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+    if _enter_zip_and_wait() == 0:
+        # One reload + retry: the prelude is interstitial-dependent and a single
+        # bad run shouldn't cost the whole REP.
+        logger.info("Champion Energy: no plan cards yet -- reloading and retrying the ZIP flow")
+        _try(lambda: page.goto(config.homepage, wait_until="domcontentloaded", timeout=60_000))  # type: ignore[attr-defined]
+        _try(lambda: page.wait_for_timeout(2000))  # type: ignore[attr-defined]
+        _enter_zip_and_wait()
 
     # Champion serves the EFL as a DOWNLOAD (Content-Disposition: attachment),
     # not a navigation: the popup it opens stays blank forever and `popup.url`
@@ -2291,6 +2333,29 @@ _METER_TERMS = ("12 months", "24 months", "36 months")
 _METER_PROFILES = (None, "Solar", "No solar")
 
 
+def _fill_any_matching(page: object, selector: str, value: str, timeout_ms: int = 6000) -> bool:
+    """Fill the first ACTIONABLE input matching `selector`.
+
+    Same hazard as `_click_any_matching`: sites commonly render a desktop and a
+    mobile copy of the same form, so `.first` is often the off-screen one and the
+    fill silently times out.
+    """
+    try:
+        loc = page.locator(selector)  # type: ignore[attr-defined]
+        n = loc.count()
+    except Exception:  # noqa: BLE001
+        return False
+    for i in range(n):
+        try:
+            el = loc.nth(i)
+            el.scroll_into_view_if_needed(timeout=2000)
+            el.fill(value, timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _click_any_matching(page: object, name: str, timeout_ms: int = 6000) -> bool:
     """Click the first ACTIONABLE control with this accessible name.
 
@@ -2302,6 +2367,17 @@ def _click_any_matching(page: object, name: str, timeout_ms: int = 6000) -> bool
     """
     try:
         loc = page.get_by_role("button", name=name)  # type: ignore[attr-defined]
+        # WAIT for the control to exist before counting. `count()` is evaluated
+        # immediately, so on a control that hasn't rendered yet this returned 0
+        # and the function gave up without ever waiting -- the per-click timeout
+        # only ever applied once a match already existed. That silently skipped
+        # Champion's "New Service" interstitial (which appears ~8s after the ZIP
+        # submit), leaving the flow on the homepage and the REP reporting
+        # "0 plan card(s)" with no error at all.
+        try:
+            loc.first.wait_for(state="attached", timeout=timeout_ms)
+        except Exception:  # noqa: BLE001 -- genuinely absent: nothing to click
+            return False
         n = loc.count()
     except Exception:  # noqa: BLE001
         return False
