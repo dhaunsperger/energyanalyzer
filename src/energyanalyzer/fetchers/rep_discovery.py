@@ -1665,6 +1665,35 @@ _CHAMPION_PLANNAME_PARAM_RE = re.compile(r"planName=([^&]+)", re.I)
 _CHAMPION_MODAL_TITLE_RE = re.compile(r"Details of\s+(.+)", re.I)
 
 
+def _popup_url_when_ready(popup: object, timeout_ms: int = 15_000) -> Optional[str]:
+    """The popup's real URL, waiting for it to actually navigate.
+
+    `popup.url` is available immediately after `expect_popup()` -- but before the
+    navigation commits it is a placeholder (Playwright reports ":" here, not
+    even "about:blank"). Waiting on `load` does not help: these popups render a
+    **PDF**, whose load event may never fire, so the wait times out and the
+    placeholder is read instead.
+
+    Measured on Champion 2026-07-25: all 7 plans returned ":" , which then
+    collapsed to ONE plan because the dedup key is derived from the URL -- the
+    harvester reported "1 plan(s)" from 7 successfully-opened popups, and the
+    surviving one carried an unusable URL ("malformed or non-http EFL URL").
+
+    So: poll until the URL looks like a real http(s) address.
+    """
+    deadline = timeout_ms
+    while deadline > 0:
+        url = getattr(popup, "url", None)
+        if url and url.lower().startswith(("http://", "https://")):
+            return url
+        try:
+            popup.wait_for_timeout(250)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 -- popup closed under us
+            break
+        deadline -= 250
+    return None
+
+
 def _champion_plan_name(page: object) -> str:
     """Read the open details modal's "Details of <plan>" heading."""
     try:
@@ -1699,6 +1728,27 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
     _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
 
+    # Champion serves the EFL as a DOWNLOAD (Content-Disposition: attachment),
+    # not a navigation: the popup it opens stays blank forever and `popup.url`
+    # reports the placeholder ":". Reading that gave every plan the same key, so
+    # the dedup collapsed 7 plans into 1 -- with an unusable URL. The real URL is
+    # on the response, so capture it there (same approach as Reliant, whose PDF
+    # also arrives outside the page's own navigation).
+    captured_pdfs: list[str] = []
+
+    def _on_response(resp) -> None:
+        try:
+            ctype = (resp.headers.get("content-type") or "").lower()
+            if "application/pdf" in ctype:
+                captured_pdfs.append(resp.url)
+        except Exception:  # noqa: BLE001 -- listener must never raise
+            pass
+
+    try:
+        page.context.on("response", _on_response)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 -- fake page seam in tests has no context
+        pass
+
     details = page.get_by_role("button", name="See More Plan Details")  # type: ignore[attr-defined]
     count = details.count()
     logger.info("Champion Energy: found %d plan card(s); harvesting EFLs one by one", count)
@@ -1719,13 +1769,28 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
                 count,
                 plan_name or "?",
             )
+            before = len(captured_pdfs)
             with page.expect_popup() as pop:  # type: ignore[attr-defined]
                 page.get_by_role("button", name="Electricity Facts Label").click()  # type: ignore[attr-defined]
             popup = pop.value
-            _try(lambda: popup.wait_for_load_state())
-            efl_url = popup.url
+            # Give the download response a moment to arrive, then take the URL
+            # the network saw. Fall back to the popup's own URL for any variant
+            # that really does navigate.
+            for _ in range(24):
+                if len(captured_pdfs) > before:
+                    break
+                _try(lambda: page.wait_for_timeout(250))  # type: ignore[attr-defined]
+            efl_url = captured_pdfs[-1] if len(captured_pdfs) > before else _popup_url_when_ready(popup, 2000)
             _try(lambda: popup.close())
-            logger.info("Champion Energy: plan %d/%d -- captured EFL URL", i + 1, count)
+            if efl_url:
+                logger.info(
+                    "Champion Energy: plan %d/%d -- captured EFL URL %s", i + 1, count, efl_url
+                )
+            else:
+                logger.info(
+                    "Champion Energy: plan %d/%d -- popup never resolved to an http URL",
+                    i + 1, count,
+                )
         except Exception:  # noqa: BLE001
             logger.info("Champion Energy: plan %d/%d -- no EFL popup captured", i + 1, count)
             efl_url = None
@@ -1739,6 +1804,10 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
         code_m = _CHAMPION_PLANNAME_PARAM_RE.search(efl_url)
         key = code_m.group(1) if code_m else efl_url
         if key in seen:
+            logger.info(
+                "Champion Energy: plan %d/%d (%s) -- duplicate EFL key %s, skipping",
+                i + 1, count, plan_name or "?", key,
+            )
             continue
         seen.add(key)
         plans.append(

@@ -1277,3 +1277,30 @@ def test_tesla_is_registered_and_forces_a_headful_browser():
     assert all(
         c.force_headful is False for k, c in rd.REP_CONFIGS.items() if k != "tesla"
     ), "headful must stay opt-in"
+
+
+def test_champion_captures_the_download_url_not_the_blank_popup(monkeypatch):
+    """Champion serves its EFL as a DOWNLOAD (Content-Disposition: attachment),
+    so the popup it opens never navigates and `popup.url` stays at Playwright's
+    ":" placeholder.
+
+    Reading that placeholder gave every plan the same dedup key, silently
+    collapsing 7 harvested plans into 1 -- with an unusable URL that then failed
+    download as "malformed or non-http EFL URL". Measured live 2026-07-25:
+    7 cards -> 1 plan before, 6 after (cards 1 and 2 are both "Champ Saver-24"
+    and genuinely share PN5134).
+    """
+    from energyanalyzer.fetchers.rep_discovery import _popup_url_when_ready
+
+    class _Popup:
+        def __init__(self, url):
+            self.url = url
+
+        def wait_for_timeout(self, _ms):
+            return None
+
+    # the failing case: a popup that never leaves the placeholder
+    assert _popup_url_when_ready(_Popup(":"), timeout_ms=500) is None
+    assert _popup_url_when_ready(_Popup("about:blank"), timeout_ms=500) is None
+    # a popup that really did navigate is still honoured
+    assert _popup_url_when_ready(_Popup("https://x/e.pdf"), timeout_ms=500) == "https://x/e.pdf"
