@@ -1412,6 +1412,71 @@ def _buyback_offset_scope(text: str) -> str:
     return "energy_only" if _OFFSET_ENERGY_ONLY_RE.search(text) else "all_charges"
 
 
+# REP-level buyback terms that are REAL but live outside the EFL, in a separate
+# addendum. Applied ONLY where the EFL itself says buyback attaches to this plan
+# (`_BUYBACK_ATTACHABLE`) and no rate resolved -- so it never overrides a
+# published rate, and never fires on a REP that gates buyback behind switching
+# products. Keep this table small and evidence-backed: each entry needs a
+# document, not a marketing page.
+#
+# Champion (addendum read 2026-07-25, championenergyservices.com .../Solar-Addendum):
+# a straight ERCOT real-time settlement, no modifiers --
+#   "Champion will provide you a billing credit... determined by multiplying your
+#    Excess for that Interval by the corresponding real-time settlement point
+#    price... for the Interconnected Meter's load-zone"
+#   "does not contain any other costs, charges, fees, or taxes"
+# -> multiplier 1.0, adder 0.0, no cap. Settled per 15-minute interval, which is
+# exactly the engine's RTW model. Credits carry into a renewal but are void on
+# cancellation and never cashed out -> rollover, no cash_out. The credit is a
+# billing credit on the invoice, not an energy-charge-only offset -> all_charges.
+#
+# floor_ckwh stays 0.0 (the engine default every other RTW plan uses) even though
+# the addendum states no floor: measured against Doug's 2025-26 exports and
+# LZ_SOUTH prices, 9.4% of export kWh land on negative prices but the difference
+# is $4.15/yr on a $215 credit -- immaterial, and consistency across RTW plans
+# matters more for ranking.
+#
+# Free Nights/Free Weekends are excluded per Doug. NOTE the marketing page says
+# "except Free Nights" while Champion's Oncor lineup has Free Weekends-24 and no
+# Free Nights plan; the exclusion pattern covers both spellings deliberately.
+_ATTACHABLE_BUYBACK_POLICY: dict[str, dict] = {
+    "champion": {
+        "buyback": {
+            "kind": "rtw",
+            "rtw": {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0},
+            "offset_scope": "all_charges",
+            "rollover": True,
+            "cash_out": False,
+        },
+        "exclude_plan": re.compile(r"free\s*(?:nights?|weekends?)", re.I),
+        "confidence": 0.85,
+        "evidence": (
+            "REP addendum (not the EFL): ERCOT real-time settlement point price "
+            "for the meter's load zone, no fees or modifiers"
+        ),
+    },
+}
+
+
+def _attachable_buyback_policy(
+    retailer: str, plan_name: str, text: str, resolved: dict
+) -> Optional[tuple[dict, float, str]]:
+    """Apply a known REP addendum to a plan whose EFL says buyback attaches to
+    it but prices it elsewhere. Returns None to leave the parse untouched."""
+    if (resolved or {}).get("kind") != "none":
+        return None  # a published rate always wins
+    if not _BUYBACK_ATTACHABLE.search(text or ""):
+        return None
+    brand = (retailer or "").lower()
+    for key, policy in _ATTACHABLE_BUYBACK_POLICY.items():
+        if key not in brand:
+            continue
+        if policy["exclude_plan"].search(plan_name or ""):
+            return None
+        return dict(policy["buyback"]), policy["confidence"], policy["evidence"]
+    return None
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
@@ -1773,6 +1838,9 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- buyback ----------------------------------------------------------#
     buyback, buyback_conf, buyback_ev = _extract_buyback(text, flat_ckwh)
+    policy = _attachable_buyback_policy(retailer, plan_name, text, buyback)
+    if policy is not None:
+        buyback, buyback_conf, buyback_ev = policy
     confidence["buyback"] = buyback_conf
     if buyback_ev:
         evidence["buyback"] = buyback_ev

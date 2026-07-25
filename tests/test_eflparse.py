@@ -1333,3 +1333,46 @@ def test_buyback_attachable_to_this_plan_goes_to_review_not_confident_none():
     )
     bb, conf, _ = _extract_buyback(disclosed_yes, energy_ckwh=None)
     assert bb == {"kind": "none"} and conf < 0.8
+
+
+def test_champion_addendum_buyback_applied_to_eligible_plans_only():
+    """Champion's buyback is real but lives in an addendum, not the EFL.
+
+    Its EFLs say only "Solar Buyback may be available with this plan", so the
+    parser alone can only report kind=none -- which understates every Champion
+    plan for a solar owner. The addendum (read 2026-07-25) is a straight ERCOT
+    real-time settlement: Excess per 15-min interval x the load zone's real-time
+    settlement point price, and "does not contain any other costs, charges, fees,
+    or taxes" -- so multiplier 1.0, adder 0.0, no cap.
+    """
+    from energyanalyzer.eflparse.parser import _attachable_buyback_policy
+
+    attachable = "Solar Buyback may be available with this plan. Please contact Customer Care."
+    got = _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Champ Saver-12", attachable, {"kind": "none"}
+    )
+    assert got is not None
+    buyback, conf, _ev = got
+    assert buyback["kind"] == "rtw"
+    assert buyback["rtw"] == {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
+    assert buyback["offset_scope"] == "all_charges"
+    assert (buyback["rollover"], buyback["cash_out"]) == (True, False)
+    assert conf >= 0.8
+
+    # Free Nights / Free Weekends are excluded from the program.
+    for excluded in ("Free Weekends-24", "Free Nights 12"):
+        assert _attachable_buyback_policy(
+            "Champion Energy Services, LLC", excluded, attachable, {"kind": "none"}
+        ) is None
+
+    # Never overrides a rate the EFL actually publishes...
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Champ Saver-12", attachable,
+        {"kind": "fixed", "rate_ckwh": 3.5},
+    ) is None
+    # ...never fires on a REP that gates buyback behind switching products...
+    gated = "Yes, for solar buy-back plans only. Please inquire for more details."
+    assert _attachable_buyback_policy("TXU Energy", "e-Saver 12", gated, {"kind": "none"}) is None
+    # ...and never on a REP with no entry in the table.
+    assert _attachable_buyback_policy("Gexa Energy, LP", "Gexa Saver 12", attachable,
+                                      {"kind": "none"}) is None
