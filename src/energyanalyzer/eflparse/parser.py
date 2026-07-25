@@ -1122,6 +1122,34 @@ _SPLIT_CHARGE_ROW = re.compile(
     r"(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)"
 )
 
+# The same table with N rate columns instead of one. Champion prints every plan
+# this way: its own rate(s), then its base charge, then the TDU's two charges --
+# and the TDU pair is ALWAYS last, which is what makes the row readable without
+# parsing the interleaved headers:
+#
+#   single rate : "6.7¢/kWh $0.00 6.1196¢/kWh $4.06"
+#   two rates   : "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06"   (EV Saver)
+#                 "10.9¢/kWh 0.0¢/kWh $0.00 6.1196¢/kWh $4.06"  (Free Weekends)
+#
+# _SPLIT_CHARGE_ROW only ever matched one leading rate column, so on a two-rate
+# plan it either matched at the SECOND rate (reading the discounted rate as the
+# flat rate) or, because its header guard wants a literal "Energy Charge" that
+# these variants don't print, fell through entirely -- EV Saver-12 and Free
+# Weekends-24 both ended up at a flat 0.0¢/kWh catch-all, i.e. free electricity
+# around the clock. Both had to be hand-entered, which a refresh would silently
+# undo. Hence reading the columns properly.
+_MULTI_RATE_CHARGE_ROW = re.compile(
+    r"((?:\d+(?:\.\d+)?\s*¢\s*/\s*kWh\s+){2,})\$(\d+(?:\.\d+)?)\s+"
+    r"(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)"
+)
+
+# Column headers, split into the one that carries a time restriction and the one
+# that's the everyday/default rate. Order of appearance in the header region
+# tells us which data column is which -- Champion prints the general column
+# first ("Daytime Hours | EV Charging Hours", "Weekdays | Weekends").
+_RESTRICTED_COL = re.compile(r"EV\s*Charging|Weekend|Night|Free", re.I)
+_GENERAL_COL = re.compile(r"Daytime|Weekday|Standard|Anytime|Energy\s*Charge", re.I)
+
 
 def _extract_split_energy_base_row(text: str) -> Optional[tuple[float, float, str]]:
     """Some EFLs (e.g. Champion Energy) render Energy/Base/TDU charges as a
@@ -1135,6 +1163,72 @@ def _extract_split_energy_base_row(text: str) -> Optional[tuple[float, float, st
         context = text[max(0, m.start() - 200) : m.start()]
         if re.search(r"Energy\s*Charge", context, re.I) and re.search(r"Base\s*Charge", context, re.I):
             return float(m.group(1)), float(m.group(2)), _snippet(m)
+    return None
+
+
+def _extract_multi_rate_charge_row(text: str) -> Optional[dict]:
+    """Read a REP/TDU split charge row carrying MORE than one rate column.
+
+    Returns ``{"rates": [ckwh, ...], "base_usd", "tdu_ckwh", "tdu_usd",
+    "restricted_index", "evidence"}``, or None. ``restricted_index`` is the
+    position of the time-restricted column (the free/EV/weekend rate) when the
+    headers identify it, else None -- callers must not guess a window without it.
+
+    The row is only accepted when a 'Base Charge' label sits above it, so an
+    unrelated run of numbers can't match.
+    """
+    for m in _MULTI_RATE_CHARGE_ROW.finditer(text):
+        header = text[max(0, m.start() - 320) : m.start()]
+        # The row's LAST two columns are the utility's, so the header must name
+        # the delivery utility -- that, plus a charge/per-month label, is what
+        # distinguishes this table from an unrelated run of numbers. Requiring a
+        # contiguous "Base Charge" does not work: Champion's headers interleave
+        # across lines ("Base per kWh per month ... Usage Charge Usage Charge
+        # Charge"), so the words are present but never adjacent.
+        if not re.search(r"deliver", header, re.I):
+            continue
+        if not re.search(r"charge", header, re.I) or not re.search(r"per\s*month", header, re.I):
+            continue
+        rates = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*¢", m.group(1))]
+        if len(rates) < 2:
+            continue
+
+        # Which data column is the restricted one? Take the LAST occurrence of
+        # each header keyword: the header region also contains prose above the
+        # table ("...30% of usage occurs during Weekends...") whose word order
+        # doesn't reflect the columns.
+        restricted = list(_RESTRICTED_COL.finditer(header))
+        general = list(_GENERAL_COL.finditer(header))
+        restricted_index = None
+        restricted_label = ""
+        if restricted and general and len(rates) == 2:
+            restricted_index = 1 if restricted[-1].start() > general[-1].start() else 0
+            restricted_label = restricted[-1].group(0).strip()
+
+        return {
+            "rates": rates,
+            "base_usd": float(m.group(2)),
+            "tdu_ckwh": float(m.group(3)),
+            "tdu_usd": float(m.group(4)),
+            "restricted_index": restricted_index,
+            "restricted_label": restricted_label,
+            "evidence": _snippet(m),
+        }
+    return None
+
+
+def _restricted_window(text: str, label_hint: str) -> Optional[dict]:
+    """The window for a restricted rate column, read from the EFL's own prose
+    ("EV charging hours are from 10:00 PM to 4:00 AM every night."; "Weekend
+    hours are all day Saturday and Sunday"). None when it isn't stated."""
+    low = (label_hint or "").lower()
+    if "weekend" in low or "weekday" in low:
+        days = _weekdays_from_snippet(label_hint, text)
+        return {"weekdays": days} if days else None
+    for m in re.finditer(r"[^\n.]{0,60}(?:EV\s*charging|free|night)[^\n.]{0,90}", text, re.I):
+        hours = parse_time_range(m.group(0))
+        if hours:
+            return {"hours": hours}
     return None
 
 
@@ -1625,6 +1719,11 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
     split_base_charge: Optional[float] = None
+    # Confidence for a base charge read out of a split charge row. The generic
+    # 4-column reader gets the cautious default; the multi-rate reader earns
+    # more because its $base is pinned on BOTH sides -- the rate columns before
+    # it and the TDU's (¢/kWh, $/month) pair after it.
+    split_base_conf: float = 0.75
 
     brand_rows: Optional[list[dict]] = None
     if not tou_rows:
@@ -1635,7 +1734,41 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             if night_rows and other_rows:
                 brand_rows = candidate_brand_rows
 
-    if tou_rows:
+    # A REP/TDU split row with two rate columns is a real TOU schedule, and a
+    # more reliable read than the generic scanners -- the columns are positional
+    # and the TDU's pair is always last. Checked before them so the discounted
+    # column can't be mistaken for the flat rate.
+    multi_row = None if tou_rows else _extract_multi_rate_charge_row(text)
+    if multi_row is not None and multi_row["restricted_index"] is None:
+        multi_row = None  # can't tell which column is restricted; don't guess
+
+    if multi_row is not None:
+        ri = multi_row["restricted_index"]
+        restricted_rate = multi_row["rates"][ri]
+        general_rate = multi_row["rates"][1 - ri]
+        label = multi_row["restricted_label"] or "restricted"
+        window = _restricted_window(text, label)
+        if window is None:
+            # Rates are trustworthy, the window isn't stated -- record the rates
+            # and let review supply the window rather than inventing one.
+            flat_ckwh = general_rate
+            energy_rates.append({"label": "", "rate_ckwh": general_rate, "window": None})
+            confidence["energy_charge"] = 0.6
+            notes.append(
+                f"split charge row gave a restricted rate of {restricted_rate}c/kWh but the EFL "
+                "does not state its hours; only the general rate is modelled"
+            )
+        else:
+            energy_rates.append({"label": label, "rate_ckwh": restricted_rate, "window": window})
+            energy_rates.append({"label": "", "rate_ckwh": general_rate, "window": None})
+            flat_ckwh = general_rate
+            confidence["energy_charge"] = 0.85
+            confidence["free_window"] = 0.85
+            evidence["free_window"] = multi_row["evidence"]
+        evidence["energy_charge"] = multi_row["evidence"]
+        split_base_charge = multi_row["base_usd"]
+        split_base_conf = 0.85
+    elif tou_rows:
         defaults = [r for r in tou_rows if r["is_default"]]
         non_defaults = [r for r in tou_rows if not r["is_default"]]
         for r in non_defaults:
@@ -1777,7 +1910,9 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
     if base_charge is None and split_base_charge is not None:
-        base_charge = record("base_charge", (split_base_charge, 0.75, evidence.get("energy_charge", "")))
+        base_charge = record(
+            "base_charge", (split_base_charge, split_base_conf, evidence.get("energy_charge", ""))
+        )
         notes.append("base charge derived from the same split 4-column Energy/Base/TDU charge row")
     if base_charge is None:
         daily_ext = _extract_daily_fee_as_base(text)

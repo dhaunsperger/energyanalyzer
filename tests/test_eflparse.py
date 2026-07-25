@@ -1380,3 +1380,108 @@ def test_champion_addendum_buyback_applied_to_eligible_plans_only():
     # ...and never on a REP with no entry in the table.
     assert _attachable_buyback_policy("Gexa Energy, LP", "Gexa Saver 12", attachable,
                                       {"kind": "none"}) is None
+
+
+# --------------------------------------------------------------------------- #
+# Champion's REP/TDU split charge table (N rate columns + base + the TDU's pair)
+# --------------------------------------------------------------------------- #
+_CHAMPION_PREAMBLE = (
+    "Electricity Facts Label\nChampion Energy Services, LLC PUC #10098\n"
+    "Residential Service ⇒ {plan}\nOncor Electric Delivery\n7/25/2026\n"
+    "Your average price per kilowatt-hour will vary based on your actual usage.\n"
+)
+_CHAMPION_TAIL = "\nType of Product Fixed Rate\nContract Term {term} Month(s)\nRenewable Content 24.7%\n"
+
+
+def _champion_text(plan: str, term: int, prose: str, header: str, row: str) -> str:
+    return (
+        _CHAMPION_PREAMBLE.format(plan=plan)
+        + prose
+        + "\n"
+        + header
+        + "\n"
+        + row
+        + "\nOther Key Terms and Questions\n"
+        + "Utility delivery charges include all recurring passed through charges from the "
+        "utility without markup.\n"
+        + _CHAMPION_TAIL.format(term=term)
+    )
+
+
+def test_champion_split_table_two_rate_columns_tou():
+    """Champion prints rate(s), then its base charge, then the TDU's pair -- and
+    the TDU pair is ALWAYS last, which is what makes the row readable without
+    untangling the interleaved headers.
+
+    The old single-rate reader either matched at the SECOND rate column (reading
+    the discounted rate as the flat rate) or bailed on its "Energy Charge" header
+    guard, which these variants don't print. Both EV Saver-12 and Free
+    Weekends-24 came out as a flat 0.0c/kWh catch-all -- free electricity around
+    the clock -- and had to be hand-entered, which any refresh would silently undo.
+    """
+    ev = parse_efl_text(
+        _champion_text(
+            "EV Saver-12", 12,
+            "EV charging hours are from 10:00 PM to 4:00 AM every night.",
+            "Champion Energy Charges Delivery Charges from\nOncor Electric Delivery\n"
+            "Daytime Hours EV Charging Hours Base\nper kWh per month\n"
+            "Usage Charge Usage Charge Charge",
+            "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "ev.pdf",
+    ).plan_dict
+    # Oncor's 6.1196c/kWh and $4.06/mo are the TDU's -- never the plan's.
+    assert ev["base_charge_usd"] == 0.0
+    assert ev["energy_rates"] == [
+        {"label": "EV Charging", "rate_ckwh": 6.0, "window": {"hours": [22, 23, 0, 1, 2, 3]}},
+        {"label": "", "rate_ckwh": 7.4, "window": None},
+    ]
+
+    fw = parse_efl_text(
+        _champion_text(
+            "Free Weekends-24", 24,
+            "Weekend hours are all day Saturday and Sunday, from 12:01 am on Saturday "
+            "morning to 11:59 pm Sunday night.",
+            "Delivery Charges from Champion Energy Charges Oncor Electric Delivery\n"
+            "Base Weekdays Weekends Charge per kWh per month",
+            "10.9¢/kWh 0.0¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "fw.pdf",
+    ).plan_dict
+    assert fw["base_charge_usd"] == 0.0
+    assert fw["energy_rates"] == [
+        {"label": "Weekend", "rate_ckwh": 0.0, "window": {"weekdays": [5, 6]}},
+        {"label": "", "rate_ckwh": 10.9, "window": None},
+    ]
+    # The catch-all must be the WEEKDAY rate; a 0.0 catch-all is free power always.
+    assert fw["energy_rates"][-1]["rate_ckwh"] > 0
+
+
+def test_champion_split_table_single_rate_column_unchanged():
+    d = parse_efl_text(
+        _champion_text(
+            "Champ Saver-12", 12, "",
+            "Champion Energy Charges Delivery Charges from Energy Charge "
+            "Oncor Electric Delivery Base Charge (per kWh) per kWh per month",
+            "6.7¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "cs.pdf",
+    ).plan_dict
+    assert d["base_charge_usd"] == 0.0
+    assert d["energy_rates"] == [{"label": "", "rate_ckwh": 6.7, "window": None}]
+
+
+def test_multi_rate_split_row_needs_a_delivery_header_and_a_known_restricted_column():
+    """Guards against firing on an unrelated run of numbers, and against guessing
+    a window when the headers don't say which column is time-restricted."""
+    from energyanalyzer.eflparse.parser import _extract_multi_rate_charge_row
+
+    row = "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06"
+    # No delivery/TDU header above the row -> not this table.
+    assert _extract_multi_rate_charge_row("Some other table\n" + row) is None
+    # Header present but no restricted/general column labels -> index unknown,
+    # so parse_efl_text must not invent a window (it falls back to other readers).
+    got = _extract_multi_rate_charge_row(
+        "Delivery Charges from Oncor Electric Delivery\nCharge per month\n" + row
+    )
+    assert got is not None and got["restricted_index"] is None
