@@ -654,6 +654,7 @@ def _newest_capture(snapshot_dir: Path, key: str) -> Optional[Path]:
 
 def _run_rep_discovery(
     zip_code: str,
+    llm_assist: bool = False,
     efl_dir: Path = EFL_DIR,
     drafts_dir: Path = DRAFTS_DIR,
     plans_dir: Path = PLANS_DIR,
@@ -856,6 +857,7 @@ def _run_rep_discovery(
             discovered_pdfs,
             drafts_dir=drafts_dir,
             plans_dir=plans_dir,
+            llm_assist=llm_assist,
             progress_callback=lambda d, t, n: _report("discovery-parse", d, t, n),
         )
     return result
@@ -875,6 +877,7 @@ def refresh_market_data(
     discovery_zip: str = "78665",
     discovery_headless: bool = True,
     discovery_reps: Optional[list[str]] = None,
+    llm_assist: bool = False,
 ) -> dict:
     """"Refresh market data" one-button pipeline (ARCHITECTURE.md §9).
 
@@ -1097,6 +1100,7 @@ def refresh_market_data(
             pdf_paths,
             drafts_dir=drafts_dir,
             plans_dir=plans_dir,
+            llm_assist=llm_assist,
             progress_callback=lambda d, t, n: _report("parse", d, t, n),
         )
 
@@ -1127,6 +1131,7 @@ def refresh_market_data(
                     me_pdfs,
                     drafts_dir=drafts_dir,
                     plans_dir=plans_dir,
+                    llm_assist=llm_assist,
                     progress_callback=lambda d, t, n: _report("meter-efl-parse", d, t, n),
                 )
         except Exception as exc:  # noqa: BLE001 -- Meter EFL fetch must never abort the run
@@ -1215,6 +1220,7 @@ def refresh_market_data(
             summary["discovery"].update(
                 _run_rep_discovery(
                     zip_code=discovery_zip,
+                    llm_assist=llm_assist,
                     efl_dir=efl_dir,
                     drafts_dir=drafts_dir,
                     plans_dir=plans_dir,

@@ -594,3 +594,57 @@ def test_discovery_reports_error_when_render_fails_and_no_capture_exists(tmp_pat
     )
     assert out["reps"]["ambit"]["status"] == "error"
     assert "WAF" in out["reps"]["ambit"]["detail"]
+
+
+def test_refresh_threads_llm_assist_through_to_every_parse_stage(refresh_dirs, monkeypatch):
+    """The "Pre-fill unreadable fields with the local LLM" checkbox was wired to
+    `parse_downloaded_efls` but NOT to `refresh_market_data`, so ticking it did
+    nothing for a full refresh -- the case that matters most, since a refresh
+    re-parses every EFL and silently re-breaks the ones with damaged fonts
+    (Atlantex's "$19.95" base charge) on every run.
+    """
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    seen: list[bool] = []
+
+    def _spy(pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None, llm_assist=False, **kw):
+        seen.append(llm_assist)
+        return {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _spy)
+    monkeypatch.setattr(ptc_module, "fetch_ptc_csv", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
+    (ptc_dir / "snap.csv").write_text(FIXTURE.read_text())
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+
+    app_common.refresh_market_data(
+        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir,
+        ptc_dir=ptc_dir, meterplan_dir=meterplan_dir, llm_assist=True,
+    )
+    assert seen, "refresh should have reached a parse stage"
+    assert all(seen), "every parse stage must receive llm_assist=True"
+
+
+def test_refresh_defaults_llm_assist_off(refresh_dirs, monkeypatch):
+    """Off by default -- the LLM tier is optional and must never run unasked."""
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    seen: list[bool] = []
+    monkeypatch.setattr(app_common, "parse_downloaded_efls",
+        lambda *a, llm_assist=False, **k: (seen.append(llm_assist),
+            {"parsed": [], "skipped": [], "failed": []})[1])
+    monkeypatch.setattr(ptc_module, "fetch_ptc_csv", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
+    (ptc_dir / "snap.csv").write_text(FIXTURE.read_text())
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+    app_common.refresh_market_data(
+        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir,
+        ptc_dir=ptc_dir, meterplan_dir=meterplan_dir,
+    )
+    assert seen and not any(seen)

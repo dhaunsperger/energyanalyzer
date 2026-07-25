@@ -129,7 +129,7 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
 
     parse_calls = {}
 
-    def _fake_parse_downloaded_efls(pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None):
+    def _fake_parse_downloaded_efls(pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None, **kw):
         parse_calls["pdf_paths"] = list(pdf_paths)
         return {"parsed": ["x"], "skipped": [], "failed": []}
 
@@ -190,8 +190,7 @@ def test_non_broaden_rep_keeps_only_buyback(discovery_dirs, monkeypatch):
     monkeypatch.setattr(rd_module, "download_discovered", _fake_dl)
     monkeypatch.setattr(
         app_common,
-        "parse_downloaded_efls",
-        lambda p, drafts_dir=None, plans_dir=None, progress_callback=None: {
+        "parse_downloaded_efls", lambda p, drafts_dir=None, plans_dir=None, progress_callback=None, **kw: {
             "parsed": [], "skipped": [], "failed": []
         },
     )
@@ -267,8 +266,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     )
     monkeypatch.setattr(
         app_common,
-        "parse_downloaded_efls",
-        lambda pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None: {
+        "parse_downloaded_efls", lambda pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None, **kw: {
             "parsed": [],
             "skipped": [],
             "failed": [],

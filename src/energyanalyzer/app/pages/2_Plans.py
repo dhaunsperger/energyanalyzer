@@ -438,6 +438,21 @@ run_discovery = st.checkbox(
         "`octopus:` -- it is never committed or logged."
     ),
 )
+refresh_llm_assist = st.checkbox(
+    "Pre-fill unreadable fields with the local LLM",
+    key="refresh_llm_assist",
+    help=(
+        "For EFLs the static parser can't read confidently, ask a local Ollama model to "
+        "propose the missing rate/charge fields. It mainly rescues PDFs with broken embedded "
+        "fonts -- e.g. Atlantex's base charge renders as 'ae Charge $19.95 per ill', which the "
+        "regex parser reads as $0 and which is otherwise re-broken on EVERY refresh.\n\n"
+        "Suggestions are badged with the model's reasoning and **always still require your "
+        "review** -- the LLM never promotes a plan on its own. Needs Ollama running; adds "
+        "roughly a second per unreadable draft, and is skipped silently if Ollama is down.\n\n"
+        "(The same option appears in 'Parse downloaded EFLs' below, for parsing without a "
+        "full refresh.)"
+    ),
+)
 discovery_zip = st.text_input(
     "Discovery ZIP code",
     value="78665",
@@ -467,6 +482,7 @@ if st.button(
         meterplan_dir=METERPLAN_DIR,
         run_discovery=run_discovery,
         discovery_zip=discovery_zip.strip() or "78665",
+        llm_assist=refresh_llm_assist,
     )
     if started is None:
         st.warning("A refresh is already running.")
