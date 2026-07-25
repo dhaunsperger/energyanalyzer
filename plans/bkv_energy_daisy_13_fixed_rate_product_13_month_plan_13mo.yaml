@@ -5,7 +5,7 @@ term_months: 13
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.894
+- rate_ckwh: 6.878
   label: ''
   tdu_exempt: false
 buyback:
