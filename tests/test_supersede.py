@@ -157,6 +157,23 @@ def test_discovered_plan_in_ptc_keeps_variants_and_other_terms():
     assert not app_common._discovered_plan_in_ptc("Reliant Energy", "Truly Free Nights 12", idx)
 
 
+def test_discovered_plan_in_ptc_distinguishes_product_numbers():
+    """A number that names the product must not be treated as a term.
+
+    "Smart 1000 Select 12" and "Smart 2000 Select 12" are different TXU plans --
+    the number is the usage tier the bill credit keys off. Token extraction used
+    to drop every pure number, collapsing both to {smart, select}, so discovery's
+    Smart 2000 was discarded as a duplicate of PTC's Smart 1000. Only term-sized
+    numbers (1..60) are dropped now.
+    """
+    df = pd.DataFrame(
+        [{"retailer": "TXU ENERGY", "plan_name": "Smart 1000 Select 12", "term_months": 12}]
+    )
+    idx = app_common._build_ptc_identity_index(df)
+    assert app_common._discovered_plan_in_ptc("TXU Energy", "Smart 1000 Select 12", idx)
+    assert not app_common._discovered_plan_in_ptc("TXU Energy", "Smart 2000 Select 12", idx)
+
+
 def test_discovered_plan_in_ptc_keeps_when_term_unknown():
     # No term in the discovered name -> we can't be sure, so we keep it (never
     # drop a possibly-distinct plan on a weak signal).

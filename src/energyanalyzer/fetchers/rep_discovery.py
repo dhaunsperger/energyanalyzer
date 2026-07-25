@@ -1462,9 +1462,15 @@ TXU = RepConfig(
     homepage="https://www.txu.com/",
     extractor=extract_txu,
     render=_txu_render,
-    # EFLs are the Vistra shopping.txu.com/PDFGenerator endpoint, which returns
-    # an HTML SPA shell to httpx -- keep only buyback plans (the rest are on PTC).
-    broaden=False,
+    # Was buyback-only on two premises that both expired. (1) "PDFGenerator
+    # returns an HTML shell to httpx" -- fixed by _rewrite_vistra_efl_url, which
+    # works on shopping.txu.com (verified 2026-07-25: a conventional plan's EFL
+    # returns application/pdf). (2) "the rest are on PTC" -- measured false: the
+    # 2026-07-25 PTC snapshot carries 2 TXU products against 10 on TXU's own
+    # site, so buyback-only was silently dropping 8 plans nothing else supplies
+    # (Free Nights & Cool Summer had to be hand-entered from the report for
+    # exactly this reason). _discovered_plan_in_ptc dedups the overlap.
+    broaden=True,
 )
 
 
@@ -1646,8 +1652,9 @@ AMBIT = RepConfig(
     extractor=extract_ambit,
     render=_ambit_render,
     # EFLs come from shopping.ambitenergy.com/api/getdocument (plain PDF over
-    # httpx); keep only buyback plans -- the rest are on PTC.
-    broaden=False,
+    # httpx). Was buyback-only on the same false premise as TXU: the 2026-07-25
+    # PTC snapshot lists 1 Ambit product against 14 on Ambit's own site.
+    broaden=True,
 )
 
 

@@ -165,9 +165,10 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
 
 
 def test_non_broaden_rep_keeps_only_buyback(discovery_dirs, monkeypatch):
-    # A REP flagged broaden=False (EFLs not httpx-downloadable, e.g. TXU/Ambit's
-    # Vistra PDFGenerator) contributes only its buyback plans, even though
-    # discovery otherwise pulls every plan.
+    # A REP flagged broaden=False contributes only its buyback plans, even
+    # though discovery otherwise pulls every plan. No shipped RepConfig sets it
+    # today (TXU/Ambit did until their EFLs became downloadable), so this test
+    # is the only guard on the mechanism -- keep it.
     efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
     cfg = _render_config("txu", "TXU")
     cfg.broaden = False

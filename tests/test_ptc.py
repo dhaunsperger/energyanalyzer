@@ -17,6 +17,31 @@ from energyanalyzer.fetchers import ptc
 FIXTURE = Path(__file__).parent / "fixtures" / "ptc_sample.csv"
 
 
+def test_load_ptc_recognizes_the_live_exports_real_headers(tmp_path):
+    """The headers the LIVE PTC export emits -- not the generic spellings.
+
+    ptc_sample.csv uses "Term"/"CancellationFee", which PTC does not actually
+    emit; the real export says "TermValue"/"CancelFee". Because only the sample
+    was tested, both columns silently fell through as unrecognized passthrough
+    on every real snapshot, and _discovered_plan_in_ptc -- which requires a term
+    to consider a plan a duplicate at all -- returned False for every plan, so
+    discovery's PTC dedup never removed anything. Test the real header names.
+    """
+    csv = tmp_path / "ptc_real_headers.csv"
+    csv.write_text(
+        "[idKey],[TduCompanyName],[RepCompany],[Product],[kwh500],[kwh1000],"
+        "[kwh2000],[PrePaid],[TimeOfUse],[RateType],[Renewable],[TermValue],"
+        "[CancelFee],[FactsURL],[Language]\n"
+        "1,ONCOR,TXU ENERGY,Smart 1000 Select 12,13.2,12.4,11.9,N,N,Fixed,3,12,"
+        "150,https://example.invalid/efl.pdf,English\n",
+        encoding="utf-8",
+    )
+    df = ptc.load_ptc(csv)
+
+    assert df.iloc[0]["term_months"] == 12
+    assert df.iloc[0]["cancel_fee"] == pytest.approx(150.0)
+
+
 def test_load_ptc_from_file_normalizes_known_columns():
     df = ptc.load_ptc(FIXTURE)
 

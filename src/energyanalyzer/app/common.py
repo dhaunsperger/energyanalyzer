@@ -69,13 +69,23 @@ _RETAILER_NOISE_TOKENS = frozenset(
 
 
 def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
-    """Lowercased alphanumeric tokens with corporate/industry noise, pure
-    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`)."""
+    """Lowercased alphanumeric tokens with corporate/industry noise, term
+    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`).
+
+    Only *term-sized* numbers (1..60) are dropped -- callers compare the term
+    separately, so the term number carries no identity, but a larger number
+    usually names the product: "Smart 1000 Select 12" and "Smart 2000 Select 12"
+    are different plans (the number is the usage tier the bill credit keys off).
+    Dropping every pure number collapsed both to {smart, select} and made them
+    compare equal, so PTC dedup discarded the 2000 as a duplicate of the 1000.
+    """
     cleaned = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
     drop = _RETAILER_NOISE_TOKENS | extra_drop
     out = set()
     for tok in cleaned.split():
-        if tok in drop or tok.isdigit() or re.fullmatch(r"\d+mo", tok):
+        if tok in drop or re.fullmatch(r"\d+mo", tok):
+            continue
+        if tok.isdigit() and int(tok) <= 60:  # a term, not a product number
             continue
         out.add(tok)
     return out
