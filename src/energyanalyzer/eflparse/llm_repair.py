@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Callable, Optional
 
 from energyanalyzer import llm
@@ -77,10 +78,55 @@ _SYSTEM = (
     "wholesale / market-indexed credit; 'none' = no export credit. offset_scope is "
     "'energy_only' when the EFL says the credit offsets energy charges only or is "
     "not offsettable against base/TDU charges, else 'all_charges'.\n"
+    '- retailer: the retail electric provider\'s company name, exactly as printed at the '
+    'top of the EFL. Null if you cannot tell.\n'
+    '- plan_name: the product/plan name, e.g. "Smart Secure 36". NOT the retailer, '
+    'and NOT a generic heading like "Electricity Facts Label". Null if you cannot tell.\n'
     '- reasoning: one short sentence quoting the EFL line(s) you used.\n\n'
     'Respond with exactly: {"base_charge_usd": number|null, "energy_rates": [...]|null, '
-    '"buyback": {...}|null, "reasoning": string}'
+    '"buyback": {...}|null, "retailer": string|null, "plan_name": string|null, '
+    '"reasoning": string}'
 )
+
+
+# Placeholders `parse_efl_text` falls back to when it cannot read the header.
+# These collide: three unrelated broken-font EFLs all became
+# "unknown_retailer_unnamed_plan_<term>mo", distinguished only by contract term,
+# so two such plans sharing a term would overwrite each other's draft file.
+_PLACEHOLDER_RETAILER = "Unknown Retailer"
+_PLACEHOLDER_PLAN = "Unnamed Plan"
+
+
+def _alpha_tokens(s: str) -> list[str]:
+    return [t for t in re.split(r"[^A-Za-z]+", (s or "").upper()) if len(t) >= 3]
+
+
+def _is_subsequence(needle: str, haystack: str) -> bool:
+    it = iter(haystack)
+    return all(ch in it for ch in needle)
+
+
+def _consistent_with_source(proposed: str, text: str) -> bool:
+    """True if `proposed` plausibly names something the EFL text contains.
+
+    Exact matching is useless for the case this exists to fix: these EFLs have
+    damaged fonts that DROP characters, so the extracted text holds "ATLANTX
+    POWR" where the real name is "Atlantex Power". A dropped-character mangling
+    is a *subsequence* of the true string, so that is what we check -- requiring
+    it to cover most of the word, which keeps an invented name (a retailer that
+    simply isn't in the document) from passing.
+    """
+    words = _alpha_tokens(proposed)
+    if not words:
+        return False
+    source = set(_alpha_tokens(text))
+    for w in words:
+        if len(w) < 4:
+            continue
+        for tok in source:
+            if len(tok) >= max(3, int(len(w) * 0.6)) and _is_subsequence(tok, w):
+                return True
+    return False
 
 
 def _verify_number_in_text(value: float, text: str) -> bool:

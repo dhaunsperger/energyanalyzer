@@ -11,6 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import dataclass
 import logging
 import re
@@ -484,6 +485,55 @@ def draft_summary_row(path: Path) -> dict:
     }
 
 
+def known_efl_identities(efl_dir: Path = EFL_DIR, ptc_dir: Path = PTC_DIR) -> dict:
+    """Map ``<efl filename> -> (retailer, plan_name)`` from the sources that
+    already know it.
+
+    An EFL never arrives anonymously: it was either downloaded from a REP site
+    by discovery (which records retailer/plan in
+    `data/efl/rep_discovery_manifest.jsonl`) or listed in the Power to Choose
+    snapshot (whose row supplies both, and from which the saved filename is
+    built by `fetchers.ptc._efl_filename`). The parser re-derives identity from
+    the PDF *text* and falls back to "Unknown Retailer"/"Unnamed Plan" when the
+    document's font is damaged -- which also makes several unrelated plans
+    collide on one draft filename. This recovers what the download step knew.
+
+    Discovery wins over PTC on a filename collision: it is the more specific
+    source (a REP's own site) and PTC rows are the generic fallback.
+    """
+    out: dict[str, tuple] = {}
+
+    # Power to Choose: rebuild the exact filename each row would have produced.
+    try:
+        from energyanalyzer.fetchers.ptc import _efl_filename, load_ptc
+
+        snaps = sorted(Path(ptc_dir).glob("*.csv")) if Path(ptc_dir).exists() else []
+        if snaps:
+            df = load_ptc(max(snaps, key=lambda p: p.stat().st_mtime))
+            for _, row in df.iterrows():
+                retailer = str(row.get("retailer") or "").strip()
+                plan = str(row.get("plan_name") or "").strip()
+                if retailer or plan:
+                    out[_efl_filename(row)] = (retailer, plan)
+    except Exception as exc:  # noqa: BLE001 -- identity recovery is best-effort
+        logger.info("Could not read PTC identities: %r", exc)
+
+    # REP discovery manifest (more specific -- applied second so it wins).
+    manifest = Path(efl_dir) / "rep_discovery_manifest.jsonl"
+    if manifest.exists():
+        for line in manifest.read_text(errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            fname = Path(str(rec.get("file") or "")).name
+            retailer = str(rec.get("retailer") or "").strip()
+            plan = str(rec.get("plan_name") or "").strip()
+            if fname and (retailer or plan):
+                out[fname] = (retailer, plan)
+    return out
+
+
 def parse_downloaded_efls(
     pdf_paths: list[Path],
     drafts_dir: Path = DRAFTS_DIR,
@@ -517,12 +567,13 @@ def parse_downloaded_efls(
     'failed': [{'file': filename, 'error': str}, ...],
     'llm_assisted': [{'id': plan_id, 'fields': [...]}, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft
+    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft, slugify
 
     drafts_dir = Path(drafts_dir)
     plans_dir = Path(plans_dir)
     total = len(pdf_paths)
-    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": [], "identified": []}
+    identities = known_efl_identities(efl_dir=Path(pdf_paths[0]).parent if pdf_paths else EFL_DIR)
 
     # One availability probe for the whole batch rather than a per-file timeout.
     use_llm = bool(llm_assist) and _llm.available()
@@ -533,6 +584,30 @@ def parse_downloaded_efls(
         pdf_path = Path(pdf_path)
         try:
             draft = parse_efl(pdf_path)
+            # An EFL is never anonymous -- discovery or PTC knew its retailer and
+            # plan at download time. When the PDF's font is too damaged for the
+            # parser to read the header it falls back to "Unknown Retailer" /
+            # "Unnamed Plan", which is both useless in the UI and a collision:
+            # several such plans differ only by contract term and would overwrite
+            # each other's draft file. Restore the known identity and rebuild the id.
+            known = identities.get(pdf_path.name)
+            if known:
+                retailer, plan_name = known
+                changed_identity = False
+                if retailer and draft.plan_dict.get("retailer") == "Unknown Retailer":
+                    draft.plan_dict["retailer"] = retailer
+                    changed_identity = True
+                if plan_name and draft.plan_dict.get("name") == "Unnamed Plan":
+                    draft.plan_dict["name"] = plan_name
+                    changed_identity = True
+                if changed_identity:
+                    draft.plan_dict["id"] = slugify(
+                        f"{draft.plan_dict['retailer']}_{draft.plan_dict['name']}"
+                        f"_{draft.plan_dict.get('term_months')}mo"
+                    )
+                    summary["identified"].append(
+                        {"file": pdf_path.name, "id": draft.plan_dict["id"]}
+                    )
             plan_id = draft.plan_dict.get("id")
             already = (drafts_dir / f"{plan_id}.yaml").exists() or (plans_dir / f"{plan_id}.yaml").exists()
             if already:
