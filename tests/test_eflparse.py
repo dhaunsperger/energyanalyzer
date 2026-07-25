@@ -1359,11 +1359,15 @@ def test_champion_addendum_buyback_applied_to_eligible_plans_only():
     assert (buyback["rollover"], buyback["cash_out"]) == (True, False)
     assert conf >= 0.8
 
-    # Free Nights / Free Weekends are excluded from the program.
-    for excluded in ("Free Weekends-24", "Free Nights 12"):
-        assert _attachable_buyback_policy(
-            "Champion Energy Services, LLC", excluded, attachable, {"kind": "none"}
-        ) is None
+    # Only Free NIGHTS is excluded. Champion's site states buyback IS available
+    # on Free Weekends, so widening this would silently drop ~$215/yr of credit
+    # from a plan that qualifies.
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Free Nights 12", attachable, {"kind": "none"}
+    ) is None
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Free Weekends-24", attachable, {"kind": "none"}
+    ) is not None
 
     # Never overrides a rate the EFL actually publishes...
     assert _attachable_buyback_policy(

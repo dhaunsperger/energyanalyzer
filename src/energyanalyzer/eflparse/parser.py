@@ -1436,9 +1436,12 @@ def _buyback_offset_scope(text: str) -> str:
 # is $4.15/yr on a $215 credit -- immaterial, and consistency across RTW plans
 # matters more for ranking.
 #
-# Free Nights/Free Weekends are excluded per Doug. NOTE the marketing page says
-# "except Free Nights" while Champion's Oncor lineup has Free Weekends-24 and no
-# Free Nights plan; the exclusion pattern covers both spellings deliberately.
+# Only FREE NIGHTS plans are excluded -- the exclusion is literal, not a general
+# rule about free-hours plans. Champion's site states buyback IS available on
+# Free Weekends (confirmed by Doug 2026-07-25), and Champion's Oncor lineup
+# carries no Free Nights plan at all, so today this excludes nothing here. Do
+# not widen this to "free weekends": that silently drops ~$215/yr of buyback
+# credit from a plan that qualifies.
 _ATTACHABLE_BUYBACK_POLICY: dict[str, dict] = {
     "champion": {
         "buyback": {
@@ -1448,7 +1451,7 @@ _ATTACHABLE_BUYBACK_POLICY: dict[str, dict] = {
             "rollover": True,
             "cash_out": False,
         },
-        "exclude_plan": re.compile(r"free\s*(?:nights?|weekends?)", re.I),
+        "exclude_plan": re.compile(r"free\s*nights?", re.I),
         "confidence": 0.85,
         "evidence": (
             "REP addendum (not the EFL): ERCOT real-time settlement point price "
