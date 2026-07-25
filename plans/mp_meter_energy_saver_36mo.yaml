@@ -22,5 +22,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 source: meterplan
 retrieved: '2026-07-25'
-notes: ''
-needs_review: false
+notes: Third-party index row; a real EFL for this plan (meter_energy_meter_saver_plan_36mo)
+  is awaiting review in plans/drafts/. Promote that draft to replace this.
+needs_review: true

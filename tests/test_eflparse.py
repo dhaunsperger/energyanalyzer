@@ -1235,3 +1235,30 @@ def test_usage_credit_table_row_form_is_parsed():
     assert _extract_bill_credits(prose) == [
         {"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}
     ]
+
+
+def test_retailer_brand_alias_maps_the_licence_entity_to_the_brand():
+    """Meter's EFLs are issued by "Light Energy, LLC" -- a licence-holding entity
+    that appears nowhere a shopper would recognise, while the plan names on the
+    same document read "Meter Saver Plan".
+
+    Left unaliased it is not just confusing: `_plan_supersedes` compares retailer
+    brand tokens, and "Light Energy" shares none with "Meter Energy", so the real
+    EFL could never supersede the brand-named synthetic index row for the same
+    plan -- the two sat side by side in the rankings.
+    """
+    from energyanalyzer.eflparse.parser import _apply_retailer_alias
+
+    assert _apply_retailer_alias("Light Energy, LLC") == "Meter Energy"
+    assert _apply_retailer_alias("Light Energy LLC") == "Meter Energy"
+    # Anything not in the table is returned untouched -- this must stay a small,
+    # evidence-based table, not a general rewriter.
+    for other in ("Gexa Energy, LP", "Green Mountain Energy Company", "Lightning Power"):
+        assert _apply_retailer_alias(other) == other
+
+
+def test_meter_efl_parses_under_the_meter_brand():
+    draft = _real_draft("METER_Saver_Plan_12.txt") if (REAL_FIXTURES / "METER_Saver_Plan_12.txt").exists() else None
+    if draft is None:
+        pytest.skip("Meter EFL fixture not committed")
+    assert draft.plan_dict["retailer"] == "Meter Energy"

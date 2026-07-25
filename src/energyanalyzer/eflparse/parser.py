@@ -457,6 +457,31 @@ def _scan_efl_header(text: str) -> tuple[Optional[str], Optional[str], str, str]
 # --------------------------------------------------------------------------- #
 # Field extractors
 # --------------------------------------------------------------------------- #
+# Legal entity -> brand, applied to whatever `_extract_retailer` reads off the
+# EFL. Texas REPs often issue EFLs under a licence-holding entity whose name
+# appears nowhere else the user would recognise, which makes a plan hard to place
+# in the UI and -- worse -- stops `app.common._plan_supersedes` from matching the
+# brand-named synthetic index row for the same plan (it compares retailer brand
+# tokens, and "Light Energy" shares none with "Meter Energy").
+#
+# Keep this table SMALL and evidence-based: only add a pair when the EFL itself
+# shows the connection. Light Energy, LLC issues EFLs whose plan names are
+# literally "Meter Saver Plan" / "Meter Earner Plan" / "Meter Standard Plan",
+# and meterplan.com is published by Meter Energy.
+_RETAILER_ALIASES = {
+    "light energy": "Meter Energy",
+}
+
+
+def _apply_retailer_alias(retailer: str) -> str:
+    """Map a licence-holding legal entity to the brand customers shop under."""
+    key = re.sub(r"[^a-z ]+", "", (retailer or "").lower()).strip()
+    for legal, brand in _RETAILER_ALIASES.items():
+        if key.startswith(legal):
+            return brand
+    return retailer
+
+
 def _extract_retailer(text: str) -> Optional[Extraction]:
     patterns = [
         (
@@ -1464,6 +1489,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         return val
 
     retailer = record("retailer", _extract_retailer(text)) or "Unknown Retailer"
+    aliased = _apply_retailer_alias(retailer)
+    if aliased != retailer:
+        evidence["retailer"] = f"{evidence.get('retailer', retailer)} [brand alias -> {aliased}]"
+        retailer = aliased
     plan_name = record("plan_name", _extract_plan_name(text)) or "Unnamed Plan"
     term_months = record("term_months", _extract_term_months(text))
     if term_months is None:

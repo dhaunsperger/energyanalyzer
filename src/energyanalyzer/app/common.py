@@ -1474,7 +1474,7 @@ def finish_refresh(
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
     # entry -- the synthetic row is redundant and is removed (logged).
-    for mp_id, match_id in supersede_meterplan_plans(plans_dir):
+    for mp_id, match_id in supersede_meterplan_plans(plans_dir, drafts_dir):
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
     if summary["meterplan_superseded"]:
