@@ -658,7 +658,8 @@ def test_known_efl_identities_reads_discovery_manifest_and_ptc(tmp_path):
     both and is what the saved filename was built from. Either way the identity
     is known before the parser ever opens the PDF."""
     efl_dir, ptc_dir = tmp_path / "efl", tmp_path / "ptc"
-    efl_dir.mkdir(); ptc_dir.mkdir()
+    efl_dir.mkdir()
+    ptc_dir.mkdir()
     (efl_dir / "rep_discovery_manifest.jsonl").write_text(
         '{"file": "/abs/path/Atlantex_Power_Solar_Buy_Back_Plan.pdf", '
         '"retailer": "Atlantex Power", "plan_name": "Solar Buy Back Plan"}\n'
