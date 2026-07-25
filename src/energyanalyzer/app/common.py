@@ -420,6 +420,7 @@ def parse_downloaded_efls(
     drafts_dir: Path = DRAFTS_DIR,
     plans_dir: Path = PLANS_DIR,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    llm_assist: bool = False,
 ) -> dict:
     """Batch-parse EFL PDFs into draft plan YAMLs (ARCHITECTURE.md §8/§9).
 
@@ -434,15 +435,30 @@ def parse_downloaded_efls(
     If `progress_callback` is given, it's called after every file as
     `progress_callback(done_count, total, current_filename)`.
 
+    With `llm_assist=True`, any draft the static parser left with a weak
+    load-bearing field gets a second pass from the local LLM tier
+    (`eflparse.llm_repair`), which PRE-FILLS those fields for the reviewer. It
+    never promotes: such drafts still come out `needs_review=True`, badged in the
+    Plans review UI with the model's reasoning. Best-effort throughout -- if
+    Ollama is down the drafts are saved exactly as the parser produced them, and
+    a per-draft failure never aborts the batch. Costs roughly 1s per weak draft
+    (see `llm.OLLAMA_MODEL` for the benchmark).
+
     Returns `{'parsed': [plan_id, ...], 'skipped': [filename, ...],
-    'failed': [{'file': filename, 'error': str}, ...]}`.
+    'failed': [{'file': filename, 'error': str}, ...],
+    'llm_assisted': [{'id': plan_id, 'fields': [...]}, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import parse_efl, save_draft
+    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft
 
     drafts_dir = Path(drafts_dir)
     plans_dir = Path(plans_dir)
     total = len(pdf_paths)
-    summary: dict = {"parsed": [], "skipped": [], "failed": []}
+    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+
+    # One availability probe for the whole batch rather than a per-file timeout.
+    use_llm = bool(llm_assist) and _llm.available()
+    if llm_assist and not use_llm:
+        summary["llm_note"] = "Ollama unreachable -- drafts saved without LLM suggestions"
 
     for i, pdf_path in enumerate(pdf_paths, start=1):
         pdf_path = Path(pdf_path)
@@ -453,6 +469,17 @@ def parse_downloaded_efls(
             if already:
                 summary["skipped"].append(pdf_path.name)
             else:
+                if use_llm and draft.plan_dict.get("needs_review"):
+                    try:
+                        from energyanalyzer.eflparse.llm_repair import llm_repair_draft
+
+                        draft, report = llm_repair_draft(draft, extract_text(pdf_path))
+                        if report.get("changed"):
+                            summary["llm_assisted"].append(
+                                {"id": plan_id, "fields": report["changed"]}
+                            )
+                    except Exception as exc:  # noqa: BLE001 -- LLM tier is optional
+                        logger.info("LLM assist failed for %s: %r", pdf_path.name, exc)
                 save_draft(draft, drafts_dir=drafts_dir)
                 summary["parsed"].append(plan_id)
         except Exception as exc:  # noqa: BLE001 -- a bad PDF must not abort the batch
@@ -546,6 +573,16 @@ def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> 
     )
 
 
+def _newest_capture(snapshot_dir: Path, key: str) -> Optional[Path]:
+    """Newest manually-saved rendered-HTML capture for a REP, or None.
+
+    Captures are named `<key>_<UTC timestamp>.html`; picked by mtime so a
+    sortable stamp isn't strictly required.
+    """
+    snaps = sorted(snapshot_dir.glob(f"{key}_*.html")) if snapshot_dir.exists() else []
+    return max(snaps, key=lambda p: p.stat().st_mtime) if snaps else None
+
+
 def _run_rep_discovery(
     zip_code: str,
     efl_dir: Path = EFL_DIR,
@@ -634,22 +671,39 @@ def _run_rep_discovery(
                 )
                 detail = "harvested live"
             elif config.render is not None:
-                html, _snap = rd.fetch_rendered_html(
-                    config,
-                    zip_code,
-                    headless=headless,
-                    snapshot_dir=snapshot_dir,
-                    check_robots=config.check_robots,
-                )
-                plans = rd.discover(html, config)
-                detail = "rendered live"
+                try:
+                    html, _snap = rd.fetch_rendered_html(
+                        config,
+                        zip_code,
+                        headless=headless,
+                        snapshot_dir=snapshot_dir,
+                        check_robots=config.check_robots,
+                    )
+                    plans = rd.discover(html, config)
+                    detail = "rendered live"
+                except Exception as render_exc:  # noqa: BLE001
+                    # A live render can fail for reasons that say nothing about
+                    # the parser: a nav-flow drift, or a probabilistic WAF (Ambit
+                    # answers ~half of requests with a plain-text 403). Falling
+                    # back to the newest manual capture keeps a REP working on a
+                    # bad night instead of silently dropping all its plans --
+                    # important for the buyback-only REPs, whose plans PTC and
+                    # meterplan both miss entirely.
+                    newest = _newest_capture(snapshot_dir, key)
+                    if newest is None:
+                        raise
+                    logger.info(
+                        "%s: live render failed (%r) -- falling back to %s",
+                        label, render_exc, newest.name,
+                    )
+                    html = newest.read_text(encoding="utf-8")
+                    plans = rd.discover(html, config)
+                    detail = f"live render failed; used capture {newest.name}"
             else:
                 # No render(): WAF/manual-capture REP. Use the newest saved
                 # capture; if there's none, tell the user to run one by hand.
-                snaps = (
-                    sorted(snapshot_dir.glob(f"{key}_*.html")) if snapshot_dir.exists() else []
-                )
-                if not snaps:
+                newest = _newest_capture(snapshot_dir, key)
+                if newest is None:
                     result["reps"][key] = {
                         "retailer": label,
                         "status": "manual-needed",
@@ -661,7 +715,6 @@ def _run_rep_discovery(
                         ),
                     }
                     continue
-                newest = max(snaps, key=lambda p: p.stat().st_mtime)
                 html = newest.read_text(encoding="utf-8")
                 plans = rd.discover(html, config)
                 detail = f"from manual capture {newest.name}"
@@ -827,7 +880,6 @@ def refresh_market_data(
     'parsed': <parse_downloaded_efls() summary>}, 'promoted': [plan_id, ...],
     'needing_review': [draft_stem, ...], 'notes': [str, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
     from energyanalyzer.fetchers.meterplan import (
         fetch_meterplan,
         fetch_meterplan_efls,
@@ -1102,7 +1154,109 @@ def refresh_market_data(
             notes.append(f"REP discovery stage failed: {exc!r}")
             _report("discovery", 1, 1, "discovery stage failed")
 
-    # --- 7. auto-promote confident drafts (EFL- and meterplan-sourced) -----#
+    # --- 7 + 8. auto-promote confident drafts, then supersede ---------------#
+    finish_refresh(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        summary=summary,
+        notes=notes,
+        progress_callback=progress_callback,
+    )
+
+    return summary
+
+
+def promote_all_drafts(
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Promote EVERY draft into the plan database, confidence gate bypassed,
+    keeping each draft's `needs_review` flag as-is.
+
+    This is the "quick look" path: the auto-promote gate deliberately holds back
+    anything the parser wasn't sure about, but sometimes you want the whole
+    market in Compare's rankings *now* and will sort out the details after. The
+    plans land flagged, so `needs_review` badges, the Compare "Stale?"/review
+    columns, and `stale_plan_ids` all still mark them as unverified -- nothing
+    here silently launders an uncertain parse into a trusted one.
+
+    Move semantics, matching single-draft promote: a promoted draft's file is
+    deleted. That discards its `_parse` block (per-field confidence + evidence),
+    which is review metadata and not part of the Plan schema -- re-parsing the
+    source EFL regenerates it. Drafts that fail schema validation are LEFT in
+    place and reported in `failed`, so a bad one is never silently dropped.
+
+    Returns `{'promoted': [id, ...], 'failed': [{'draft': name, 'error': str}],
+    'flagged': int}` where `flagged` counts promoted plans still needing review.
+    """
+    from energyanalyzer.eflparse.parser import plan_fields
+
+    plans_dir, drafts_dir = Path(plans_dir), Path(drafts_dir)
+    summary: dict = {"promoted": [], "failed": [], "flagged": 0}
+    draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
+
+    for i, draft_path in enumerate(draft_paths, start=1):
+        try:
+            raw = load_draft_raw(draft_path)
+            plan_dict = plan_fields(raw)
+            plan_dict.setdefault("source", "ptc")
+            plan_dict["retrieved"] = dt.date.today()
+            # Preserve the parser's verdict rather than forcing it: a draft the
+            # parser was confident about stays unflagged.
+            plan_dict["needs_review"] = bool(raw.get("needs_review", True))
+            plan = Plan.model_validate(plan_dict)
+            save_plan(plan, directory=plans_dir)
+            draft_path.unlink(missing_ok=True)
+            summary["promoted"].append(plan.id)
+            if plan.needs_review:
+                summary["flagged"] += 1
+        except Exception as exc:  # noqa: BLE001 -- one bad draft mustn't abort the batch
+            summary["failed"].append({"draft": draft_path.name, "error": repr(exc)[:200]})
+        if progress_callback is not None:
+            progress_callback(i, len(draft_paths), draft_path.name)
+
+    if summary["promoted"]:
+        invalidate_plans_cache()
+    return summary
+
+
+def finish_refresh(
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    summary: Optional[dict] = None,
+    notes: Optional[list] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Steps 7 + 8 of the refresh: auto-promote confident drafts, then supersede
+    synthetic meterplan plans a real EFL now covers.
+
+    Split out of :func:`refresh_market_data` and safe to call on its own, because
+    it is purely local -- it reads `drafts_dir`, writes `plans_dir`, and touches
+    no network. That matters for recovery: the earlier stages (fetch, download,
+    parse, discovery) are slow and can be interrupted, and when they are, the
+    drafts they produced are already on disk while the database is still empty.
+    Re-running this finishes the job without repeating the sweep. The Plans page
+    exposes it as "Finish incomplete refresh".
+
+    Idempotent: a draft that doesn't clear the confidence gate is left in place,
+    and one that does is promoted and its draft deleted, so a second call is a
+    no-op. Pass `summary`/`notes` to append into an in-flight refresh's result;
+    omit them to get a fresh summary dict back.
+    """
+    from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS, plan_fields
+
+    if summary is None:
+        summary = {"promoted": [], "needing_review": [], "meterplan_superseded": []}
+    for key in ("promoted", "needing_review", "meterplan_superseded"):
+        summary.setdefault(key, [])
+    if notes is None:
+        notes = summary.setdefault("notes", [])
+
+    def _report(stage: str, done: int, total: int, item: str) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total, f"{stage}: {item}")
+
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
     promote_total = len(current_draft_paths)
     for i, draft_path in enumerate(current_draft_paths, start=1):
@@ -1115,7 +1269,7 @@ def refresh_market_data(
             needs_review_flag = raw.get("needs_review", True)
             eligible = (not needs_review_flag) and min_conf is not None and min_conf >= 0.8
             if eligible:
-                plan_dict = {k: v for k, v in raw.items() if k != "_parse"}
+                plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")
                 plan_dict["retrieved"] = dt.date.today()
                 plan = Plan.model_validate(plan_dict)
@@ -1132,7 +1286,6 @@ def refresh_market_data(
     if summary["promoted"]:
         invalidate_plans_cache()
 
-    # --- 8. supersede synthetic meterplan plans covered by a real EFL -------#
     # meterplan.com rows carry no EFL PDF (source="meterplan", efl_url=None). If
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual

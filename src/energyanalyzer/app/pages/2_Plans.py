@@ -4,7 +4,6 @@ EFL PDF import, and Power to Choose snapshot loading."""
 from __future__ import annotations
 
 import datetime as dt
-import logging
 import sys
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     default_plan_db_commit_message,
     draft_summary_row,
     efl_pdf_health,
+    finish_refresh,
     get_draft_plans,
     get_plans,
     git_plan_db_status,
@@ -33,11 +33,20 @@ from energyanalyzer.app.common import (  # noqa: E402
     parse_downloaded_efls,
     plan_is_stale,
     plan_summary_row,
+    promote_all_drafts,
     ptc_efl_resolution_report,
     refresh_market_data,
     render_missing_data_help,
 )
+from energyanalyzer.app.refresh_state import (  # noqa: E402
+    RefreshJournal,
+    get_runner,
+    load_state,
+    read_log_tail,
+    was_interrupted,
+)
 from energyanalyzer.core.models import Plan  # noqa: E402
+from energyanalyzer.eflparse.parser import plan_fields  # noqa: E402
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, save_plan  # noqa: E402
 
 st.set_page_config(page_title="EnergyAnalyzer - Plans", page_icon="⚡", layout="wide")
@@ -436,59 +445,116 @@ discovery_zip = st.text_input(
     help="ZIP entered into each retailer's plan-shopping gate during discovery.",
     disabled=not run_discovery,
 )
-if st.button("Refresh market data", key="refresh_market_btn", disabled=not refresh_confirm):
-    refresh_progress = st.progress(0.0)
-    refresh_status = st.empty()
+_runner = get_runner()
+_state = load_state()
 
-    def _refresh_progress(done: int, total: int, label: str) -> None:
-        refresh_progress.progress(done / total if total else 1.0)
-        refresh_status.caption(label)
-
-    # Live console: discovery is slow (a live browser per REP), so stream the
-    # step-by-step INFO logs the fetchers emit into a scrolling box. Streamlit
-    # flushes placeholder writes mid-run (same mechanism the progress bar uses),
-    # so this updates while a harvester is still working -- you can see exactly
-    # what it's attempting instead of a frozen status line.
-    console_lines: list[str] = []
-    console_box = st.expander(
-        "Discovery console (live)", expanded=run_discovery, icon=":material/terminal:"
-    ).empty()
-
-    class _ConsoleHandler(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            try:
-                stamp = dt.datetime.now().strftime("%H:%M:%S")
-                console_lines.append(f"{stamp}  {record.getMessage()}")
-                console_box.code("\n".join(console_lines[-400:]), language="log")
-            except Exception:  # noqa: BLE001 -- logging must never break the refresh
-                pass
-
-    _console_handler = _ConsoleHandler(level=logging.INFO)
-    _pkg_logger = logging.getLogger("energyanalyzer")
-    _prev_level = _pkg_logger.level
-    _pkg_logger.setLevel(logging.INFO)
-    _pkg_logger.addHandler(_console_handler)
-    try:
-        refresh_summary = refresh_market_data(
-            plans_dir=PLANS_DIR,
-            drafts_dir=DRAFTS_DIR,
-            efl_dir=EFL_DIR,
-            ptc_dir=PTC_DIR,
-            meterplan_dir=METERPLAN_DIR,
-            progress_callback=_refresh_progress,
-            run_discovery=run_discovery,
-            discovery_zip=discovery_zip.strip() or "78665",
-        )
-    finally:
-        _pkg_logger.removeHandler(_console_handler)
-        _pkg_logger.setLevel(_prev_level)
-    refresh_progress.progress(1.0)
-    invalidate_plans_cache()
-    st.session_state["refresh_summary"] = refresh_summary
-    st.session_state["refresh_console"] = console_lines
+if st.button(
+    "Refresh market data",
+    key="refresh_market_btn",
+    disabled=not refresh_confirm or _runner.is_running(),
+):
+    # Runs on a background thread: Streamlit kills the running script on ANY
+    # rerun (including navigating to another page), which previously destroyed
+    # a 10-minute refresh mid-flight and left no record of how far it got. The
+    # thread reports into a durable on-disk journal instead of into `st.*`, and
+    # this page polls that journal.
+    started = _runner.start(
+        refresh_market_data,
+        plans_dir=PLANS_DIR,
+        drafts_dir=DRAFTS_DIR,
+        efl_dir=EFL_DIR,
+        ptc_dir=PTC_DIR,
+        meterplan_dir=METERPLAN_DIR,
+        run_discovery=run_discovery,
+        discovery_zip=discovery_zip.strip() or "78665",
+    )
+    if started is None:
+        st.warning("A refresh is already running.")
     st.rerun()
 
+
+@st.fragment(run_every=2)
+def _refresh_live_status() -> None:
+    """Poll the journal while a refresh runs. A fragment reruns on its own
+    without re-executing the whole page, so watching progress is cheap."""
+    state = load_state()
+    if not state or state.get("status") != "running":
+        # The run reached a terminal state. Rerun the WHOLE page (st.rerun's
+        # default scope) so the "running" banner is replaced by the completed
+        # summary. Returning instead would leave that banner up indefinitely
+        # above an empty body -- the fragment only redraws its own area, and the
+        # banner belongs to the enclosing page run, which nothing would refresh.
+        st.rerun()
+    done, total = state.get("stage_done", 0), state.get("stage_total", 0)
+    st.progress(min(done / total, 1.0) if total else 0.0)
+    st.caption(
+        f"**{state.get('stage', '?')}** — {done}/{total} — {state.get('item', '')[:80]}  \n"
+        f"started {state.get('started_at', '?')}"
+    )
+    tail = read_log_tail()
+    if tail:
+        with st.expander(
+            "Discovery console (live)", expanded=run_discovery, icon=":material/terminal:"
+        ):
+            st.code(tail, language="log")
+
+
+# Gate the live view on the JOURNAL, not just on the thread being alive. Basing
+# it on the thread alone can leave the two disagreeing for a moment as the thread
+# winds down (journal already "completed", thread not yet exited), which makes
+# the fragment rerun the page while the page still thinks it's running -- a spin.
+_live_run = bool(
+    _state and _state.get("status") == "running" and _runner.is_running(_state.get("run_id"))
+)
+if _live_run:
+    st.info(
+        "Refresh running in the background — it will keep going if you navigate away "
+        "or close this tab. Progress is saved to disk as it goes.",
+        icon=":material/autorenew:",
+    )
+    _refresh_live_status()
+
+# An interrupted run is the case that used to fail silently: the journal still
+# says "running" but no thread is alive. The slow stages already wrote their
+# drafts to disk, so offer the local finish rather than a whole repeat sweep.
+if was_interrupted(_state):
+    stages = ", ".join(s["stage"] for s in (_state.get("stages_seen") or [])) or "unknown"
+    st.error(
+        f"The last refresh (started {_state.get('started_at', '?')}) was interrupted during "
+        f"**{_state.get('stage', '?')}** and never finished.\n\n"
+        f"Stages it reached: {stages}.",
+        icon=":material/warning:",
+    )
+    st.caption(
+        "Downloading and parsing already wrote their drafts to disk, so the database can be "
+        "completed locally without repeating the fetch. Retailer-site discovery, if it hadn't "
+        "finished, still needs a fresh run."
+    )
+    if st.button("Finish incomplete refresh", key="finish_refresh_btn"):
+        with st.spinner("Promoting confident drafts…"):
+            fin = finish_refresh(plans_dir=PLANS_DIR, drafts_dir=DRAFTS_DIR)
+        invalidate_plans_cache()
+        st.success(
+            f"Promoted {len(fin['promoted'])}, left {len(fin['needing_review'])} for review, "
+            f"superseded {len(fin['meterplan_superseded'])}."
+        )
+        st.session_state["refresh_summary"] = fin
+        RefreshJournal().fail("interrupted; completed manually via Finish incomplete refresh")
+        st.rerun()
+
+if _state and _state.get("status") == "completed" and _state.get("finished_at"):
+    st.caption(
+        f"Last refresh completed {_state['finished_at']} "
+        f"(started {_state.get('started_at', '?')})."
+    )
+elif _state and _state.get("status") == "failed" and _state.get("error"):
+    st.warning(f"Last refresh ended with: {_state['error'][:300]}", icon=":material/error:")
+
+# The background thread's summary lands in the journal; prefer a summary from
+# this session (e.g. a manual finish) when there is one.
 refresh_summary = st.session_state.get("refresh_summary")
+if refresh_summary is None and _state and _state.get("status") == "completed":
+    refresh_summary = _state.get("summary")
 if refresh_summary is not None:
     # Aggregate EFL download/parse across ALL sources (PTC + Meter's own EFLs +
     # REP discovery) so the numbers reconcile with the all-source promote/review
@@ -864,6 +930,18 @@ st.caption(
 efl_pdfs = sorted(EFL_DIR.glob("*.pdf")) if EFL_DIR.exists() else []
 st.caption(f"{len(efl_pdfs)} PDF(s) in {EFL_DIR}.")
 if efl_pdfs:
+    use_llm_assist = st.checkbox(
+        "Pre-fill unreadable fields with the local LLM",
+        value=False,
+        key="parse_llm_assist",
+        help=(
+            "For drafts the static parser couldn't read confidently, ask a local Ollama model "
+            "to propose the missing rate/charge fields. It mainly rescues PDFs with broken "
+            "embedded fonts. Suggestions are always badged and ALWAYS still require your "
+            "review -- the LLM never promotes a plan on its own. Needs Ollama running; adds "
+            "roughly a second per unreadable draft. Skipped silently if Ollama is unreachable."
+        ),
+    )
     if st.button("Parse all downloaded EFLs into drafts", key="parse_all_efls_btn"):
         progress_bar = st.progress(0.0)
         status_line = st.empty()
@@ -873,13 +951,25 @@ if efl_pdfs:
             status_line.caption(f"{done}/{total}: {name}")
 
         summary = parse_downloaded_efls(
-            efl_pdfs, drafts_dir=DRAFTS_DIR, plans_dir=PLANS_DIR, progress_callback=_parse_progress
+            efl_pdfs,
+            drafts_dir=DRAFTS_DIR,
+            plans_dir=PLANS_DIR,
+            progress_callback=_parse_progress,
+            llm_assist=use_llm_assist,
         )
         progress_bar.progress(1.0)
         st.success(
             f"Parsed {len(summary['parsed'])}, skipped {len(summary['skipped'])} (already parsed), "
             f"failed {len(summary['failed'])}"
         )
+        if summary.get("llm_note"):
+            st.warning(summary["llm_note"], icon=":material/cloud_off:")
+        elif summary.get("llm_assisted"):
+            st.info(
+                f"{len(summary['llm_assisted'])} draft(s) got LLM-suggested fields — "
+                "they're badged in the review section below and still need your confirmation.",
+                icon=":material/smart_toy:",
+            )
         if summary["failed"]:
             st.json(summary["failed"][:10])
         st.rerun()
@@ -917,6 +1007,45 @@ if current_draft_paths:
     draft_table = pd.DataFrame(draft_rows)
     st.dataframe(draft_table.drop(columns=["file"]), width="stretch", hide_index=True)
 
+    # Bulk "quick look" promote: skip the confidence gate, keep every draft's
+    # needs_review flag, so the whole market shows up in Compare's rankings at
+    # once. Confirmation-gated because it writes the entire queue into the
+    # database and consumes the draft files.
+    with st.container(border=True):
+        st.markdown("**Promote all drafts (quick look)**")
+        st.caption(
+            f"Move all {len(current_draft_paths)} draft(s) into the plan database without the "
+            "confidence gate, so they appear in Compare straight away. Each keeps its "
+            "`needs_review` flag, so unverified plans stay badged everywhere — but their "
+            "numbers are the parser's unreviewed best guess, so treat any ranking they "
+            "produce as provisional. Promoting consumes the draft file and with it the "
+            "per-field confidence/evidence; re-parsing the source EFL regenerates that."
+        )
+        promote_all_confirm = st.checkbox(
+            "I understand these plans are unverified", key="promote_all_confirm"
+        )
+        if st.button(
+            "Promote all drafts",
+            key="promote_all_btn",
+            disabled=not promote_all_confirm,
+            icon=":material/library_add:",
+        ):
+            with st.spinner(f"Promoting {len(current_draft_paths)} draft(s)…"):
+                bulk = promote_all_drafts(plans_dir=PLANS_DIR, drafts_dir=DRAFTS_DIR)
+            invalidate_plans_cache()
+            if bulk["promoted"]:
+                st.success(
+                    f"Promoted {len(bulk['promoted'])} plan(s) — {bulk['flagged']} still flagged "
+                    "needs_review."
+                )
+            if bulk["failed"]:
+                st.warning(
+                    f"{len(bulk['failed'])} draft(s) failed validation and were left in place.",
+                    icon=":material/warning:",
+                )
+                st.json(bulk["failed"][:10])
+            st.rerun()
+
     draft_labels = {
         f"{row['Retailer']} — {row['Plan']} ({row['id']})": path
         for row, path in zip(draft_rows, current_draft_paths)
@@ -932,14 +1061,33 @@ if current_draft_paths:
     source_pdf = _resolve_source_efl_pdf(raw_draft.get("source", ""))
     review_col, pdf_col = st.columns([1, 1])
 
+    llm_meta = raw_draft.get("_llm_suggested") or {}
+    llm_fields = set(llm_meta.get("fields") or [])
+
     with review_col:
         if raw_draft.get("needs_review"):
-            st.warning("⚠️ NEEDS REVIEW")
+            st.warning("Needs review", icon=":material/rate_review:")
+
+        if llm_fields:
+            # These values were pre-filled by the local LLM tier, which never
+            # promotes on its own -- confirming them is the point of this screen.
+            st.info(
+                f"**{', '.join(sorted(llm_fields))}** pre-filled by `{llm_meta.get('model', 'local LLM')}` "
+                "— confirm against the EFL before promoting.",
+                icon=":material/smart_toy:",
+            )
+            if llm_meta.get("reasoning"):
+                st.caption(f"Model's reasoning: {llm_meta['reasoning']}")
 
         if draft_confidence:
             st.markdown("**Field confidence / evidence**")
             conf_rows = [
-                {"field": field, "confidence": conf, "evidence": draft_evidence.get(field, "")}
+                {
+                    "field": field,
+                    "source": "LLM" if field in llm_fields else "parser",
+                    "confidence": conf,
+                    "evidence": draft_evidence.get(field, ""),
+                }
                 for field, conf in sorted(draft_confidence.items())
             ]
             st.dataframe(pd.DataFrame(conf_rows), width="stretch", hide_index=True)
@@ -948,7 +1096,7 @@ if current_draft_paths:
                 for note in draft_unparsed:
                     st.caption(f"- {note}")
 
-        plan_only_dict = {k: v for k, v in raw_draft.items() if k != "_parse"}
+        plan_only_dict = plan_fields(raw_draft)
         edited_draft_yaml = st.text_area(
             "Draft plan YAML (editable)",
             value=yaml.safe_dump(plan_only_dict, sort_keys=False, allow_unicode=True),

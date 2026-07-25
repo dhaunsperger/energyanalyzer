@@ -52,9 +52,36 @@ def test_fills_weak_buyback_when_llm_confident():
     }
     assert repaired.confidence["buyback"] <= 0.85  # capped
     assert repaired.evidence["buyback"] == "llm"
-    # All load-bearing now confident -> needs_review cleared.
-    assert repaired.plan_dict["needs_review"] is False
-    assert "LLM parse set: buyback" in repaired.plan_dict["notes"]
+    # ASSIST-ONLY: even with every load-bearing field now scoring confidently,
+    # an LLM-touched draft still goes to a human. The tier pre-fills the review
+    # form; it never promotes.
+    assert repaired.plan_dict["needs_review"] is True
+    assert "LLM suggested: buyback" in repaired.plan_dict["notes"]
+    # ...and the UI can tell which fields the model supplied, and why.
+    assert repaired.plan_dict["_llm_suggested"]["fields"] == ["buyback"]
+    assert "5.3" in repaired.plan_dict["_llm_suggested"]["reasoning"]
+
+
+def test_llm_suggestions_never_clear_review_even_when_all_fields_confident():
+    """Regression guard for the assist-only contract: no combination of high
+    parser confidence + high LLM confidence may auto-promote a draft."""
+    draft = _draft({"energy_charge": 0.95, "base_charge": 0.95, "buyback": 0.79})
+    payload = {
+        "buyback": {"kind": "fixed", "rate_ckwh": 5.3},
+        "confidence": {"buyback": 1.0},
+        "reasoning": "stated plainly",
+    }
+    repaired, _ = llm_repair_draft(draft, "efl text", chat_fn=_chat(payload))
+    assert repaired.plan_dict["needs_review"] is True
+
+
+def test_llm_metadata_is_stripped_before_promotion():
+    """`_llm_suggested` is review metadata, not a Plan field -- plan_fields()
+    must remove it (alongside `_parse`) so promotion validates."""
+    from energyanalyzer.eflparse.parser import plan_fields
+
+    raw = {"id": "x", "_parse": {"confidence": {}}, "_llm_suggested": {"fields": ["buyback"]}}
+    assert plan_fields(raw) == {"id": "x"}
 
 
 def test_low_llm_confidence_leaves_draft_unchanged():

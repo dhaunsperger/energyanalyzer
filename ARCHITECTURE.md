@@ -359,7 +359,7 @@ session; the sweep is slow), gated behind a checkbox on the Plans page. Adding
 more REPs (each needs its flow recorded with `playwright codegen` + a
 rendered-HTML sample) is a follow-up.
 
-## 8. EFL static parser (Task 5) — NO LLM calls
+## 8. EFL static parser (Task 5) — deterministic first, LLM only as an assist
 
 `eflparse/parser.py`: `parse_efl(pdf_path) -> DraftPlan` where DraftPlan =
 `{plan: Plan-shaped dict, confidence: {field: 0..1}, evidence: {field:
@@ -380,6 +380,107 @@ EFL text is included there as `pulse.txt`).
 Human override: drafts are saved to `plans/drafts/<id>.yaml`; the Streamlit
 Plans page (Task 6) shows draft vs. parsed evidence side-by-side, lets the
 user edit fields and promote to `plans/`.
+
+### 8a. Accuracy harness (`scripts/eval_efl.py`) — the measurement baseline
+
+`tests/fixtures/efl_texts/real/ground_truth.yaml` holds hand-verified
+load-bearing values (base charge, energy rates + windows, buyback, term) for all
+26 real-EFL fixtures, each with the quoted source line. `scripts/eval_efl.py`
+scores the parser — and optionally the parser plus an LLM tier — against it:
+
+```bash
+python scripts/eval_efl.py                     # parser only
+python scripts/eval_efl.py --model gemma3:4b   # + LLM suggestions
+python scripts/eval_efl.py --compare gemma3:4b qwen3:4b   # rank models
+```
+
+The headline metric is **silent-wrong**: a field reported at ≥0.8 confidence
+whose value is actually wrong. Those never reach a human, so they land straight
+in the rankings. *Review-queue size is explicitly not the target* — a change that
+halves the queue while adding one silent-wrong is a bad trade. Run this before
+and after any parser or model change; do not change `llm.OLLAMA_MODEL` without
+re-running `--compare`.
+
+Ground truth is the contract, and it can itself be wrong: the harness caught a
+mislabeled `term_months` on `nec_coop` (the EFL says "Contract Term 0
+(month-to-month)") on its first run. Fix the YAML, not the parser, when they
+disagree and the EFL backs the parser.
+
+### 8c. One-off LLM audit (`scripts/audit_plans_llm.py`)
+
+A diagnostic, not a pipeline stage: it has the model **independently re-read**
+every EFL-sourced plan (deliberately *not* primed with the parser's answer,
+unlike the repair tier — priming a small model biases it toward agreeing) and
+flags disagreements on fields the parser was **confident** about. Writes nothing.
+
+Two traps it exposed, both worth remembering:
+
+* **Confidence lives in different places.** Drafts carry `_parse.confidence`;
+  promoted plans do NOT (`plan_fields()` strips it — it isn't Plan schema). A
+  first version read the missing block as 0.0 for every field, i.e. "never
+  confident", and silently suppressed **every** finding — a clean bill of health
+  that was structurally guaranteed rather than measured. Promotion is itself the
+  confidence signal: an unflagged promoted plan cleared the gate.
+* **Verify a null result before trusting it.** The bug was caught only by asking
+  whether the audit had *made any comparisons at all* (a sampled coverage check),
+  not by reading its output.
+
+Results of the 2026-07-24 run (173 plans, gemma3:4b, ~4.5 min): 45 flagged, **44
+false positives, 1 real bug**. The noise is systematic and predictable — the
+model reads the *Average price per kWh* table (bundles TDU), confuses dollars and
+cents, and reports bill/usage credits and ETFs as base charges or solar buyback.
+The one true positive was worth it: Green Mountain "Renewable Rewards Solar
+Credit 12" parsed as `buyback: none` at 0.95 confidence because the export credit
+is branded "Renewable Rewards Credit" (~$618/yr of ignored credit). Fixed in
+`_BUYBACK_LABEL`, with the EFL added to the corpus + ground truth and a dedicated
+regression class. At ~2% precision this is a periodic sweep, not automation.
+
+Memory note: the model holds ~4.7 GB RSS even when `ollama ps` reports
+"100% GPU". On the 7.8 GB WSL dev box a full sweep pushes the system into swap,
+so unload afterwards (`ollama stop <model>`).
+
+### 8b. LLM suggestion tier (`eflparse/llm_repair.py`) — assist-only
+
+A local Ollama model takes a second pass at drafts the static parser left with a
+weak (<0.8) load-bearing field, and **pre-fills those fields for the reviewer**.
+
+**It never promotes.** `needs_review` stays `True` on every draft it touches, and
+the fields it supplied are recorded in the draft's `_llm_suggested`
+(`{fields, model, reasoning}`) so the Plans review UI badges them and shows the
+model's quoted justification next to the confidence table. This is a measured
+choice, not caution for its own sake: verifying that a proposed number literally
+appears in the EFL still accepts wrong values (the model lifts a real number off
+the wrong line), and a silently-wrong rate costs far more than one more plan to
+review. Two of the four benchmarked models were *worse than no LLM at all* by the
+silent-wrong metric.
+
+Its actual contribution over the deterministic parser is narrow and specific:
+**PDFs with broken embedded fonts.** Atlantex's EFL drops `s`/`b`/`w`/`y`/`E`
+glyphs, so its base charge reads `ae Charge $19.95 per ill` — legible to a
+language model, not to a regex. Everything else the parser already does better.
+
+Guards (all deterministic, all in `llm_repair`): never overrides a field the
+parser scored ≥ `keep_threshold`; a flat LLM rate never replaces a structured
+windowed/multi-rate schedule (structure is the parser's job); a proposed number
+must be verifiable in the source text; the trailing catch-all rate must be
+positive (a small model once proposed 0¢ around the clock); and the merged plan
+must re-validate against `Plan` or the changes are discarded wholesale.
+
+`llm.py` pins `temperature=0` and `num_ctx=8192`. Both matter: Ollama defaults to
+`0.8` (making runs non-reproducible) and to a 4096-token window that **silently
+drops the oldest tokens** — the schema system prompt — on a long EFL. Reasoning
+models return their chain of thought in a separate `message.thinking` field,
+which is logged at DEBUG and never parsed.
+
+Model choice is benchmarked, not assumed — see the table in `llm.py`. Hard
+constraint: the model must fit **entirely** in VRAM with its KV cache. When
+Ollama can't fit one it silently offloads layers to CPU, which on WSL means
+paging weights through ~7 GB of system RAM; that is what hung the dev box with
+the 8.5B `lfm2.5` (5.2 GB). Stay at or below ~3 GB of weights unless measured.
+
+Wired into `app.common.parse_downloaded_efls(llm_assist=True)`, exposed as a
+default-off checkbox on the Plans page. Best-effort throughout: if Ollama is
+down the drafts save exactly as the parser produced them.
 
 ## 9. Streamlit app + Excel (Task 6)
 
@@ -425,6 +526,48 @@ Pages (multipage app, `app/Home.py` + `app/pages/`):
    Monthly Detail (per plan per month components), Usage (monthly + heatmap
    pivot), Plan Inputs (full schema dump). Download button.
 
+### 9a. Refresh durability (`app/refresh_state.py`)
+
+"Refresh market data" runs 10+ minutes with discovery enabled, and **Streamlit
+kills the running script on any rerun** — including navigating to another page.
+Originally the whole run lived inside that script run with the result landing in
+`st.session_state` only at the very end, so an interruption lost the work in
+flight *and* every trace that it had happened (observed 2026-07-24: a click-away
+during REP discovery left 178 drafts, a 5-plan database, and no summary).
+
+Three independent mechanisms now:
+
+1. **`RefreshJournal`** — an append-as-you-go record at `data/refresh_state.json`
+   (gitignored), written atomically (`tempfile` + `os.replace`, so a crash
+   mid-write can't leave truncated JSON). Routine progress is throttled to ~1/s,
+   but stage transitions and terminal states are never throttled — those are the
+   events that matter after a crash. `was_interrupted()` reports a run still
+   marked `running` with no live thread owning it.
+2. **`RefreshRunner`** — runs the refresh on a **background thread**, which
+   Streamlit does not kill on rerun. The thread never touches `st.*` (it has no
+   ScriptRunContext); it reports into the journal and the page polls via an
+   `st.fragment(run_every=2)`. Fetcher INFO logs go to `data/refresh_log.txt`
+   (the discovery console, now tailed from disk — and it outlives the run, so an
+   interrupted sweep can still be read back). A second concurrent run is refused:
+   two would both be writing `plans/` and `data/efl/`.
+3. **`common.finish_refresh()`** — steps 7+8 (auto-promote, then supersede) split
+   out of `refresh_market_data` and callable standalone, because they are purely
+   local. The slow stages write drafts to disk as they go, so an interrupted run
+   is completed **without repeating the sweep**. Idempotent. Surfaced on the
+   Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
+
+Note the discovery caveat: promote/supersede recover the database from drafts
+already on disk, but *discovery itself* is not resumable — REPs it never reached
+still need a fresh run.
+
+`common.promote_all_drafts()` is the separate "quick look" path: it promotes
+**every** draft, confidence gate bypassed, preserving each one's `needs_review`
+so unverified plans stay badged in Compare rather than being laundered into
+trusted ones. Move semantics like single-draft promote (the draft file, and with
+it the `_parse` evidence, is consumed; re-parsing the EFL regenerates it), and a
+draft that fails `Plan` validation is left on disk and reported rather than
+dropped. Confirmation-gated on the Plans page.
+
 Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 
 ## 10. Status board  (update when you finish; keep one line each)
@@ -435,6 +578,9 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | ingest | #2 | DONE | CSV position-based DST handling + GreenButton merge; parquet cache |
 | engine | #3 | DONE | simulate()/rank() implemented per §6; validated against real CSV (see open Q below re: TDU during free windows). Report-benchmark regression (`test_integration_report_benchmarks`) now reads ALL its inputs -- the 7 `report-2026-07` plan YAMLs, the Oncor tariff, and the interval CSV -- from a frozen archive (`tests/fixtures/benchmark_2026_07/`, see its README; CSV gitignored/private, test skips when absent) so refreshing live usage data / tariffs / plans can't move the expected dollars. |
 | prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
+| discovery: Chariot host fix + Ambit automation | #4 | DONE | Two REP-discovery fixes 2026-07-24. **Chariot** silently lost ALL 11 EFLs to 404s: its cards carry RELATIVE hrefs (`/Home/EFl?productId=...`) and the marketing site hands off to `signup.chariotenergy.com`, but the extractor resolved them against `homepage` (`chariotenergy.com`). Nothing caught it at discovery time because a bad base only surfaces later as a failed download. New `RepConfig.efl_base` / `link_base` property separates the *navigation* host from the *relative-link* host; Chariot sets `efl_base="https://signup.chariotenergy.com/"`. Verified live: 5/5 real PDFs (the Shine/PowerBank buyback plans). **Ambit** gained a real `render()`: the recorded note that its "WAF blocks Playwright" was WRONG -- Azure Front Door answers `Blocked by WAF` *probabilistically* (measured: plain httpx 3/6, Playwright 3/3), and what actually hid the plans was a qualification funnel (ZIP -> Get Started -> House -> Accept -> See Plans -> **radio** "No. I already live here." -> See Plans). Built from the user's `playwright codegen`; validated live at 14 plans / 2 buyback, matching the manual capture. It IS flaky (success and a card-wait timeout minutes apart), so `_run_rep_discovery` now falls back to the newest manual capture when a live render raises (`_newest_capture`) -- a bad night degrades to the old behaviour instead of dropping every buyback plan. Ambit's EFL download is **also fixed**: the `/PDFGenerator` link the "See Plan Details" panel exposes is only a *viewer page* -- it returns the Next.js 404 shell (text/html, 8 KB) to httpx, to `ctx.request` with 45 funnel cookies, AND to a real in-browser navigation. Watching the popup's own network traffic showed its JS calling a backend endpoint, `/api/getdocument`, and wrapping the result in a `blob:` (same shape as Direct Energy). That endpoint serves `application/pdf` to plain httpx with no session at all, so `download_discovered` needs no browser. Every query parameter is renamed between the two (`formType`/`comProdId`/`lang`/`custClass` -> `docType`/`productid`/`language`/`classification`) and `efldate` must be full ISO 8601 (`...T00:00:00`), not a bare date. Validated end-to-end: both buyback EFLs download, parse (base $9.95, 12.7c, buyback fixed 3.5c energy_only) and come out `needs_review=False`. Ambit is now fully automated -- no manual capture required. 403 tests green. |
+| refresh durability | #6 | DONE | New `app/refresh_state.py` after a real incident (2026-07-24): a click-away during REP discovery killed the Streamlit script mid-refresh, leaving 178 drafts, a 5-plan database, and **no summary or record of how far it got**. Three fixes: (a) `RefreshJournal` — atomic append-as-you-go progress at `data/refresh_state.json`, throttled ~1/s but never for stage transitions or terminal states, so an interrupted run leaves an accurate trail; (b) `RefreshRunner` — the refresh now runs on a background thread Streamlit can't kill, reporting into the journal (never `st.*` — no ScriptRunContext) while the page polls it via `st.fragment(run_every=2)`; discovery console logs moved to `data/refresh_log.txt` and are tailed from disk, so they now outlive the run; concurrent runs refused. (c) `common.finish_refresh()` — steps 7+8 extracted from `refresh_market_data` and callable standalone since they're purely local, so an interrupted run is completed from drafts already on disk **without repeating the sweep**; idempotent; surfaced as "Finish incomplete refresh" on the Plans page when `was_interrupted()`. Used to recover the 2026-07-24 incident: 145 promoted, 0 failures, 5 -> 150 plans. Caveat: discovery itself is not resumable — REPs it never reached need a fresh run. 11 new tests, 391 green, ruff clean. |
+| eflparse: accuracy harness + LLM assist tier | #5 | DONE | New `scripts/eval_efl.py` scores the parser against `tests/fixtures/efl_texts/real/ground_truth.yaml` (26 hand-verified EFLs, quoted evidence per field); headline metric is **silent-wrong** (confidence >=0.8 but value wrong), not review-queue size. Diagnosis first: of 58 drafts stuck in review, most were deterministic *vocabulary* gaps, not parsing difficulty — Octopus prints `Base Charge: 0.00 per month` verbatim and scored 0.0 confidence; Heritage's `Base Monthly Charge`; Constellation's `Minimum Usage Fee`. Fixed in `_extract_base_charge` (added `Base Monthly Charge` word order, made `$` optional, and a **zero-only** `Minimum Usage Fee/Charge` rule — a NON-zero minimum-usage fee is a conditional charge, never a base charge). Separately fixed a confidently-wrong class: `_extract_buyback` returned `{kind:none}` at 0.95 when no rate label matched, even on EFLs whose own PUCT disclosure answers "Yes, we purchase excess distributed renewable generation" — the LLM tier could never reach it since it only touches fields <0.8. Added `_buyback_disclosure_answer` to veto that confidence (value unchanged, only confidence drops) and `E?xport Credit Rate` to the label vocabulary (verified across all 200 downloaded EFLs: every "credit rate" occurrence is an export credit; the `E?` absorbs corrupted-font PDFs that drop the capital E). Result on the corpus: buyback 21/22 -> 22/22, silent-wrong 1 -> 0, review 9/26 -> 6/26. Then benchmarked 4 local models: `gemma3:4b` and `qwen3:4b` both reach 100/100 load-bearing fields, `granite4:micro` and `lfm2.5-thinking` are *worse than no LLM* (each adds a silent-wrong). Default is `gemma3:4b` — equal accuracy to qwen3 at 15x the speed (0.9s vs 13.9s/EFL), and US-origin per owner preference. Its whole contribution is one EFL: Atlantex's broken-font PDF (`ae Charge $19.95 per ill`). `llm.py` now pins `temperature=0` + `num_ctx=8192` (Ollama defaults 0.8 and 4096, the latter silently dropping the schema system prompt on long EFLs) and logs `message.thinking` at DEBUG. Tier is **assist-only**: pre-fills weak fields, records `_llm_suggested{fields,model,reasoning}`, and never clears `needs_review` (new `plan_fields()` strips both meta keys before promotion). 380 tests green, ruff clean. |
 | eflparse | #5 | DONE | static regex/heuristic parser + 6 synthetic/pulse fixtures + 15-file real Texas EFL corpus regression suite (tests/fixtures/efl_texts/real/), 175 tests green; hardened against corrupted/PUA-encoded fonts, bullet/numbered-list/colon layouts, brand-prefixed TOU tables, per-day prepaid fees, and bundled-TDU phrasing; pdfplumber import-failure noise silenced |
 | app + excel | #6 | DONE | Streamlit app (Home + 4 pages) + report/excel.py; 3 tests green in tests/test_excel.py; validated end-to-end against real data/IntervalData.csv + plans/*.yaml (pulse_current=$1031.37, txu_solar_bb=$1211.37, gmtn_pollution_free_nights=$1264.87 -- all within a few cents of report benchmarks) |
 | app + fetchers followup | #6/#4 | DONE | fixed 3 user-reported Plans-page issues: `fetchers.ptc.filter_plans` gained a backward-compatible `language="English"` default filter + snapshot TDU picker in the UI (was reading as truncation, was actually TDU+Spanish-duplicate filtering); `download_efls` gained `progress_callback` wired to `st.progress`; new `app/common.parse_downloaded_efls` batch-parses `data/efl/*.pdf` into `plans/drafts/` (per-file try/except, skip-if-already-parsed) plus a "Draft plans" review/edit/promote UI -- promote/delete both invalidate the plans cache and `st.rerun()` so the main table updates immediately; 183 tests green (`pytest tests/`), plus manual `streamlit.testing.v1.AppTest` smoke passes on the Plans page across empty and populated states |

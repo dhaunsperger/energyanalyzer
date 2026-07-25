@@ -769,7 +769,14 @@ class TestCorpusJustEnergyBasicsPtc24:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        assert draft.plan_dict["needs_review"] is False
+        # This EFL answers "Yes" to "Does the REP purchase excess distributed
+        # renewable generation?" but discloses no buyback rate anywhere. The
+        # buyback confidence is therefore vetoed down (see
+        # _buyback_disclosure_answer) so a human resolves the rate rather than
+        # the plan entering the rankings as a confident non-buyback plan.
+        assert draft.plan_dict["needs_review"] is True
+        assert draft.plan_dict["buyback"]["kind"] == "none"
+        assert draft.confidence["buyback"] < 0.8
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
@@ -1157,7 +1164,43 @@ def test_corpus_all_real_fixtures_present_and_schema_valid():
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 26
+    assert len(real_files) == 27
     for path in real_files:
         draft = _real_draft(path.name)
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusGreenMountainRenewableRewards:
+    """Green Mountain "Renewable Rewards Solar Credit 12" -- a real silent-wrong
+    caught by scripts/audit_plans_llm.py.
+
+    The parser reported `buyback: none` at 0.95 confidence on a plan whose name
+    contains "Solar Credit", because Green Mountain brands its export credit
+    "Renewable Rewards Credit" and that label wasn't in `_BUYBACK_LABEL`. The
+    EFL states it plainly: "You will receive a Renewable Rewards Credit on your
+    bill for the excess energy delivered by your eligible renewable energy
+    system to the grid ... Renewable Rewards Credit: 6.3c per kWh". At the
+    owner's ~9,800 kWh/yr export that is ~$618/yr of credit dropped from the
+    ranking, on a promoted (unflagged) plan -- the exact failure mode the
+    silent-wrong metric exists to prevent.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("GREEN_MOUNTAIN_Renewable_Rewards_Solar_Credit_12.txt")
+
+    def test_buyback_is_the_renewable_rewards_credit(self, draft):
+        assert draft.plan_dict["buyback"]["kind"] == "fixed"
+        assert draft.plan_dict["buyback"]["rate_ckwh"] == pytest.approx(6.3)
+
+    def test_buyback_rate_is_not_the_energy_charge(self, draft):
+        """Guard against a 1:1 misread -- 6.3c is the credit, 11.3c the rate."""
+        rates = _rate_pairs(draft)
+        assert rates[0][0] == pytest.approx(11.3)
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(29.95)
+
+    def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)

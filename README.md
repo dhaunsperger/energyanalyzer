@@ -2,13 +2,13 @@
 
 Ranks every available Texas retail electric plan by what it would actually
 cost **your house**, using your real 15-minute SmartMeter Texas interval data
-(solar import *and* export). Replicates the "Texas Power Guide" style
-analysis: free-nights/weekends plans, time-of-use, solar buyback variants
+(solar import *and* export). Handles what a professional solar-plan analysis
+covers: free-nights/weekends plans, time-of-use, solar buyback variants
 (1:1, partial, real-time wholesale), non-offsettable charges, credit caps,
 Oncor delivery charges — simulated month by month, ranked by first-year net
 bill, with an Excel export.
 
-Validated against the commercial report it replicates: current plan computes
+Validated against a commercial analysis of the same house: current plan computes
 $1,031.37 vs. the service's $1,031; six other benchmark plans within a few
 dollars. See `ARCHITECTURE.md` for design and internals.
 
@@ -41,6 +41,26 @@ browser extra:
 ```bash
 pip install -e ".[discovery]" && playwright install chromium
 ```
+
+### Optional: local LLM assist for unreadable EFLs (Ollama)
+
+A handful of EFL PDFs have broken embedded fonts that drop letters, so the regex
+parser can't read their rates (Atlantex's base charge renders as `ae Charge
+$19.95 per ill`). A small local model reads those easily. Install
+[Ollama](https://ollama.com), then:
+
+```bash
+ollama pull gemma3:4b        # ~2.5 GB, the benchmarked default
+```
+
+Tick **"Pre-fill unreadable fields with the local LLM"** on the Plans page before
+parsing. Suggested fields are badged with the model's reasoning and **always
+still require your review** — the LLM never promotes a plan on its own. Nothing
+is sent off your machine, and everything works without it.
+
+To re-benchmark or change models, run
+`python scripts/eval_efl.py --compare <model> ...` against the hand-verified
+corpus; the model must fit entirely in your GPU's VRAM (see `src/energyanalyzer/llm.py`).
 
 Two sites need extra setup for discovery:
 

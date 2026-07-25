@@ -183,7 +183,7 @@ def test_chariot_extractor_parses_fixed_buyback_rate():
 def test_chariot_extractor_unescapes_efl_url_and_ignores_tos_yrac():
     urls = {p.efl_url for p in _extract_chariot()}
     # &amp; in the href decoded; sibling TOS/YRAC links not picked up.
-    assert "https://chariotenergy.com/Home/EFl?productId=40536&Promo=15225" in urls
+    assert "https://signup.chariotenergy.com/Home/EFl?productId=40536&Promo=15225" in urls
     assert not any("/Home/TOS?" in u or "/Home/YRAC?" in u for u in urls)
 
 
@@ -322,13 +322,29 @@ def test_ambit_extractor_finds_all_cards_deduped():
     assert all(p.extraction_method == "static" for p in plans)
 
 
-def test_ambit_constructs_pdfgenerator_efl_url_from_product_id():
+def test_ambit_constructs_backend_document_url_not_the_viewer_page():
+    """Ambit's EFL must point at /api/getdocument, NOT the /PDFGenerator link the
+    "See Plan Details" panel exposes.
+
+    /PDFGenerator is only a viewer page: it returns the Next.js 404 shell
+    (text/html, 8 KB) to httpx AND to a real in-browser navigation, even with a
+    full funnel session -- so pointing at it silently yielded zero usable EFLs.
+    Watching the popup's network traffic (2026-07-24) showed its JS calling
+    /api/getdocument and wrapping the result in a blob:. That endpoint serves
+    application/pdf to plain httpx, so download_discovered needs no browser.
+    Every query parameter is renamed between the two, which is why this asserts
+    them individually.
+    """
     by_name = {p.plan_name: p for p in _extract_ambit()}
     url = by_name["Texas Solar Buyback 12"].efl_url
-    assert url.startswith("https://shopping.ambitenergy.com/PDFGenerator?")
-    assert "formType=EnergyFactsLabel" in url
-    assert "comProdId=ONAMTXSBBC12AA" in url
-    assert "tdsp=ONCOR" in url and "efldate=" in url
+    assert url.startswith("https://shopping.ambitenergy.com/api/getdocument?")
+    assert "PDFGenerator" not in url
+    assert "docType=EnergyFactsLabel" in url
+    assert "productid=ONAMTXSBBC12AA" in url
+    assert "classification=Residential" in url and "language=en" in url
+    assert "tdsp=ONCOR" in url
+    # efldate must be full ISO 8601 -- a bare YYYY-MM-DD is not accepted.
+    assert "T00:00:00" in url
 
 
 def test_ambit_flags_buyback_by_name_and_by_description():
@@ -348,10 +364,19 @@ def test_ambit_unescapes_plan_name_and_no_phantom_from_script():
     assert not any("GHOST" in p.efl_url for p in _extract_ambit())
 
 
-def test_ambit_registered_with_no_render():
-    # WAF-blocked: Ambit is manual-capture only, so it has no render() flow.
+def test_ambit_has_a_render_flow_with_manual_capture_as_backstop():
+    """Ambit gained a render() on 2026-07-24. The old note that its WAF "blocks
+    Playwright" was an unlucky sample, not a rule: Azure Front Door answers a
+    plain-text 403 probabilistically (plain httpx measured 3/6, Playwright 3/3),
+    and what actually hid the plans was a not-moving qualification prelude.
+
+    The render must not become a single point of failure -- `_run_rep_discovery`
+    falls back to the newest manual capture when a live render raises, so a
+    blocked night degrades to the old behaviour instead of dropping every
+    buyback plan (which PTC and meterplan both miss).
+    """
     assert rd.REP_CONFIGS["ambit"].retailer == "Ambit Energy"
-    assert rd.REP_CONFIGS["ambit"].render is None
+    assert rd.REP_CONFIGS["ambit"].render is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -1125,3 +1150,34 @@ def test_classify_link_llm_live_ollama():
     )
     assert verdict["is_efl"] is True
     assert 0.0 <= verdict["confidence"] <= 1.0
+
+
+# --------------------------------------------------------------------------- #
+# RepConfig.link_base: relative EFL hrefs must resolve to the host that serves
+# them, which is not always the host you navigate to.
+# --------------------------------------------------------------------------- #
+def test_chariot_efl_urls_resolve_to_the_signup_host():
+    """Regression for a silent, whole-REP outage (2026-07-24): all 11 Chariot
+    EFLs 404'd.
+
+    Chariot's cards carry RELATIVE hrefs ("/Home/EFl?productId=..."). The
+    marketing site chariotenergy.com hands off to signup.chariotenergy.com, but
+    the extractor resolved against `homepage`, producing
+    chariotenergy.com/Home/EFl?... -- a 404. Nothing caught it at discovery time
+    because a bad base only surfaces much later, as a failed download.
+    """
+    plans = _extract_chariot()
+    assert plans, "fixture should yield plans"
+    for p in plans:
+        assert p.efl_url.startswith("https://signup.chariotenergy.com/Home/EFl?"), p.efl_url
+
+
+def test_link_base_defaults_to_homepage_when_unset():
+    """Only REPs that hand off to another host need `efl_base`; everyone else
+    must keep resolving against `homepage`."""
+    from energyanalyzer.fetchers.rep_discovery import GREEN_MOUNTAIN, CHARIOT
+
+    assert GREEN_MOUNTAIN.efl_base is None
+    assert GREEN_MOUNTAIN.link_base == GREEN_MOUNTAIN.homepage
+    assert CHARIOT.link_base == "https://signup.chariotenergy.com/"
+    assert CHARIOT.link_base != CHARIOT.homepage

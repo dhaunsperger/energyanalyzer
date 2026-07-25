@@ -1,24 +1,37 @@
-"""LLM-assisted repair of low-confidence EFL drafts.
+"""LLM-assisted **suggestions** for low-confidence EFL drafts.
 
 The deterministic parser (``eflparse.parser``) reads most Texas EFLs cleanly, but
 some -- unusual table layouts, free-hours plans whose window isn't spelled out,
 garbled fonts -- come out ``needs_review`` with low-confidence load-bearing
-fields. Rather than leave every one of those for manual entry, we take a second
-pass with a local LLM (``energyanalyzer.llm``): feed it the EFL's extracted text
-and ask it to report the load-bearing fields as JSON, then fill ONLY the fields
-the deterministic parser was unsure about.
+fields. Rather than leave every one of those as blank manual entry, we take a
+second pass with a local LLM (``energyanalyzer.llm``): feed it the EFL's
+extracted text and ask it to report the load-bearing fields as JSON, then
+pre-fill ONLY the fields the deterministic parser was unsure about.
 
-Safety is deterministic-first and conservative:
+**This tier is assist-only. It never promotes a plan.** Its job is to make the
+human review faster (a pre-filled value with the model's stated reasoning beats
+an empty box), not to shrink the queue by deciding on its own. ``needs_review``
+stays ``True`` on every draft this touches. That is a measured choice: on the
+corpus, verifying that a proposed number literally appears in the EFL still
+accepts wrong values -- the model lifts a real number from the wrong line -- and
+a silently-wrong rate in the rankings costs far more than one more plan to
+review. See ``scripts/eval_efl.py`` for the harness that establishes this.
+
+The rest of the safety model is deterministic-first and conservative:
 
 * The LLM never *overrides* a field the static parser was already confident about
   (>= ``keep_threshold``); it only fills the weak/missing ones.
+* A flat LLM rate never replaces a structured (windowed/multi-rate) schedule the
+  parser already worked out -- structure is the parser's job.
 * Whatever it proposes is written into the draft and the whole plan is
   re-validated against the ``Plan`` schema -- if the merge doesn't validate, the
   LLM changes are discarded and the draft is returned untouched.
-* LLM-sourced confidences are capped (``cap_confidence``) so a plan only clears
-  review on the LLM's say-so when it's genuinely confident, and every touched
-  field is recorded in the draft's notes + the returned report.
+* Touched fields are recorded in ``_llm_suggested`` (with the model name and its
+  reasoning) so the review UI can badge them, and in the draft's notes.
 * If Ollama is unreachable or returns junk, the draft is returned unchanged.
+
+Which model to use is measured, not assumed -- see ``energyanalyzer.llm`` for the
+benchmark table behind the ``OLLAMA_MODEL`` default and the VRAM constraint.
 
 This module is import-safe without Ollama (all LLM I/O goes through
 ``llm.chat_json``, which returns ``None`` on any failure) and fully mockable via
@@ -32,7 +45,7 @@ import logging
 from typing import Callable, Optional
 
 from energyanalyzer import llm
-from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS, DraftPlan
+from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS, DraftPlan, plan_fields
 
 logger = logging.getLogger(__name__)
 
@@ -330,25 +343,32 @@ def llm_repair_draft(
 
     # Re-validate the merged plan before accepting the LLM's changes.
     try:
-        Plan.model_validate({k: v for k, v in new_dict.items() if k != "_parse"})
+        Plan.model_validate(plan_fields(new_dict))
     except Exception as exc:  # noqa: BLE001 -- reject an LLM merge that doesn't validate
         report["note"] = f"LLM merge rejected (schema invalid): {exc!r}"
         return draft, report
 
-    # If every load-bearing field is now confident, let the draft auto-promote.
-    all_conf = all(new_conf.get(k, 0.0) >= keep_threshold for k in LOAD_BEARING_KEYS if k in new_conf)
-    note = f"LLM parse set: {', '.join(changed)}."
+    # ASSIST-ONLY: an LLM proposal is a pre-filled suggestion for the human
+    # reviewer, never a promotion. `needs_review` is left exactly as the
+    # deterministic parser set it, so nothing enters the rankings on the model's
+    # say-so. This is deliberate and measured: on the corpus, text-verification
+    # alone still accepts wrong values (a real number lifted from the wrong
+    # line), and a silently-wrong rate is worse than one more plan to review.
+    note = f"LLM suggested: {', '.join(changed)} (needs human confirmation)."
     existing_notes = str(new_dict.get("notes") or "").strip()
     new_dict["notes"] = f"{existing_notes} {note}".strip() if existing_notes else note
-    if all_conf and new_dict.get("needs_review"):
-        new_dict["needs_review"] = False
-        report["note"] = "cleared needs_review"
-    else:
-        report["note"] = "filled fields; still needs_review"
+    new_dict["needs_review"] = True
+    # Let the review UI badge exactly which fields came from the model, and show
+    # the model's own justification next to them.
+    new_dict["_llm_suggested"] = {
+        "fields": changed,
+        "model": model,
+        "reasoning": str(parsed.get("reasoning") or "")[:500],
+    }
+    report["note"] = f"suggested {len(changed)} field(s); still needs_review"
 
     logger.info(
-        "LLM repaired draft %s: %s (%s)",
-        draft.plan_dict.get("id", "?"), ", ".join(changed), report["note"],
+        "LLM suggestions for draft %s: %s", draft.plan_dict.get("id", "?"), ", ".join(changed)
     )
     report["changed"] = changed
     return DraftPlan(plan_dict=new_dict, confidence=new_conf, evidence=new_ev, unparsed_notes=draft.unparsed_notes), report

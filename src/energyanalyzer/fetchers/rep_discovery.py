@@ -146,6 +146,20 @@ class RepConfig:
     # user opted to treat a single rate-limited fetch of their own shopping page
     # as outside that intent. Never a blanket default.
     check_robots: bool = True
+    # Base for resolving RELATIVE EFL hrefs found in the rendered HTML. Defaults
+    # to `homepage`, which is right whenever the plans page lives on the same
+    # host you navigate to. Set it when a REP's shopping flow hands off to a
+    # different host: Chariot's marketing site (chariotenergy.com) redirects into
+    # signup.chariotenergy.com, whose cards carry relative hrefs like
+    # "/Home/EFl?productId=...". Resolved against the marketing host those 404 --
+    # and silently, because a bad base only surfaces later as a failed download.
+    # Observed 2026-07-24: all 11 Chariot EFLs 404'd exactly this way.
+    efl_base: Optional[str] = None
+
+    @property
+    def link_base(self) -> str:
+        """Base URL for resolving relative links in this REP's rendered HTML."""
+        return self.efl_base or self.homepage
     # Whether to keep ALL of this REP's discovered plans (True) or only its solar
     # buyback ones (False). Default True -- pulling every plan captures the
     # website-only plans PTC misses. Set False for REPs whose EFL URLs aren't
@@ -271,7 +285,7 @@ def extract_green_mountain(html: str, config: RepConfig) -> list[DiscoveredPlan]
     # (offset, plan_name) for every <h3>, in document order.
     headings = [(m.start(), _strip_tags(m.group(1))) for m in _H3_RE.finditer(html)]
     buyback_index = _analytics_buyback_index(html)
-    base = config.homepage
+    base = config.link_base
 
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
@@ -354,7 +368,7 @@ def extract_txu(html: str, config: RepConfig) -> list[DiscoveredPlan]:
     # script regex run past it into real markup.
     html = _SCRIPT_RE.sub("", _strip_comments(html))
     cards = [c for c in _TXU_CARD_SPLIT_RE.split(html) if "show-plan" in c[:120]]
-    base = config.homepage
+    base = config.link_base
 
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
@@ -441,7 +455,7 @@ def extract_chariot(html: str, config: RepConfig) -> list[DiscoveredPlan]:
     html = _SCRIPT_RE.sub("", html)
     html = re.sub(r"<svg\b[^>]*>.*?</svg>", " ", html, flags=re.I | re.S)
     cards = [c for c in _CHARIOT_CARD_SPLIT_RE.split(html) if 'class="planbox"' in c[:60]]
-    base = config.homepage
+    base = config.link_base
 
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
@@ -529,7 +543,7 @@ def _extract_eflviewer_platform(html: str, config: RepConfig) -> list[Discovered
     # would otherwise trail into a card's context and mislead the LLM review.
     html = _EFLVIEWER_RIBBON_RE.sub(" ", html)
     cards = [c for c in _EFLVIEWER_CARD_SPLIT_RE.split(html) if "plan-list-padding" in c[:80]]
-    base = config.homepage
+    base = config.link_base
 
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
@@ -588,28 +602,45 @@ def extract_frontier(html: str, config: RepConfig) -> list[DiscoveredPlan]:
 # EnergyFactsLabel&comProdId=<id>` endpoint. But Ambit's list page only reveals
 # the EFL link after a per-card "See Plan Details" expansion, so a static
 # capture has NO EFL URL in it -- instead each card carries the product id in a
-# `data-productid` attribute, from which we CONSTRUCT the EFL URL. (Ambit's site
-# also sits behind a WAF that blocks Playwright, so its capture is manual and
-# its RepConfig has no render(); see project_ambit_discovery memory.)
+# `data-productid` attribute, from which we CONSTRUCT the EFL URL (pointing at
+# the backend document endpoint, not the viewer -- see _AMBIT_EFL_BASE below).
 _AMBIT_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="[^"]*\bshow-plan\b)')
 _AMBIT_PRODUCTID_RE = re.compile(r'data-productid="([^"]+)"', re.I)
 _AMBIT_PLANNAME_RE = re.compile(r'data-planname="([^"]+)"', re.I)
 # Buyback self-label: the plan name ("Texas Solar Buyback ...") or the card's
 # visible export-credit description.
 _AMBIT_BUYBACK_RE = re.compile(r"buyback|excess solar|get paid for your excess", re.I)
-_AMBIT_EFL_BASE = "https://shopping.ambitenergy.com/PDFGenerator"
-# Doug's TDU. The capture is Oncor-specific (ZIP 78665); PDFGenerator needs a
+# The BACKEND document endpoint -- not the /PDFGenerator link the "See Plan
+# Details" panel exposes. That one is only a *viewer page*: it returns
+# text/html (the Next.js shell) to browser and httpx alike, and its JS then
+# calls this endpoint and wraps the result in a blob: URL for display. Fetching
+# /PDFGenerator directly yields the app's 404 shell no matter what -- with a
+# session, with 45 cookies from a completed funnel, even on a real in-browser
+# navigation. Confirmed 2026-07-24 by watching the popup's network traffic.
+#
+# Same shape as Direct Energy's blob-backed EFL (api-oam.directenergy.com).
+# Note the parameter names are ALL different from the viewer's:
+#   PDFGenerator: formType  comProdId  efldate=YYYY-MM-DD  lang  custClass
+#   getdocument : docType   productid  efldate=<ISO 8601>  language classification
+_AMBIT_EFL_BASE = "https://shopping.ambitenergy.com/api/getdocument"
+# Doug's TDU. The capture is Oncor-specific (ZIP 78665); the endpoint needs a
 # tdsp, absent from the collapsed list DOM, so we supply it. Change for another
 # TDU territory.
 _AMBIT_TDSP = "ONCOR"
 
 
 def _ambit_efl_url(product_id: str, efldate: str) -> str:
-    """Construct Ambit's EFL URL for a product id (the collapsed list page omits
-    it; expanding "See Plan Details" reveals this exact PDFGenerator link)."""
+    """Construct Ambit's EFL PDF URL for a product id.
+
+    `efldate` is a plain ``YYYY-MM-DD`` date; the endpoint wants full ISO 8601,
+    so midnight is appended. Returns a URL that serves ``application/pdf``
+    directly to plain httpx -- no browser, no session, so `download_discovered`
+    handles Ambit like any other REP.
+    """
     return (
-        f"{_AMBIT_EFL_BASE}?formType=EnergyFactsLabel&comProdId={product_id}"
-        f"&efldate={efldate}&tdsp={_AMBIT_TDSP}&lang=en&custClass=Residential"
+        f"{_AMBIT_EFL_BASE}?docType=EnergyFactsLabel&productid={product_id}"
+        f"&efldate={efldate}T00:00:00&tdsp={_AMBIT_TDSP}"
+        f"&language=en&classification=Residential"
     )
 
 
@@ -867,7 +898,7 @@ def discover(
     if not plans and use_llm_fallback:
         stripped = _strip_comments(html)
         for m in _GENERIC_EFL_ANCHOR_RE.finditer(stripped):
-            href = urljoin(config.homepage, m.group(1).strip())
+            href = urljoin(config.link_base, m.group(1).strip())
             link_text = _strip_tags(m.group(2))
             context = _strip_tags(stripped[max(0, m.start() - 600) : m.end() + 200])
             try:
@@ -1386,6 +1417,9 @@ CHARIOT = RepConfig(
     key="chariot",
     retailer="Chariot Energy",
     homepage="https://chariotenergy.com/",
+    # The ZIP gate on the marketing site hands off to signup.chariotenergy.com,
+    # which is where the plan cards (and their relative EFL hrefs) live.
+    efl_base="https://signup.chariotenergy.com/",
     extractor=extract_chariot,
     render=_chariot_render,
 )
@@ -1451,17 +1485,66 @@ FRONTIER = RepConfig(
     check_robots=False,
 )
 
-# Ambit has no render(): its WAF blocks Playwright after ZIP entry, so its HTML
-# is captured manually (Doug's own browser) and discover() runs on the saved
-# file. A stealth render() (real-Chrome persistent profile) is a possible
-# follow-up. See project_ambit_discovery memory.
+# Ambit's plans page is a Next.js app at shopping.ambitenergy.com, reached
+# directly via /Path2Plans with the ZIP in the query string. Behind it sits an
+# Azure Front Door WAF that answers a plain-text "Blocked by WAF" 403 --
+# PROBABILISTICALLY, not deterministically: measured 2026-07-24, plain httpx got
+# through 3 times in 6, while Playwright got HTTP 200 on 3 of 3. An earlier note
+# in this module claimed the WAF "blocks Playwright"; that was an unlucky sample,
+# not a rule, so the manual-capture fallback is no longer the only option.
+#
+# What actually gated the page was mundane: /Path2Plans opens on a short
+# qualification prelude ("Are you moving to a new address?" -> "No. I already
+# live here" -> "See Plans") and renders no plan cards until it's answered --
+# the same shape as Direct Energy's residential/not-moving prelude.
+def _ambit_render(page: object, zip_code: str) -> Optional[str]:
+    """Ambit nav flow, from a `playwright codegen` recording of the real site.
+
+    `fetch_rendered_html` has already opened `homepage` (the marketing site);
+    this drives ZIP -> dwelling type -> the not-moving prelude -> plan list.
+
+    Two details cost a round of guessing and are worth keeping written down:
+    the "I already live here" control is a **radio**, not a button (clicking it
+    by role=button silently no-ops), and **"See Plans" appears twice** -- once
+    before the moving question and once after. Both steps are best-effort
+    because the funnel varies (the cookie/terms "Accept" isn't always shown);
+    what actually decides success is the plan-card wait at the end, which raises
+    so discovery reports a failure rather than yielding zero plans silently.
+    """
+    def _try(desc: str, fn, timeout: int = 15_000) -> bool:
+        try:
+            fn(timeout)
+            page.wait_for_timeout(1_200)
+            return True
+        except Exception:  # noqa: BLE001 -- optional funnel step
+            logger.info("Ambit: step %r not present/clickable (continuing)", desc)
+            return False
+
+    zip_box = page.get_by_role("textbox", name="Enter ZIP Code")
+    _try("ZIP entry", lambda t: zip_box.fill(zip_code, timeout=t))
+    _try("Get Started", lambda t: page.get_by_role("button", name="Get Started").first.click(timeout=t))
+    _try("dwelling type: House", lambda t: page.get_by_text("House", exact=True).first.click(timeout=t))
+    _try("Accept", lambda t: page.get_by_role("button", name="Accept").first.click(timeout=t))
+    _try("See Plans (1st)", lambda t: page.get_by_role("button", name="See Plans").first.click(timeout=t))
+    # The moving question: a RADIO, not a button.
+    _try(
+        "radio: No. I already live here.",
+        lambda t: page.get_by_role("radio", name="No. I already live here.").check(timeout=t),
+    )
+    _try("See Plans (2nd)", lambda t: page.get_by_role("button", name="See Plans").first.click(timeout=t))
+
+    page.wait_for_selector("[data-productid], [id^='PlanCard_']", timeout=60_000)
+    page.wait_for_timeout(2_500)
+    return None
+
+
 AMBIT = RepConfig(
     key="ambit",
     retailer="Ambit Energy",
     homepage="https://www.ambitenergy.com/",
     extractor=extract_ambit,
-    render=None,
-    # Same Vistra shopping.ambitenergy.com/PDFGenerator endpoint as TXU (HTML to
+    render=_ambit_render,
+    # EFLs come from shopping.ambitenergy.com/api/getdocument (plain PDF over
     # httpx); keep only buyback plans -- the rest are on PTC.
     broaden=False,
 )

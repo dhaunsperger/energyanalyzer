@@ -1,9 +1,9 @@
-# Benchmark archive — Texas Power Guide report, July 2026
+# Benchmark archive — reference analysis report, July 2026
 
 This is a **frozen regression baseline** for
 `tests/test_engine.py::test_integration_report_benchmarks`, which validates the
 billing engine (`engine/cost.py`, ARCHITECTURE.md §6) against the dollar figures
-in the July 2026 Texas Power Guide report (ARCHITECTURE.md §1).
+in the July 2026 reference analysis report (ARCHITECTURE.md §1).
 
 Those figures are only reproducible against the exact inputs that produced them,
 so **every input the benchmark depends on is pinned here** and the test reads

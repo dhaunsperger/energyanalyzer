@@ -29,6 +29,17 @@ DEFAULT_DRAFTS_DIR = REPO_ROOT / "plans" / "drafts"
 
 LOAD_BEARING_KEYS = ("energy_charge", "base_charge", "buyback", "free_window")
 
+# Keys a draft YAML carries for the review UI that are NOT part of the Plan
+# schema: `_parse` (per-field confidence/evidence/notes) and `_llm_suggested`
+# (which fields a local LLM pre-filled, and its stated reasoning). Both must be
+# stripped before `Plan.model_validate` or promotion into `plans/`.
+DRAFT_META_KEYS = ("_parse", "_llm_suggested")
+
+
+def plan_fields(raw: dict) -> dict:
+    """A draft dict reduced to Plan-schema fields (review metadata removed)."""
+    return {k: v for k, v in raw.items() if k not in DRAFT_META_KEYS}
+
 
 # --------------------------------------------------------------------------- #
 # DraftPlan
@@ -536,9 +547,14 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
         (
             # Allows a stray repeated unit symbol between value and "per",
             # e.g. two-column table artifacts like "Base Charge $0.00 $ per
-            # bill month"
+            # bill month". "Base Monthly Charge" is the same field under a
+            # different word order (Heritage, Chariot's brand-prefixed tables),
+            # and the "$" is optional because some REPs omit it and let the
+            # column header carry the unit (Octopus: "Base Charge: 0.00 per
+            # month"). The trailing "per <period>" anchor keeps this from
+            # matching a per-kWh rate.
             re.compile(
-                r"Base\s*(?:Charge|Fee)\**\s*[:\-]?\s*\$\s*(\d+(?:\.\d+)?)\s*\$?\s*per\s*"
+                r"Base\s*(?:Monthly\s*)?(?:Charge|Fee)\**\s*[:\-]?\s*\$?\s*(\d+(?:\.\d+)?)\s*\$?\s*per\s*"
                 r"(?:billing\s*cycle|bill\s*month|month)",
                 re.I,
             ),
@@ -589,9 +605,25 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
         ),
         (
             # Average-price-table row style, e.g. "Base Charge($ per month) $ 0.00"
-            re.compile(r"Base\s*Charge\s*\([^)]*\)\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
+            re.compile(r"Base\s*Charge\s*\([^)]*\)\s*\$?\s*(\d+(?:\.\d+)?)\b", re.I),
             0.85,
             lambda m: float(m.group(1)),
+        ),
+        (
+            # A ZERO minimum-usage fee is an affirmative statement that this plan
+            # has no unconditional monthly charge (Constellation: "Minimum Usage
+            # Fee 0.00000 $ per bill month"; Heritage: "Minimum Usage Charge: $0
+            # per billing cycle < 0 kWh"). Matched only at zero, and last, on
+            # purpose: a NON-zero minimum-usage fee is a conditional charge that
+            # applies below a usage threshold, NOT a base charge, and must never
+            # be read as one. Anything nonzero falls through to the "not found"
+            # path so a human decides.
+            re.compile(
+                r"Minimum\s*Usage\s*(?:Fee|Charge)\s*[:\-]?\s*\$?\s*0(?:\.0+)?\s*\$?\s*(?:per|<)",
+                re.I,
+            ),
+            0.85,
+            lambda m: 0.0,
         ),
     ]
     return _first_match(text, patterns)
@@ -1204,11 +1236,50 @@ def _extract_bill_credits(text: str) -> list[dict]:
     return out
 
 
+# "E?xport Credit Rate" is deliberate: several REPs (Atlantex, Chariot) label the
+# export credit that way, and the corrupted-font PDFs in this corpus render the
+# capital E as an invisible Private-Use-Area codepoint that extract_text strips,
+# leaving a bare "xport Credit Rate". Verified safe across all 200 downloaded
+# EFLs: every occurrence of "credit rate" is an export/excess-energy credit.
+# "Renewable Rewards Credit" is Green Mountain's brand name for its solar export
+# credit ("You will receive a Renewable Rewards Credit on your bill for the excess
+# energy delivered by your eligible renewable energy system to the grid").
+# Missing it made the parser report buyback=none at high confidence on a plan
+# literally named "Renewable Rewards Solar Credit 12" -- found by the LLM audit
+# (scripts/audit_plans_llm.py), which is exactly the silent-wrong class that
+# audit exists to catch. The (R) is optional because the glyph survives some
+# text extractions and not others.
 _BUYBACK_LABEL = re.compile(
     r"(Solar\s*(?:Repurchase|Buyback)|Buy\s*Back\s*Rate|Excess\s*Energy\s*(?:Credit|Rate|"
-    r"Purchase)|Renewable\s*Buyback|Solar\s*Grid\s*Credit)[^\n]{0,100}",
+    r"Purchase)|Renewable\s*Buyback|Solar\s*Grid\s*Credit|E?xport\s*Credit\s*Rate"
+    r"|Renewable\s*Rewards\s*(?:®|\(R\))?\s*Credit)[^\n]{0,100}",
     re.I,
 )
+
+
+# The PUCT-mandated disclosure line every EFL carries. When a REP answers YES
+# here but no buyback rate label resolves, the parser must NOT confidently
+# report "no buyback" -- the document itself says otherwise. Answer text is
+# often wrapped onto following lines, so a generous window is scanned and only
+# an unambiguous leading yes/no counts.
+_BUYBACK_DISCLOSURE_RE = re.compile(
+    r"purchase\s+excess\s+distributed\s+renewable(?:\s+generation)?\s*\??(.{0,120})",
+    re.I | re.S,
+)
+
+
+def _buyback_disclosure_answer(text: str) -> Optional[bool]:
+    """True/False if the EFL's excess-generation disclosure clearly answers
+    yes/no, else None (wrapped/absent/unparseable answer -- most EFLs)."""
+    m = _BUYBACK_DISCLOSURE_RE.search(text)
+    if not m:
+        return None
+    tail = re.sub(r"\s+", " ", m.group(1)).strip()
+    if re.match(r"(?i)\W*yes\b", tail):
+        return True
+    if re.match(r"(?i)\W*no\b", tail):
+        return False
+    return None
 
 
 _BUYBACK_HEDGE = re.compile(
@@ -1274,7 +1345,16 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
     # 3.0 cents per kWh" on the next line) still resolves via its lone candidate.
     candidates.sort(key=lambda m: 0 if _rate_ckwh_from_snippet(m.group(0)) is not None else 1)
 
+    # The EFL's own disclosure answer vetoes a confident "no buyback": if the
+    # REP says it DOES purchase excess generation, an unresolved rate is an
+    # unread field, not an absent one. Only the confidence moves (the value
+    # stays "none"), so the draft lands in review / becomes LLM-repairable
+    # instead of silently entering the rankings as a non-buyback plan.
+    says_yes = _buyback_disclosure_answer(text) is True
+
     if not candidates:
+        if says_yes:
+            return {"kind": "none"}, 0.3, "EFL discloses it purchases excess generation, but no rate found"
         return {"kind": "none"}, 0.95, ""
 
     fallback_evidence = _snippet(candidates[0])
@@ -1334,7 +1414,7 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
     hedged = any(
         _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]) for m in candidates
     )
-    conf = 0.85 if hedged else 0.3
+    conf = 0.85 if hedged and not says_yes else 0.3
     return {"kind": "none"}, conf, fallback_evidence
 
 

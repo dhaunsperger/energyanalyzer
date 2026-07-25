@@ -48,7 +48,7 @@ overview_tab, pages_tab, data_tab, concepts_tab, trouble_tab = st.tabs(
 with overview_tab:
     st.markdown(
         """
-EnergyAnalyzer replicates the Texas Power Guide solar-electric plan analysis: it simulates
+EnergyAnalyzer performs a professional-grade solar-electric plan analysis: it simulates
 a full year of electricity bills for every plan in your database against **your own**
 15-minute interval usage, then ranks them by first-year net cost.
 
@@ -212,6 +212,27 @@ page. Refresh is confirmation-gated and shows one progress bar with staged label
    load-bearing fields scored ≥ 0.8). Anything less is left as a draft for you to review.
 9. **Supersede**: remove a synthetic meterplan plan once a real EFL (from PTC, discovery, or
    Meter) — or a manual entry — covers the same plan.
+
+**It runs in the background.** You can navigate away, or close the tab, and it keeps going —
+progress is written to disk as it goes, so the Plans page always shows where it got to, even
+after restarting the app.
+"""
+        )
+
+    with st.expander("A refresh was interrupted / there's no summary"):
+        st.markdown(
+            """
+If a refresh is cut short (app restarted, machine slept, an older version killed by navigating
+away), the Plans page shows a banner naming the stage it stopped in, plus a **Finish incomplete
+refresh** button.
+
+Downloading and parsing write their drafts to disk as they go, so the database can be completed
+locally — the button promotes every confident draft and supersedes what's covered. **It does not
+re-download anything**, so it takes seconds rather than repeating the whole fetch.
+
+The one thing it can't rebuild is **retailer-site discovery**: retailers the sweep never reached
+have no drafts on disk, so those plans need a fresh run with the discovery checkbox on. If solar
+buyback plans look missing afterwards, that's why.
 """
         )
 
@@ -273,6 +294,17 @@ with concepts_tab:
 - **needs_review / auto-promote** — a parsed draft is auto-promoted into the database only when
   it isn't flagged `needs_review` **and** every load-bearing field scored ≥ 0.8 confidence.
   Everything else waits as a draft for you to check on the Plans page.
+- **Promote all drafts (quick look)** — bulk-moves every draft into the database *without* the
+  confidence gate, so the whole market shows up in Compare at once. Each plan keeps its
+  `needs_review` flag, so unverified ones stay badged — but their numbers are the parser's
+  unreviewed guess, so treat rankings that include them as provisional and check the EFL before
+  acting on one. Promoting consumes the draft and its per-field confidence/evidence; re-parsing
+  the source EFL brings that back, and "Demote to drafts" on the Plan detail view reverses it.
+- **LLM-suggested fields** — with "Pre-fill unreadable fields with the local LLM" ticked, a local
+  Ollama model proposes values for fields the parser couldn't read (mainly PDFs with broken
+  embedded fonts). Such fields are badged **LLM** in the draft's confidence table with the model's
+  own reasoning shown beneath. These drafts **always** stay in review: the model pre-fills the
+  form to save you typing, it never decides. Optional and off by default.
 - **EV free charging** — a Tesla-style capped free-charging window: the engine waives the energy
   charge on the first N kWh/month used within the plan's eligible overnight hours.
 """
@@ -305,8 +337,11 @@ Group the failing URLs by host first — the pattern usually points straight at 
 The Plans page shows a count of unreadable EFL PDFs beneath the database. Usual causes are an
 HTML error page saved as `.pdf` (see above) or a genuinely **image-only** EFL. The parser reads
 text, not images — a scanned/image EFL would need OCR (e.g. `ocrmypdf`/Tesseract) before parsing.
-One known data-quality case: **Atlantex**'s EFL has a broken embedded font that drops letters, so
-it lands in `needs_review` for a manual fix even though the PDF downloads fine.
+One known data-quality case: **Atlantex**'s EFL has a broken embedded font that drops letters
+(`ae Charge $19.95 per ill`), so the regex parser can't read its base charge even though the PDF
+downloads fine. This is exactly what the **"Pre-fill unreadable fields with the local LLM"**
+checkbox is for — a language model reads the damaged text easily. It still lands in review for
+you to confirm; the suggestion just saves you retyping it.
 """
         )
 

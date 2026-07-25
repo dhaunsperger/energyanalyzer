@@ -1,5 +1,5 @@
 """Compare page (ARCHITECTURE.md §9): rank all plans by simulated
-first-year net bill, styled like the Texas Power Guide report p.2 table."""
+first-year net bill, styled like the reference analysis report p.2 table."""
 
 from __future__ import annotations
 
