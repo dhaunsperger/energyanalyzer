@@ -1262,3 +1262,74 @@ def test_meter_efl_parses_under_the_meter_brand():
     if draft is None:
         pytest.skip("Meter EFL fixture not committed")
     assert draft.plan_dict["retailer"] == "Meter Energy"
+
+
+def test_etf_is_not_read_as_a_buyback_rate():
+    """A dollar amount with no per-kWh unit must not become a per-kWh rate.
+
+    Champion's Free Weekends-24 hedges its buyback ("may be available... please
+    contact Customer Care") and, because PDF extraction interleaves the
+    two-column disclosure chart, its "$250.00" early termination fee lands
+    within the buyback label's context window. The parser read it as the buyback
+    rate and reported 25000c/kWh at 0.85 confidence -- a silent-wrong that would
+    have ranked the plan first by an absurd margin had its other fields parsed.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback, _rate_ckwh_from_snippet
+
+    # A unit-less dollar amount too large to be a per-kWh price is rejected...
+    assert _rate_ckwh_from_snippet("Early Termination Fee: $250.00") is None
+    # ...while genuine per-kWh prices still parse, with or without the unit.
+    assert _rate_ckwh_from_snippet("Buyback Rate $0.158 per kWh") == 15.8
+    assert _rate_ckwh_from_snippet("Buyback Rate: $0.035") == 3.5
+    # An explicit unit is trusted even when the value looks implausible.
+    assert _rate_ckwh_from_snippet("$2.50 per kWh") == 250.0
+
+    text = (
+        "Solar Buyback may be available with this plan. Please contact Customer "
+        "Care to further discuss Champion's Solar Buyback program. Disclosure Chart "
+        "Type of Product Fixed Rate Contract Term 24 Month(s) Yes, Early "
+        "Termination Fee: $250.00 If applicable, Champion will assess the fee."
+    )
+    buyback, _conf, _ev = _extract_buyback(text, energy_ckwh=10.9)
+    assert buyback == {"kind": "none"}
+
+
+def test_buyback_attachable_to_this_plan_goes_to_review_not_confident_none():
+    """"Available WITH THIS PLAN" and "for buyback plans ONLY" mean opposites.
+
+    Champion attaches buyback to any residential plan except Free Nights without
+    changing the rate, so a confident kind=none understates every Champion plan
+    for a solar owner. TXU and Abundance gate buyback behind switching products,
+    where kind=none genuinely describes the plan on the EFL. Both wordings hedge,
+    so the hedge alone cannot separate them.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    attachable = (
+        "Solar Buyback may be available with this plan. Please contact Customer "
+        "Care to further discuss Champion's Solar Buyback program."
+    )
+    bb, conf, ev = _extract_buyback(attachable, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf < 0.8, "must land in review, not assert no-buyback"
+    assert "THIS plan" in ev
+
+    gated = (
+        "Yes, for homeowners who are enrolled on an eligible TXU Energy solar "
+        "buyback plan, and who have executed an Interconnection Agreement."
+    )
+    bb, conf, _ = _extract_buyback(gated, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf >= 0.8, "switching products is required: none is right"
+
+    # Precedence: when the EFL answers the PUCT disclosure question with a clear
+    # "Yes", that veto outranks the gated reading and sends the plan to review
+    # anyway -- the document itself says the REP buys excess generation, so an
+    # unresolved rate is an unread field rather than an absent one. Abundance
+    # only lands at high confidence on the real PDF because column interleaving
+    # breaks the question/answer apart; on clean text the veto wins, which is
+    # the safer of the two outcomes.
+    disclosed_yes = (
+        "Does REP purchase excess distributed renewable generation? Yes, for solar "
+        "buy-back plans only. Please inquire for more details on solar buyback plans."
+    )
+    bb, conf, _ = _extract_buyback(disclosed_yes, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf < 0.8

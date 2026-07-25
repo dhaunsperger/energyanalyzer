@@ -173,8 +173,17 @@ def slugify(s: str) -> str:
     return s or "plan"
 
 
-_DOLLAR_KWH = re.compile(r"\$\s*(\d*\.\d+)\s*(?:per\s*kwh|/\s*kwh)?", re.I)
+_DOLLAR_KWH = re.compile(r"\$\s*(\d*\.\d+)\s*(per\s*kwh|/\s*kwh)?", re.I)
 _CENT_KWH = re.compile(r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I)
+
+# A per-kWh price in dollars is always well under $1 -- Texas energy charges and
+# buyback rates live around $0.03-$0.20/kWh. The "per kWh" suffix in _DOLLAR_KWH
+# is optional (rates often sit in a table whose unit is only in the header), so
+# without this bound ANY dollar amount in the search window parses as a rate:
+# Champion's Free Weekends-24 read its "$250.00" early termination fee as a
+# 25000c/kWh solar buyback and reported it at 0.85 confidence. Cap only applies
+# when the unit is absent -- an explicit "per kWh" is trusted as written.
+_MAX_UNITLESS_USD_PER_KWH = 1.0
 
 
 def _rate_ckwh_from_snippet(s: str) -> Optional[float]:
@@ -182,7 +191,10 @@ def _rate_ckwh_from_snippet(s: str) -> Optional[float]:
     out of a short text snippet. Returns cents/kWh."""
     m = _DOLLAR_KWH.search(s)
     if m:
-        return round(float(m.group(1)) * 100, 4)
+        usd = float(m.group(1))
+        if m.group(2) or usd < _MAX_UNITLESS_USD_PER_KWH:
+            return round(usd * 100, 4)
+        return None
     m = _CENT_KWH.search(s)
     if m:
         return round(float(m.group(1)), 4)
@@ -1341,6 +1353,29 @@ _BUYBACK_HEDGE = re.compile(
 )
 
 
+# A hedged buyback mention means one of two very different things, and treating
+# them alike is wrong in opposite directions:
+#
+#   PLAN-GATED   "Yes, for solar buy-back plans only" (Abundance); "for homeowners
+#                enrolled on an eligible TXU Energy solar buyback plan" (TXU).
+#                Buyback requires switching to a DIFFERENT product, so for the
+#                plan this EFL describes, kind=none is correct and confident.
+#
+#   ATTACHABLE   "Solar Buyback may be available WITH THIS PLAN" (Champion);
+#                "Champion may then add Solar Buyback to your services".
+#                Buyback attaches to this very plan -- it is simply priced in a
+#                separate addendum instead of on the EFL. Reporting a confident
+#                kind=none here understates the plan for a solar owner (Champion
+#                confirms buyback can be added to every residential plan except
+#                Free Nights, without changing the rate), so this must land in
+#                review as an unresolved field rather than assert "no buyback".
+_BUYBACK_ATTACHABLE = re.compile(
+    r"(?:may\s*be\s*available|available)\s*(?:with|on)\s*this\s*plan"
+    r"|(?:may\s*then\s*)?add\s*solar\s*buy\s*-?\s*back\s*to\s*your",
+    re.I,
+)
+
+
 _RTW_CAP_LABEL_RE = re.compile(r"\bcap(?:ped)?\b(?:\s+at)?", re.I)
 
 
@@ -1441,6 +1476,13 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
 
         rate = _rate_ckwh_from_snippet(m.group(0))
         if rate is None:
+            # A hedged mention ("Solar Buyback may be available -- please
+            # contact Customer Care") publishes no rate at all, so any number
+            # near it belongs to something else and must not be swept out of
+            # the wide context window. The label line itself is still read
+            # above: an EFL that hedges AND prints a rate is taken at its word.
+            if _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]):
+                continue
             rate = _rate_ckwh_from_snippet(context)
         if rate is None and re.search(
             r"(?:equal\s*to|same\s*as|at)\s*(?:the\s*)?Energy\s*Charge", context, re.I
@@ -1467,6 +1509,15 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
     hedged = any(
         _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]) for m in candidates
     )
+    # "...available with THIS plan" is not a disclaimer that there's no buyback
+    # (see _BUYBACK_ATTACHABLE) -- the value stays "none" because no rate is
+    # published, but the confidence must send it to a human.
+    if _BUYBACK_ATTACHABLE.search(text):
+        return (
+            {"kind": "none"},
+            0.3,
+            fallback_evidence + " [buyback attaches to THIS plan; rate not on the EFL]",
+        )
     conf = 0.85 if hedged and not says_yes else 0.3
     return {"kind": "none"}, conf, fallback_evidence
 

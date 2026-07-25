@@ -204,6 +204,42 @@ def _build_energy_rates(proposed: object) -> Optional[list]:
     return out or None
 
 
+def _tdu_numerals(tdu_name: str = "oncor") -> list[float]:
+    """The current TDU tariff's two numbers, as bare numerals.
+
+    Both leak into LLM proposals because an EFL prints the REP's charges and the
+    TDU's side by side, and `_verify_number_in_text` can't tell the columns
+    apart -- the TDU number IS in the EFL. Returns [] if the tariff can't be
+    read, so a missing tdu/ file degrades to the old behaviour.
+    """
+    try:
+        from energyanalyzer.core.plans_io import current_tdu
+
+        t = current_tdu(tdu_name)
+        return [float(t.fixed_usd_month), float(t.volumetric_ckwh)]
+    except Exception:  # noqa: BLE001 -- guard is best-effort, never fatal
+        return []
+
+
+def _is_tdu_charge(value: Optional[float], tdu_values: list[float], tol: float = 0.005) -> bool:
+    """True if `value` is one of the TDU's own charges rather than the plan's.
+
+    Applied to base_charge ONLY, deliberately. Real REP base charges cluster on
+    marketing numbers ($0, $4.95, $9.95, $14.95...); Oncor's $4.06/month and
+    6.1196c/kWh are not of that shape, and across 191 real plans the only base
+    charge matching either was itself this bug (Champion's Champ Saver-12 got
+    the 6.1196 delivery rate written in as a monthly base charge).
+
+    It must NOT be applied to energy rates: True Power's True Value 36 really
+    does charge 6.12c/kWh, near-identical to Oncor's 6.1196c/kWh volumetric, so
+    the same test there would reject a correct value. `tol` still separates
+    6.12 from 6.1196 for an exact-match caller, but nothing relies on that.
+    """
+    if value is None:
+        return False
+    return any(abs(float(value) - t) < tol for t in tdu_values)
+
+
 def _catch_all_rate_sane(rates: list) -> bool:
     """The trailing catch-all rate (window=None) must be a real, positive rate.
 
@@ -279,6 +315,8 @@ def llm_repair_draft(
         report["note"] = "no weak load-bearing fields"
         return draft, report
 
+    tdu_values = _tdu_numerals()
+
     # Show the model what the deterministic parser already produced, so it
     # confirms/corrects a real starting point instead of re-deriving blind.
     current = {
@@ -286,10 +324,25 @@ def llm_repair_draft(
         "energy_rates": draft.plan_dict.get("energy_rates"),
         "buyback": draft.plan_dict.get("buyback"),
     }
+    # Naming the TDU's actual numbers beats the abstract "do NOT include TDU
+    # delivery charges" the schema already carries -- gemma3:4b honoured the
+    # rule in its reasoning while still returning $4.06. The deterministic
+    # _is_tdu_charge guard below is what actually enforces it; this just makes
+    # the model less likely to reach for the wrong column in the first place.
+    tdu_hint = ""
+    if tdu_values:
+        tdu_hint = (
+            f"\n\nThe TDU (utility) delivery charges in this service area are "
+            f"${tdu_values[0]:.2f} per month and {tdu_values[1]}c per kWh. Those are the "
+            "UTILITY's charges, printed alongside the retailer's in the same table. "
+            "They are NEVER the plan's base charge or energy charge. If a number you are "
+            "about to report equals one of them, you are reading the wrong column.\n"
+        )
     user = (
         "The deterministic parser produced this, but is UNSURE about: "
         f"{', '.join(weak_keys)}.\n"
-        f"Current parse: {json.dumps(current, default=str)}\n\n"
+        f"Current parse: {json.dumps(current, default=str)}\n"
+        f"{tdu_hint}\n"
         "Read the EFL below and return the correct values in the schema. If the "
         "current parse is already right, return the same values.\n\n"
         f"EFL text:\n{(text or '').strip()[:6000]}"
@@ -339,7 +392,18 @@ def llm_repair_draft(
     # base_charge
     base = _num(parsed.get("base_charge_usd"))
     if "base_charge" in weak_keys and base is not None:
-        if _accept("base_charge", base):
+        if _is_tdu_charge(base, tdu_values):
+            # The EFL prints the REP's charges and the TDU's in adjacent
+            # columns, so text-verification alone can't tell them apart -- it
+            # confirms the number is present, which it is, under Oncor's
+            # heading. Champion's split table ("Base Charge $0.00 | 6.1196c/kWh
+            # | $4.06") produced base charges of $4.06 and $6.12 this way.
+            # Refusing costs nothing: LLM fields never auto-promote, so the
+            # field just stays for the human instead of arriving pre-filled
+            # with a plausible wrong number they might wave through.
+            report["note"] = f"LLM base_charge {base} rejected (matches a TDU delivery charge)"
+            logger.info("llm_repair: rejected TDU delivery charge %s as base_charge", base)
+        elif _accept("base_charge", base):
             new_dict["base_charge_usd"] = base
             new_conf["base_charge"] = _score("base_charge")
             new_ev["base_charge"] = "llm(verified in EFL text)"
