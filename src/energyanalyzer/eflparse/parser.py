@@ -1209,6 +1209,34 @@ def _extract_bill_credits(text: str) -> list[dict]:
     ):
         _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
 
+    # "Usage Credit $125.00 per billing cycle for usage (>=1000) kWh" -- the
+    # Gexa / Frontier / Discount Power price-table row. It states the threshold
+    # as "for usage (>=N)" with the comparator in parentheses, rather than the
+    # "when usage >= N" the patterns above expect. Missing it silently dropped
+    # credits worth $50-$125 PER MONTH from 9 plans, 5 of which had already
+    # auto-promoted -- the rest of those EFLs parse confidently, so nothing
+    # flagged them. Found 2026-07-24 while reviewing the draft queue.
+    for m in re.finditer(
+        r"Usage\s*Credit[:\s]*\$?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*\$?\s*"
+        r"(?:per\s*(?:billing\s*cycle|bill\s*month|month)\s*)?"
+        r"for\s*usage\s*\(?\s*(?:>=|=>|≥)\s*(\d+(?:,\d{3})*)\s*\)?\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1).replace(",", "")), float(m.group(2).replace(",", "")), None)
+
+    # Prose variant: "A Usage Credit of $50.00 will be included for each billing
+    # cycle when your usage on this plan is above or equal to 500 kWh."
+    # ("above or equal to", plus filler between "usage" and "is".)
+    for m in re.finditer(
+        r"(?:usage|bill)\s*credit\s*of\s*\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)"
+        r"[^.]{0,120}?usage\b[^.]{0,40}?\bis\s*"
+        r"(?:above|greater\s*than)\s*or\s*equal\s*to\s*(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1).replace(",", "")), float(m.group(2).replace(",", "")), None)
+
     # "Usage Credit for 1,000 kWh or more: $125"
     for m in re.finditer(
         r"Usage\s*Credit\s*for\s*(\d+(?:,\d{3})*)\s*kWh\s*or\s*more[:\s]*\$(\d+(?:\.\d+)?)",

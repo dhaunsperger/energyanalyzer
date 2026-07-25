@@ -1204,3 +1204,34 @@ class TestCorpusGreenMountainRenewableRewards:
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
+
+
+def test_usage_credit_table_row_form_is_parsed():
+    """Regression: the Gexa / Frontier / Discount Power price-table row states its
+    threshold as "for usage (>=N) kWh", not "when usage >= N kWh".
+
+    Missing that silently dropped credits worth $50-$125 PER MONTH from 9 plans,
+    5 of which had already auto-promoted -- the rest of those EFLs parse
+    confidently, so nothing ever flagged them. Found 2026-07-24 while reviewing
+    the draft queue, and the reason bill_credits is worth a dedicated test: it
+    is not a load-bearing key, so the needs_review gate does not protect it.
+    """
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    table = "Usage Credit $125.00 per billing cycle for usage (>=1000) kWh"
+    assert _extract_bill_credits(table) == [
+        {"min_kwh": 1000.0, "max_kwh": None, "credit_usd": 125.0}
+    ]
+
+    # $ before the amount is optional, and thousands separators appear in the wild
+    assert _extract_bill_credits("Usage Credit 50.00 per billing cycle for usage (>=500) kWh") == [
+        {"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}
+    ]
+
+    prose = (
+        "A Usage Credit of $50.00 will be included for each billing cycle when "
+        "your usage on this plan is above or equal to 500 kWh."
+    )
+    assert _extract_bill_credits(prose) == [
+        {"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}
+    ]
