@@ -591,8 +591,19 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 
 ## 11. Open questions / decisions log
 
-- Load zone for Round Rock/Oncor assumed `LZ_NORTH` — confirm against ESIID
-  premise; configurable in `data/config.yaml` (`load_zone`).
+- Load zone: **RESOLVED 2026-07-25 — it is `LZ_SOUTH`, not the `LZ_NORTH`
+  default.** Confirmed independently by an ESID lookup (electricityplans.com
+  reports load zone "south" for the premise) and by Tesla's own plan page, which
+  redirects a 78665 lookup to `view-plans?loadZone=SOUTH&tdsp=ONCOR`. County is
+  NOT a reliable proxy: the ERCOT map splits Williamson County across SOUTH,
+  NORTH, AEN and LCRA. Set in the gitignored `data/config.yaml` (`load_zone`),
+  since it is premise-specific — anyone else running this must look up their
+  own. Effect is confined to RTW-indexed plans, but hits all of them: every RTW
+  plan in the database improved by $30.43/yr on the switch (identical because
+  they all price exports at multiplier 1.0 / adder 0, so the delta is just
+  `sum(export_kwh) x (south - north price)`). LZ_NORTH and LZ_SOUTH correlate
+  only 0.79 with a mean absolute difference of 0.84c/kWh, so the two are not
+  interchangeable even though their annual means are within 0.02c.
 - Oncor tariff history seeded with only two points (see `tdu/oncor.yaml`);
   user updates on Oncor rate changes (Mar/Sep).
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
