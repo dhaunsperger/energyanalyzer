@@ -1397,3 +1397,18 @@ def test_meter_efl_name_is_read_from_the_presigned_filename():
         "https://light-assets.s3.amazonaws.com/efls/EFL_Earner_20260723_ONCOR_3dc6b881.pdf?X-Amz-Sig=x"
     )
     assert m and m.group(1) == "Earner"
+
+
+def test_meter_plan_names_carry_the_term():
+    """Meter's EFL filename encodes the plan but NOT the term
+    (EFL_Earner_<date>_<TDU>_<hash>.pdf), and all three terms are real distinct
+    documents -- so the term has to come from the tab that was selected, or the
+    three Earner plans collapse to one."""
+    m = rd._METER_EFL_NAME_RE.search(
+        "https://light-assets.s3.amazonaws.com/efls/EFL_Earner_20260723_ONCOR_d21a74be.pdf?X-Amz-Sig=x"
+    )
+    assert m and m.group(1) == "Earner"
+    assert rd._METER_TERMS == ("12 months", "24 months", "36 months")
+    # "Solar + battery" must stay out: battery-required plans are excluded
+    # everywhere else in this app.
+    assert "Solar + battery" not in rd._METER_PROFILES

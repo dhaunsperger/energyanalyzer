@@ -2284,6 +2284,10 @@ _METER_TERMS = ("12 months", "24 months", "36 months")
 # Order matters: the page loads on a profile that already lists the solar plans,
 # and clicking "No solar" first NARROWS it to Standard only. Sweep the default
 # view first, then the alternatives.
+# Sweep the default view (which lists the solar plans) plus the two non-battery
+# profiles. "Solar + battery" is skipped on purpose: battery-required plans need
+# hardware the owner doesn't have and are excluded everywhere else in this app
+# (see meterplan_to_drafts' battery skip).
 _METER_PROFILES = (None, "Solar", "No solar")
 
 
@@ -2327,14 +2331,22 @@ def _close_extra_pages(page: object) -> None:
 def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
     """Interactive harvester for Meter Energy's own plans.
 
-    Sweeps the term filters and clicks every "View Electricity Facts Label (EFL)"
-    button, capturing each presigned S3 URL from the network.
+    Meter shows one card per plan (Saver / Earner / Standard) and **each card
+    carries its OWN 12/24/36-month tabs**. Clicking a page-level "24 months"
+    therefore only re-terms the FIRST card -- every other plan silently keeps its
+    default 12-month EFL, which is exactly the bug that made Earner return the
+    same document for all three terms. So the term tab is scoped to the card that
+    owns the EFL button being clicked.
 
-    **A fresh page load per capture is deliberate.** Clicking an EFL hands the
-    browser a download and opens a blank popup, after which the plans page stops
-    responding to clicks entirely -- every subsequent filter or EFL button times
-    out on actionability even though it reports visible and enabled. Reloading
-    is the only reliable reset found, and the cost is small (a handful of loads).
+    Two further behaviours, both measured:
+
+    * A profile chip ("No solar" / "Solar") changes which plans are listed;
+      Standard only appears under some of them, so profiles are swept too.
+      "Solar + battery" is skipped -- battery-required plans need hardware the
+      owner doesn't have and are excluded everywhere else in this app.
+    * Clicking an EFL hands the browser a download and opens a blank popup, after
+      which the page stops responding to clicks entirely. A fresh load before
+      every capture is the only reliable reset found.
     """
     captured: list[str] = []
 
@@ -2352,72 +2364,84 @@ def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[Disco
 
     url = _METER_PLANS_URL.format(zip=zip_code)
 
-    def _load_and_filter(term: Optional[str]) -> int:
-        """Reload the plans page, apply `term`, return the EFL-button count."""
+    def _efl_buttons():
+        return page.get_by_role(  # type: ignore[attr-defined]
+            "button", name="View Electricity Facts Label (EFL)"
+        )
+
+    def _load(profile: Optional[str]) -> int:
+        """Fresh load + optional profile chip; returns the EFL-button count."""
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)  # type: ignore[attr-defined]
             page.wait_for_timeout(6000)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             return 0
-        if term and not _click_any_matching(page, term, 8000):
+        if profile and not _click_any_matching(page, profile, 8000):
             return 0
         try:
             page.wait_for_timeout(1500)  # type: ignore[attr-defined]
-            return page.get_by_role(  # type: ignore[attr-defined]
-                "button", name="View Electricity Facts Label (EFL)"
-            ).count()
+            return _efl_buttons().count()
         except Exception:  # noqa: BLE001
             return 0
 
     seen: set[str] = set()
     plans: list[DiscoveredPlan] = []
-    for term in _METER_TERMS:
-        n = _load_and_filter(term)
-        logger.info("Meter Energy: %s -- %d EFL button(s)", term, n)
+    for profile in _METER_PROFILES:
+        n = _load(profile)
+        logger.info("Meter Energy: %s -- %d plan card(s)", profile or "default view", n)
         for i in range(n):
-            # Reload before each click: the previous capture left the page inert.
-            if i and _load_and_filter(term) <= i:
-                break
-            before = len(captured)
-            try:
-                el = page.get_by_role(  # type: ignore[attr-defined]
-                    "button", name="View Electricity Facts Label (EFL)"
-                ).nth(i)
-                el.scroll_into_view_if_needed(timeout=2000)
-                el.click(timeout=10_000)
-            except Exception:  # noqa: BLE001
-                continue
-            for _ in range(24):
-                if len(captured) > before:
+            for term in _METER_TERMS:
+                if _load(profile) <= i:
                     break
                 try:
-                    page.wait_for_timeout(250)  # type: ignore[attr-defined]
+                    efl = _efl_buttons().nth(i)
+                    # The card owning this button: nearest ancestor that also
+                    # holds the per-plan term tabs.
+                    card = efl.locator(
+                        "xpath=ancestor::*[.//button[normalize-space()='12 months']][1]"
+                    )
+                    card.get_by_role("button", name=term).first.click(timeout=8000)
+                    page.wait_for_timeout(2000)  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 -- card may not offer this term
+                    continue
+                before = len(captured)
+                try:
+                    btn = _efl_buttons().nth(i)
+                    btn.scroll_into_view_if_needed(timeout=2000)
+                    btn.click(timeout=10_000)
                 except Exception:  # noqa: BLE001
-                    break
-            _close_extra_pages(page)
-            if len(captured) <= before:
-                continue
-            got = captured[-1]
-            # Presigned URLs carry a rotating signature; key on the path so the
-            # same document isn't captured once per term filter.
-            key = got.split("?", 1)[0]
-            if key in seen:
-                continue
-            seen.add(key)
-            name_m = _METER_EFL_NAME_RE.search(got)
-            plan_name = name_m.group(1) if name_m else "Meter plan"
-            logger.info("Meter Energy: captured EFL for %s (%s)", plan_name, term)
-            plans.append(
-                DiscoveredPlan(
-                    retailer=config.retailer,
-                    plan_name=plan_name,
-                    efl_url=got,
-                    # Saver/Earner are the solar buyback products; Standard isn't.
-                    is_buyback=plan_name.lower() != "standard",
-                    extraction_method="harvest",
-                    context=f"Meter Energy /plans, {term}",
+                    continue
+                for _ in range(28):
+                    if len(captured) > before:
+                        break
+                    try:
+                        page.wait_for_timeout(250)  # type: ignore[attr-defined]
+                    except Exception:  # noqa: BLE001
+                        break
+                _close_extra_pages(page)
+                if len(captured) <= before:
+                    continue
+                got = captured[-1]
+                # Presigned URLs carry a rotating signature; key on the path so
+                # the same document isn't re-captured under another filter.
+                key = got.split("?", 1)[0]
+                if key in seen:
+                    continue
+                seen.add(key)
+                name_m = _METER_EFL_NAME_RE.search(got)
+                plan_name = name_m.group(1) if name_m else "Meter plan"
+                logger.info("Meter Energy: captured %s (%s)", plan_name, term)
+                plans.append(
+                    DiscoveredPlan(
+                        retailer=config.retailer,
+                        plan_name=f"{plan_name} {term.split()[0]}",
+                        efl_url=got,
+                        # Saver/Earner are the solar buyback products; Standard isn't.
+                        is_buyback=plan_name.lower() != "standard",
+                        extraction_method="harvest",
+                        context=f"Meter Energy /plans, {profile or 'default'} / {term}",
+                    )
                 )
-            )
     return plans
 
 
