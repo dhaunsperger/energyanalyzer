@@ -25,6 +25,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_36_Month_Usage_Bill_Credit.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

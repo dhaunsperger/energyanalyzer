@@ -22,6 +22,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Direct_Energy_Direct_Solar_Unlimited_12.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

@@ -21,6 +21,6 @@ etf_per_month_remaining: true
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_No_Bull_24.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

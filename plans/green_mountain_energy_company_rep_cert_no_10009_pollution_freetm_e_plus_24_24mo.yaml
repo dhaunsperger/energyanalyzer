@@ -20,6 +20,6 @@ etf_usd: 295.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_24.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

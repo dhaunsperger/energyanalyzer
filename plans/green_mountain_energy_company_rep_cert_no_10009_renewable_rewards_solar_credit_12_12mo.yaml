@@ -11,7 +11,10 @@ energy_rates:
 buyback:
   kind: fixed
   rate_ckwh: 6.3
+  rates: []
   offset_scope: all_charges
+  rollover: true
+  cash_out: false
 bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
@@ -19,6 +22,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

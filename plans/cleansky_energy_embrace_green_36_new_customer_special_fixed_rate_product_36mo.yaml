@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CleanSky_Energy_Embrace_Green_36_-_New_Customer_Special.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

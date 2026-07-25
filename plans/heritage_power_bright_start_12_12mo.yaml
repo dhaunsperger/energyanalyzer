@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 23.9
 source: efl:HERITAGE_POWER_LLC_Bright_Start_12_-_25_credit_on_your_first_bill.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

@@ -21,6 +21,6 @@ etf_usd: 150.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: meterplan
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false
