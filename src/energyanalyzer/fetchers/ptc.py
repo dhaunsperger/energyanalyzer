@@ -26,6 +26,36 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
+
+# EFL "URLs" that are actually an HTML viewer page, not a PDF -- a plain httpx
+# GET returns HTML and the %PDF guard (correctly) rejects it. These are handled
+# by REP discovery's headless-render path (`rep_discovery._render_efl_pdf`), so
+# the PTC download path defers them instead of logging a bogus "failed" download.
+_HTML_VIEWER_URL_RE = re.compile(r"octopusenergy\.com/efl/", re.I)
+
+
+def _is_html_viewer_url(url: str) -> bool:
+    """True if `url` serves an HTML EFL viewer (needs rendering, not httpx)."""
+    return bool(_HTML_VIEWER_URL_RE.search(url or ""))
+
+
+def _efl_ssl_context():
+    """TLS context that tolerates a few EFL hosts' legacy servers.
+
+    Some REP EFL hosts (e.g. Tara Energy / Amigo Energy on the shared Just
+    Energy `webs.*.com/Generate_Docs` platform) run TLS stacks that need
+    legacy renegotiation, which OpenSSL 3.x refuses by default -- httpx then
+    fails the download with a bare ``ConnectError`` (SSL routines: unsafe
+    legacy renegotiation disabled). Re-enabling ``OP_LEGACY_SERVER_CONNECT``
+    lets those handshakes complete; verification is otherwise unchanged. Only
+    affects hosts that actually request legacy renegotiation.
+    """
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+    return ctx
+
 # Canonical field -> accepted raw header spellings. PTC has tweaked its
 # export headers over time; matching is done after stripping everything but
 # letters/digits and lowercasing, so "Fees/Credits", "FeesCredits", and
@@ -171,7 +201,9 @@ def fetch_ptc_csv(dest_dir: Path = Path("data/ptc"), timeout: float = 30.0) -> P
     headers = {"User-Agent": _USER_AGENT, "Accept": "text/csv,*/*"}
 
     try:
-        with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+        with httpx.Client(
+        timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
+    ) as client:
             resp = client.get(PTC_EXPORT_URL)
             resp.raise_for_status()
     except Exception as exc:
@@ -318,7 +350,7 @@ def download_efls(
     if limit is not None:
         rows = rows.head(limit)
 
-    summary: dict = {"downloaded": [], "skipped": [], "failed": []}
+    summary: dict = {"downloaded": [], "skipped": [], "failed": [], "deferred": []}
     headers = {"User-Agent": _USER_AGENT, "Accept": "application/pdf,*/*"}
     total = len(rows)
     done = 0
@@ -329,7 +361,9 @@ def download_efls(
         if progress_callback is not None:
             progress_callback(done, total, name)
 
-    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
+    ) as client:
         for _, row in rows.iterrows():
             name = str(row.get("plan_name") or row.get("retailer") or _efl_filename(row))
             url = str(row["efl_url"]).strip()
@@ -341,10 +375,53 @@ def download_efls(
                 summary["skipped"].append(str(dest_path))
                 _report(name)
                 continue
+            if _is_html_viewer_url(url):
+                # Not a PDF over httpx -- REP discovery renders these to PDF.
+                # Defer rather than record a spurious download "failure".
+                summary["deferred"].append(
+                    {
+                        "url": url,
+                        "reason": "HTML EFL viewer -- captured via REP discovery's "
+                        "renderer, not an httpx download",
+                    }
+                )
+                _report(name)
+                continue
             try:
                 resp = client.get(url)
                 resp.raise_for_status()
-                dest_path.write_bytes(resp.content)
+                content = resp.content
+                # Guard against saving a non-PDF (an HTML "not found"/SPA shell or
+                # a bot-challenge/captcha page returned with HTTP 200) as a .pdf --
+                # those can't be parsed and otherwise land silently on disk. A PDF
+                # begins with the "%PDF" signature (allow a little leading junk).
+                if b"%PDF" not in content[:1024]:
+                    ctype = resp.headers.get("content-type", "?")
+                    # An HTML body (not a real error) is a browser-rendered EFL
+                    # viewer / SPA shell (e.g. the Vistra shopping.* PDFGenerator
+                    # endpoint) -- the PDF is generated client-side. Defer these
+                    # (needs a browser) rather than logging a spurious failure;
+                    # genuine errors (connection/404, a truncated non-HTML body)
+                    # still count as failures.
+                    if "html" in ctype.lower():
+                        summary["deferred"].append(
+                            {
+                                "url": url,
+                                "reason": f"HTML response (content-type {ctype!r}) -- a "
+                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                            }
+                        )
+                    else:
+                        summary["failed"].append(
+                            {
+                                "url": url,
+                                "error": f"response was not a PDF (content-type {ctype!r}, "
+                                f"{len(content)} bytes) -- likely a stale link or error page",
+                            }
+                        )
+                    _report(name)
+                    continue
+                dest_path.write_bytes(content)
                 summary["downloaded"].append(str(dest_path))
             except Exception as exc:
                 summary["failed"].append({"url": url, "error": repr(exc)})

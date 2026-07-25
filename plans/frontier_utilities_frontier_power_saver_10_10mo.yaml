@@ -5,7 +5,7 @@ term_months: 10
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 5.51
+- rate_ckwh: 5.21
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,7 +21,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:FRONTIER_UTILITIES_Frontier_Power_Saver_10.pdf
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

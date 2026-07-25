@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 11.45
+- rate_ckwh: 10.92
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,6 +21,6 @@ etf_usd: 150.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: meterplan
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

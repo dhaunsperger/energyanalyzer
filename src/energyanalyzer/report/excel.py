@@ -3,7 +3,7 @@
 Public API:
     build_workbook(results, plans, intervals, tdu, output) -> None
 
-Writes a 4-sheet xlsxwriter workbook mirroring the Texas Power Guide report:
+Writes a 4-sheet xlsxwriter workbook mirroring the reference analysis report:
     - Summary        : ranked plan table (styled like report p.2)
     - Monthly Detail : per plan x month billing components
     - Usage          : monthly import/export/net totals + hour x month

@@ -1,0 +1,26 @@
+id: cleansky_energy_embrace_green_36_new_customer_special_fixed_rate_product_36mo
+retailer: CleanSky Energy
+name: Embrace Green 36 - New Customer Special - Fixed Rate Product
+term_months: 36
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.8
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 275.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:CleanSky_Energy_Embrace_Green_36_-_New_Customer_Special.pdf
+retrieved: '2026-07-24'
+notes: ''
+needs_review: false

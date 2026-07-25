@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.212
+- rate_ckwh: 6.112
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_24.pdf
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

@@ -137,6 +137,29 @@ class BillCredit(BaseModel):
     credit_usd: float
 
 
+class EvFreeCharging(BaseModel):
+    """Free EV charging during a time window, up to a monthly kWh allowance.
+
+    Models plans (e.g. Tesla) that give free charging *for the car* during
+    certain hours. Unlike a free-nights plan -- a 0c energy window that frees
+    ALL usage -- this waives the energy charge on only up to ``monthly_kwh_cap``
+    import kWh inside ``window`` each billing month (the estimated EV load, e.g.
+    ~271 = 3250 kWh/yr / 12), at whatever rate those kWh would otherwise cost.
+    Usage beyond the cap, or outside the window, is billed normally. Only the
+    energy charge is waived; TDU delivery still applies (a REP can't waive TDU).
+    """
+
+    window: RateWindow
+    monthly_kwh_cap: float  # free import kWh per billing month inside the window
+    label: str = "EV free charging"
+
+    @field_validator("monthly_kwh_cap")
+    @classmethod
+    def _cap_positive(cls, v: float) -> float:
+        assert v > 0, "monthly_kwh_cap must be > 0"
+        return v
+
+
 class Plan(BaseModel):
     id: str  # filename-safe unique id, e.g. "gexa_solar_buyback_12"
     retailer: str
@@ -147,6 +170,7 @@ class Plan(BaseModel):
     energy_rates: list[EnergyRate]
     buyback: Buyback = Field(default_factory=Buyback)
     bill_credits: list[BillCredit] = Field(default_factory=list)
+    ev_free_charging: Optional[EvFreeCharging] = None
     tdu_passthrough: bool = True
     etf_usd: float = 0.0
     etf_per_month_remaining: bool = False
@@ -203,7 +227,10 @@ def add_local_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     local = out.index.tz_convert(LOCAL_TZ)
     out["local"] = local
-    out["month"] = local.to_period("M") if hasattr(local, "to_period") else pd.PeriodIndex(local, freq="M")
+    # A month Period is tz-naive; converting a tz-aware index to Period warns
+    # ("...will drop timezone information"). `local` is already local wall time,
+    # so drop the tz explicitly first -- same month buckets, no warning.
+    out["month"] = local.tz_localize(None).to_period("M")
     out["month_num"] = local.month
     out["hour"] = local.hour
     out["weekday"] = local.weekday

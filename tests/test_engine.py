@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -14,6 +13,7 @@ from energyanalyzer.core.models import (
     Buyback,
     BuybackKind,
     EnergyRate,
+    EvFreeCharging,
     Plan,
     RateWindow,
     RtwRate,
@@ -22,7 +22,17 @@ from energyanalyzer.core.models import (
 from energyanalyzer.engine.cost import rank, simulate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DATA_CSV = REPO_ROOT / "data" / "IntervalData.csv"
+
+# Frozen July-2026 report benchmark archive (see the folder's README). Every
+# input the benchmark depends on is pinned here -- the plan YAMLs, the Oncor
+# tariff, and the exact interval usage CSV -- so refreshing live usage data,
+# adding a new Oncor tariff, or pruning the live plans/ database can't move the
+# expected dollar figures. See test_integration_report_benchmarks.
+BENCHMARK_DIR = Path(__file__).parent / "fixtures" / "benchmark_2026_07"
+BENCHMARK_PLANS_DIR = BENCHMARK_DIR / "plans"
+BENCHMARK_TDU_YAML = BENCHMARK_DIR / "oncor.yaml"
+# Private usage data (gitignored, same as data/); the test skips when absent.
+BENCHMARK_CSV = BENCHMARK_DIR / "IntervalData.csv"
 
 
 # --------------------------------------------------------------------------- #
@@ -114,6 +124,49 @@ def test_free_night_window():
     expected_energy = paid_intervals * 1.0 * 0.20
     assert row["energy_cost"] == pytest.approx(expected_energy)
     assert row["bill"] == pytest.approx(expected_energy)
+
+
+# --------------------------------------------------------------------------- #
+# 2b. Free EV charging: capped, energy-only, does not free whole-home load
+# --------------------------------------------------------------------------- #
+def test_ev_free_charging_caps_and_leaves_tdu():
+    # 2 days, 1 kWh/interval. Charging window = local hours 0-5 (6h x 4 x 2 days
+    # = 48 window kWh). Cap 20 kWh/month -> free 20 kWh at the 10c energy rate.
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1, 2, 3, 4, 5])
+    plan = base_plan(
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+        tdu_passthrough=True,
+        ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=20.0),
+    )
+    tdu = flat_tdu(fixed=10.0, volumetric_ckwh=5.0)
+    result = simulate(plan, intervals, tdu)
+    row = result.monthly.iloc[0]
+
+    total_kwh = 2 * 96
+    # Only 20 kWh are freed (cap), even though 48 kWh fell in the window.
+    assert row["ev_free_kwh"] == pytest.approx(20.0)
+    # Energy charge = (all kWh - 20 free) x 10c.
+    assert row["energy_cost"] == pytest.approx((total_kwh - 20) * 0.10)
+    # TDU is charged on ALL import kWh -- the free benefit waives energy only.
+    assert row["tdu"] == pytest.approx(10.0 + 0.05 * total_kwh)
+    # Sanity: an identical plan without the benefit costs exactly 20 x 10c more.
+    plain = base_plan(energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=True)
+    plain_row = simulate(plain, intervals, tdu).monthly.iloc[0]
+    assert plain_row["bill"] - row["bill"] == pytest.approx(20 * 0.10)
+
+
+def test_ev_free_charging_cap_exceeds_window_usage_frees_all():
+    # Cap larger than the window usage -> frees exactly the window kWh, no more.
+    intervals = make_intervals("2024-01-08", days=1, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1])  # 2h x 4 = 8 window kWh in the day
+    plan = base_plan(
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+        ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=500.0),
+    )
+    row = simulate(plan, intervals, flat_tdu()).monthly.iloc[0]
+    assert row["ev_free_kwh"] == pytest.approx(8.0)  # not the full 500 cap
+    assert row["energy_cost"] == pytest.approx((96 - 8) * 0.10)
 
 
 # --------------------------------------------------------------------------- #
@@ -443,12 +496,30 @@ def _load_intervals_for_integration_test() -> pd.DataFrame:
     try:
         from energyanalyzer.ingest.smt import load_intervals  # type: ignore
 
-        return load_intervals(DATA_CSV)
+        return load_intervals(BENCHMARK_CSV)
     except Exception:
-        return _load_smt_csv_minimal(DATA_CSV)
+        return _load_smt_csv_minimal(BENCHMARK_CSV)
 
 
-@pytest.mark.skipif(not DATA_CSV.exists(), reason="data/IntervalData.csv not present")
+def _benchmark_tdu():
+    """Oncor tariff pinned in the benchmark archive; use the latest record for
+    all 12 forward-looking months (same rule as plans_io.current_tdu, but read
+    from the frozen archive so a new live tariff can't move the benchmark)."""
+    import yaml
+
+    from energyanalyzer.core.models import TduTariff
+
+    raw = yaml.safe_load(BENCHMARK_TDU_YAML.read_text())
+    tariffs = sorted(
+        (TduTariff.model_validate(r) for r in raw["tariffs"]), key=lambda t: t.effective
+    )
+    return tariffs[-1]
+
+
+@pytest.mark.skipif(
+    not BENCHMARK_CSV.exists(),
+    reason="benchmark interval CSV not present (private, gitignored)",
+)
 def test_integration_report_benchmarks():
     """Validate simulate() against the report benchmarks in ARCHITECTURE.md §1,
     using the real SMT interval data.
@@ -473,11 +544,11 @@ def test_integration_report_benchmarks():
        tolerance -- its exact free-window hours are an assumption), and
        txu_free_nights (no flag) ~$1887.67 vs $1907.
     """
-    from energyanalyzer.core.plans_io import current_tdu, load_plans
+    from energyanalyzer.core.plans_io import load_plans
 
     intervals = _load_intervals_for_integration_test()
-    tdu = current_tdu()
-    plans = {p.id: p for p in load_plans()}
+    tdu = _benchmark_tdu()
+    plans = {p.id: p for p in load_plans(BENCHMARK_PLANS_DIR)}
 
     strict_benchmarks = {
         "pulse_current": (1031, 15),

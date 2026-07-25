@@ -22,6 +22,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.4"]
+# Live REP-site EFL discovery (fetchers/rep_discovery.py) drives a real browser,
+# since REP marketing sites are client-rendered SPAs. Optional so the base
+# install stays light; after installing, run `playwright install chromium`.
+discovery = ["playwright>=1.40"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

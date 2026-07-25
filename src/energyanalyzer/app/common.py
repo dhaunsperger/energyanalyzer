@@ -11,6 +11,8 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Callable, Optional
@@ -19,9 +21,12 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from energyanalyzer import llm as _llm
 from energyanalyzer.core.models import Plan, TduTariff, add_local_columns
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, current_tdu, load_plans, save_plan
 from energyanalyzer.ingest.smt import QualityReport, load_intervals
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = REPO_ROOT / "data"
@@ -29,6 +34,7 @@ ERCOT_DIR = DATA_DIR / "ercot"
 PTC_DIR = DATA_DIR / "ptc"
 EFL_DIR = DATA_DIR / "efl"
 METERPLAN_DIR = DATA_DIR / "meterplan"
+REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
 DEFAULT_LOAD_ZONE = "LZ_NORTH"
@@ -37,6 +43,263 @@ CURRENT_PLAN_ID = "pulse_current"
 DAY_HOURS = list(range(6, 18))  # 6a-6p
 PEAK_HOURS = list(range(18, 21))  # 6p-9p
 NIGHT_HOURS = list(range(21, 24)) + list(range(0, 6))  # 9p-6a
+
+
+# --------------------------------------------------------------------------- #
+# Plan identity matching (used to supersede synthetic meterplan.com drafts with
+# a real EFL once we have one). Retailer/plan names diverge across sources --
+# the markdown index says "Reliant Energy / Solar Payback Match", the real EFL
+# parses as "Reliant Energy Retail Services LLC / Reliant Solar Payback Match
+# 12" -- so exact matching misses. We compare *significant* tokens instead:
+# strip generic corporate/industry noise + pure numbers, and treat a match as
+# "same retailer brand + same term + the synthetic plan's distinctive name
+# tokens all appear in the real plan's name". Deliberately conservative (only
+# ever used to remove source="meterplan" plans, and every removal is logged).
+# --------------------------------------------------------------------------- #
+_RETAILER_NOISE_TOKENS = frozenset(
+    {
+        "llc", "lp", "inc", "co", "company", "corp", "corporation", "retail",
+        "services", "service", "energy", "utilities", "utility", "power",
+        "electric", "electricity", "texas", "tx", "rep", "cert", "certificate",
+        "number", "no", "dba", "the", "of", "and",
+    }
+)
+
+
+def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
+    """Lowercased alphanumeric tokens with corporate/industry noise, pure
+    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`)."""
+    cleaned = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
+    drop = _RETAILER_NOISE_TOKENS | extra_drop
+    out = set()
+    for tok in cleaned.split():
+        if tok in drop or tok.isdigit() or re.fullmatch(r"\d+mo", tok):
+            continue
+        out.add(tok)
+    return out
+
+
+def _plan_supersedes(meter_plan: Plan, auth_plan: Plan) -> bool:
+    """True if `auth_plan` (a real/authoritative plan) covers the same plan as
+    the synthetic meterplan `meter_plan`: same term, overlapping retailer brand
+    tokens, and every distinctive token of the synthetic plan's name present in
+    the authoritative plan's name (retailer brand tokens removed from both)."""
+    if meter_plan.term_months != auth_plan.term_months:
+        return False
+    r_meter = _significant_tokens(meter_plan.retailer)
+    r_auth = _significant_tokens(auth_plan.retailer)
+    if not r_meter or not r_auth:
+        return False
+    # One retailer's brand tokens must be a subset of the other's (handles the
+    # short markdown name vs the verbose legal name).
+    if not (r_meter <= r_auth or r_auth <= r_meter):
+        return False
+    n_meter = _significant_tokens(meter_plan.name, extra_drop=frozenset(r_meter | {"plan"}))
+    n_auth = _significant_tokens(auth_plan.name, extra_drop=frozenset(r_auth | r_meter | {"plan"}))
+    if not n_meter:
+        return False
+    return n_meter <= n_auth
+
+
+# Filler/trademark tokens dropped from plan names before comparing identity.
+_NAME_FILLER_TOKENS = frozenset(
+    {"plan", "sm", "tm", "new", "customer", "special", "product", "residential", "meters", "meter"}
+)
+
+
+def _term_from_name(name: str) -> Optional[int]:
+    """Best-effort contract term (months) parsed from a plan name, e.g.
+    "Champ Saver 12" -> 12, "Sun Confidence 24 month" -> 24. Returns None when
+    no plausible term (1..60) is present -- REP plan names often omit it."""
+    for match in re.finditer(r"\b(\d{1,2})\b", name or ""):
+        val = int(match.group(1))
+        if 1 <= val <= 60:
+            return val
+    return None
+
+
+_SAME_PLAN_SYSTEM = (
+    "You decide whether two Texas retail-electricity plan listings describe the "
+    "SAME underlying plan. The two listings come from different sources, so the "
+    "retailer may appear as a short brand or a full legal name, and the plan name "
+    "may add or drop a marketing suffix, a term number, or a trademark. That does "
+    "NOT make them different plans.\n"
+    "They are DIFFERENT plans if the names carry different distinguishing product "
+    "features (e.g. 'Free Weekends' vs plain, 'Plus' vs 'Saver', EV vs non-EV, "
+    "solar-buyback vs conventional) or different contract terms.\n"
+    'Respond with exactly: {"same_plan": true|false, "confidence": 0..1, '
+    '"reasoning": "one short sentence"}'
+)
+
+
+def _llm_same_plan(
+    a: dict,
+    b: dict,
+    *,
+    min_confidence: float = 0.7,
+    chat_fn=None,
+    model: str = _llm.OLLAMA_MODEL,
+    ollama_url: str = _llm.OLLAMA_URL,
+    timeout: float = 60.0,
+) -> Optional[bool]:
+    """Ask the local LLM whether two plan listings are the same plan.
+
+    ``a``/``b`` are ``{"retailer", "plan_name", "term"}``. Returns True/False, or
+    **None** when the LLM is unavailable, returns junk, or isn't confident enough
+    -- callers must treat None as "no opinion" and fall back to deterministic
+    behaviour (keep the plan).
+    """
+    user = (
+        f"Listing A: retailer={a.get('retailer')!r}, plan={a.get('plan_name')!r}, "
+        f"term_months={a.get('term')}\n"
+        f"Listing B: retailer={b.get('retailer')!r}, plan={b.get('plan_name')!r}, "
+        f"term_months={b.get('term')}"
+    )
+    parsed = _llm.chat_json(
+        [{"role": "system", "content": _SAME_PLAN_SYSTEM}, {"role": "user", "content": user}],
+        model=model,
+        ollama_url=ollama_url,
+        timeout=timeout,
+        chat_fn=chat_fn,
+    )
+    if not parsed:
+        return None
+    try:
+        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if confidence < min_confidence:
+        return None
+    return bool(parsed.get("same_plan", False))
+
+
+def _discovered_plan_in_ptc(
+    retailer: str,
+    plan_name: str,
+    ptc_index: list,
+    *,
+    llm_adjudicate: bool = False,
+    max_llm_candidates: int = 3,
+    chat_fn=None,
+    model: str = _llm.OLLAMA_MODEL,
+    ollama_url: str = _llm.OLLAMA_URL,
+    timeout: float = 60.0,
+) -> bool:
+    """True if a discovered REP plan is already covered by the PTC listing.
+
+    Deterministic-first: a discovered plan must share retailer brand tokens and an
+    equal term with a PTC row to be a *candidate* at all (term is parsed from the
+    discovered name -- discovery plans carry no term field, and with no term we
+    keep the plan). Candidates whose distinctive name tokens match exactly are
+    duplicates outright, with no LLM involved.
+
+    When ``llm_adjudicate`` is set, the remaining *ambiguous* candidates (same
+    retailer + term, similar-but-not-identical names -- e.g. "e-Plus 12" vs
+    "e-Plus 12 Choice") are put to the LLM, which token matching can't settle
+    without brittle suffix allow-lists. The LLM is only ever asked about
+    already-narrowed candidates (at most ``max_llm_candidates``), and "no opinion"
+    (LLM down / unsure) falls back to keeping the plan.
+
+    ``ptc_index`` is built by :func:`_build_ptc_identity_index`.
+    """
+    d_ret = _significant_tokens(retailer)
+    if not d_ret:
+        return False
+    d_term = _term_from_name(plan_name)
+    if d_term is None:
+        return False
+    d_name = _significant_tokens(plan_name, extra_drop=frozenset(d_ret | _NAME_FILLER_TOKENS))
+    if not d_name:
+        return False
+
+    candidates = [
+        e
+        for e in ptc_index
+        if e["term"] == d_term and (d_ret <= e["r_tokens"] or e["r_tokens"] <= d_ret)
+    ]
+    if not candidates:
+        return False
+    # Exact distinctive-name match -> duplicate, deterministically.
+    if any(e["n_tokens"] == d_name for e in candidates):
+        return True
+    if not llm_adjudicate:
+        return False
+
+    for entry in candidates[:max_llm_candidates]:
+        verdict = _llm_same_plan(
+            {"retailer": retailer, "plan_name": plan_name, "term": d_term},
+            {"retailer": entry["retailer"], "plan_name": entry["plan_name"], "term": entry["term"]},
+            chat_fn=chat_fn,
+            model=model,
+            ollama_url=ollama_url,
+            timeout=timeout,
+        )
+        if verdict:
+            logger.info(
+                "LLM dedup: %r (%s) == PTC %r (%s)",
+                plan_name, retailer, entry["plan_name"], entry["retailer"],
+            )
+            return True
+    return False
+
+
+def _build_ptc_identity_index(ptc_df) -> list:
+    """Build the PTC plan-identity index for :func:`_discovered_plan_in_ptc`.
+
+    Each entry is ``{"r_tokens", "n_tokens", "term", "retailer", "plan_name"}`` --
+    tokens for the deterministic pass, and the raw strings so an ambiguous pair
+    can be described to the LLM adjudicator.
+    """
+    index: list = []
+    if ptc_df is None:
+        return index
+    for _, row in ptc_df.iterrows():
+        retailer = str(row.get("retailer") or "")
+        name = str(row.get("plan_name") or "")
+        r_tokens = _significant_tokens(retailer)
+        n_tokens = _significant_tokens(name, extra_drop=frozenset(r_tokens | _NAME_FILLER_TOKENS))
+        term_raw = row.get("term_months")
+        try:
+            term = int(term_raw) if pd.notna(term_raw) else None
+        except (TypeError, ValueError):
+            term = None
+        index.append(
+            {
+                "r_tokens": r_tokens,
+                "n_tokens": n_tokens,
+                "term": term,
+                "retailer": retailer,
+                "plan_name": name,
+            }
+        )
+    return index
+
+
+def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
+    """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
+    that a real/authoritative plan now covers, and return the removals as a list
+    of ``(removed_plan_id, superseding_plan_id)`` tuples.
+
+    "Authoritative" is any plan whose source isn't `"meterplan"` -- a parsed EFL
+    (PTC / REP discovery / Meter's own /plans page), a manual entry, or a report
+    seed. Matching uses :func:`_plan_supersedes` (conservative token-subset).
+    The `CURRENT_PLAN_ID` plan is never removed.
+    """
+    try:
+        current_plans = load_plans(plans_dir)
+    except Exception:  # noqa: BLE001 -- defensive; degrade to "supersede nothing"
+        return []
+    meter_plans = [p for p in current_plans if str(getattr(p, "source", "")) == "meterplan"]
+    auth_plans = [p for p in current_plans if str(getattr(p, "source", "")) != "meterplan"]
+    removed: list[tuple] = []
+    for mp_plan in meter_plans:
+        if mp_plan.id == CURRENT_PLAN_ID:
+            continue
+        match = next((ap for ap in auth_plans if _plan_supersedes(mp_plan, ap)), None)
+        if match is not None:
+            (Path(plans_dir) / f"{mp_plan.id}.yaml").unlink(missing_ok=True)
+            removed.append((mp_plan.id, match.id))
+    return removed
 
 
 # --------------------------------------------------------------------------- #
@@ -157,6 +420,7 @@ def parse_downloaded_efls(
     drafts_dir: Path = DRAFTS_DIR,
     plans_dir: Path = PLANS_DIR,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    llm_assist: bool = False,
 ) -> dict:
     """Batch-parse EFL PDFs into draft plan YAMLs (ARCHITECTURE.md §8/§9).
 
@@ -171,15 +435,30 @@ def parse_downloaded_efls(
     If `progress_callback` is given, it's called after every file as
     `progress_callback(done_count, total, current_filename)`.
 
+    With `llm_assist=True`, any draft the static parser left with a weak
+    load-bearing field gets a second pass from the local LLM tier
+    (`eflparse.llm_repair`), which PRE-FILLS those fields for the reviewer. It
+    never promotes: such drafts still come out `needs_review=True`, badged in the
+    Plans review UI with the model's reasoning. Best-effort throughout -- if
+    Ollama is down the drafts are saved exactly as the parser produced them, and
+    a per-draft failure never aborts the batch. Costs roughly 1s per weak draft
+    (see `llm.OLLAMA_MODEL` for the benchmark).
+
     Returns `{'parsed': [plan_id, ...], 'skipped': [filename, ...],
-    'failed': [{'file': filename, 'error': str}, ...]}`.
+    'failed': [{'file': filename, 'error': str}, ...],
+    'llm_assisted': [{'id': plan_id, 'fields': [...]}, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import parse_efl, save_draft
+    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft
 
     drafts_dir = Path(drafts_dir)
     plans_dir = Path(plans_dir)
     total = len(pdf_paths)
-    summary: dict = {"parsed": [], "skipped": [], "failed": []}
+    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+
+    # One availability probe for the whole batch rather than a per-file timeout.
+    use_llm = bool(llm_assist) and _llm.available()
+    if llm_assist and not use_llm:
+        summary["llm_note"] = "Ollama unreachable -- drafts saved without LLM suggestions"
 
     for i, pdf_path in enumerate(pdf_paths, start=1):
         pdf_path = Path(pdf_path)
@@ -190,6 +469,17 @@ def parse_downloaded_efls(
             if already:
                 summary["skipped"].append(pdf_path.name)
             else:
+                if use_llm and draft.plan_dict.get("needs_review"):
+                    try:
+                        from energyanalyzer.eflparse.llm_repair import llm_repair_draft
+
+                        draft, report = llm_repair_draft(draft, extract_text(pdf_path))
+                        if report.get("changed"):
+                            summary["llm_assisted"].append(
+                                {"id": plan_id, "fields": report["changed"]}
+                            )
+                    except Exception as exc:  # noqa: BLE001 -- LLM tier is optional
+                        logger.info("LLM assist failed for %s: %r", pdf_path.name, exc)
                 save_draft(draft, drafts_dir=drafts_dir)
                 summary["parsed"].append(plan_id)
         except Exception as exc:  # noqa: BLE001 -- a bad PDF must not abort the batch
@@ -198,6 +488,33 @@ def parse_downloaded_efls(
             progress_callback(i, total, pdf_path.name)
 
     return summary
+
+
+def efl_pdf_health(efl_dir: Path = EFL_DIR) -> dict:
+    """Quick health check of the downloaded-EFL cache: how many ``.pdf`` files
+    are on disk, and which of them aren't actually PDFs.
+
+    A download that returned an HTML "not found"/SPA shell or a bot-challenge
+    (captcha) page with HTTP 200 can land under a ``.pdf`` name; the parser then
+    silently fails on it (it's not a PDF) and no plan is produced. A real PDF
+    starts with the ``%PDF`` signature, so any file lacking it in its first 1 KB
+    is flagged. (The downloaders now reject non-PDF responses up front, so this
+    mainly surfaces files saved before that guard, or ones placed by hand.)
+
+    Returns ``{'total': int, 'invalid': [filename, ...]}``.
+    """
+    efl_dir = Path(efl_dir)
+    pdfs = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+    invalid: list[str] = []
+    for p in pdfs:
+        try:
+            head = p.read_bytes()[:1024]
+        except OSError:
+            invalid.append(p.name)
+            continue
+        if b"%PDF" not in head:
+            invalid.append(p.name)
+    return {"total": len(pdfs), "invalid": invalid}
 
 
 def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> pd.DataFrame:
@@ -256,6 +573,220 @@ def ptc_efl_resolution_report(ptc_df: pd.DataFrame, efl_dir: Path = EFL_DIR) -> 
     )
 
 
+def _newest_capture(snapshot_dir: Path, key: str) -> Optional[Path]:
+    """Newest manually-saved rendered-HTML capture for a REP, or None.
+
+    Captures are named `<key>_<UTC timestamp>.html`; picked by mtime so a
+    sortable stamp isn't strictly required.
+    """
+    snaps = sorted(snapshot_dir.glob(f"{key}_*.html")) if snapshot_dir.exists() else []
+    return max(snaps, key=lambda p: p.stat().st_mtime) if snaps else None
+
+
+def _run_rep_discovery(
+    zip_code: str,
+    efl_dir: Path = EFL_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    plans_dir: Path = PLANS_DIR,
+    reps: Optional[list[str]] = None,
+    headless: bool = True,
+    snapshot_dir: Path = REP_DISCOVERY_DIR,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ptc_df=None,
+) -> dict:
+    """Discover plan EFLs on individual REP marketing sites that Power to Choose
+    and meterplan.com miss (ARCHITECTURE.md §7), download the EFLs into
+    `efl_dir`, and parse the newly downloaded PDFs into drafts (so
+    `refresh_market_data`'s auto-promote step handles them like any other draft).
+
+    All plans found on each REP site are pulled (not just solar buyback), so
+    REP-exclusive/website-only plans PTC lacks are captured too. When `ptc_df`
+    (the filtered PTC listing) is given, discovered plans PTC already carries are
+    deduped out first (`_discovered_plan_in_ptc`, conservative -- see there) so
+    we don't re-download/duplicate what PTC already has; the count is reported as
+    `ptc_deduped`.
+
+    Each REP is dispatched by how its `RepConfig` is wired
+    (`fetchers.rep_discovery.REP_CONFIGS`):
+
+    * **harvester** (e.g. Champion, EFL URL JS-computed) -> `harvest_live`.
+    * **extractor + render** (most REPs) -> `fetch_rendered_html` (live
+      Playwright) then `discover`.
+    * **extractor, no render** (e.g. Ambit, whose WAF blocks Playwright) ->
+      `discover` on the newest manually-captured `<key>_*.html` in
+      `snapshot_dir`; reported as `manual-needed` if no capture is on disk.
+
+    Every REP runs inside its own try/except so one site's failure (Playwright
+    missing, robots.txt block, a WAF, a missing ESI-ID secret, a nav-flow drift)
+    is recorded and the rest still run -- nothing here aborts the refresh.
+
+    `reps` limits the run to those REP keys (default: all configured). PII some
+    sites need to render (e.g. Octopus's ESI ID) is read by the fetcher from the
+    gitignored `data/rep_discovery_secrets.yaml`, never passed in here.
+
+    Returns `{'reps': {key: {'retailer', 'status', 'plans_found', 'buyback',
+    'detail'}, ...}, 'ptc_deduped': int, 'downloaded': <download_discovered()
+    summary>, 'parsed': <parse_downloaded_efls() summary>}` where `status` is one
+    of `'ok'`, `'error'`, or `'manual-needed'`.
+    """
+    from energyanalyzer.fetchers import rep_discovery as rd
+
+    efl_dir = Path(efl_dir)
+    drafts_dir = Path(drafts_dir)
+    plans_dir = Path(plans_dir)
+    snapshot_dir = Path(snapshot_dir)
+
+    def _report(stage: str, done: int, total: int, item: str) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total, f"{stage}: {item}")
+
+    result: dict = {
+        "reps": {},
+        "ptc_deduped": 0,
+        "downloaded": {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0},
+        "parsed": {"parsed": [], "skipped": [], "failed": []},
+    }
+
+    keys = list(reps) if reps is not None else list(rd.REP_CONFIGS.keys())
+    all_plans: list = []
+    total = len(keys)
+    for i, key in enumerate(keys, start=1):
+        config = rd.REP_CONFIGS.get(key)
+        if config is None:
+            result["reps"][key] = {
+                "retailer": key,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": "unknown REP key (not in REP_CONFIGS)",
+            }
+            continue
+        label = config.retailer
+        logger.info("=== Discovery %d/%d: %s ===", i, total, label)
+        _report("discovery", i, total, f"{label} (querying site)")
+        try:
+            if config.harvester is not None:
+                plans = rd.harvest_live(
+                    config, zip_code, headless=headless, check_robots=config.check_robots
+                )
+                detail = "harvested live"
+            elif config.render is not None:
+                try:
+                    html, _snap = rd.fetch_rendered_html(
+                        config,
+                        zip_code,
+                        headless=headless,
+                        snapshot_dir=snapshot_dir,
+                        check_robots=config.check_robots,
+                    )
+                    plans = rd.discover(html, config)
+                    detail = "rendered live"
+                except Exception as render_exc:  # noqa: BLE001
+                    # A live render can fail for reasons that say nothing about
+                    # the parser: a nav-flow drift, or a probabilistic WAF (Ambit
+                    # answers ~half of requests with a plain-text 403). Falling
+                    # back to the newest manual capture keeps a REP working on a
+                    # bad night instead of silently dropping all its plans --
+                    # important for the buyback-only REPs, whose plans PTC and
+                    # meterplan both miss entirely.
+                    newest = _newest_capture(snapshot_dir, key)
+                    if newest is None:
+                        raise
+                    logger.info(
+                        "%s: live render failed (%r) -- falling back to %s",
+                        label, render_exc, newest.name,
+                    )
+                    html = newest.read_text(encoding="utf-8")
+                    plans = rd.discover(html, config)
+                    detail = f"live render failed; used capture {newest.name}"
+            else:
+                # No render(): WAF/manual-capture REP. Use the newest saved
+                # capture; if there's none, tell the user to run one by hand.
+                newest = _newest_capture(snapshot_dir, key)
+                if newest is None:
+                    result["reps"][key] = {
+                        "retailer": label,
+                        "status": "manual-needed",
+                        "plans_found": 0,
+                        "buyback": 0,
+                        "detail": (
+                            f"no saved capture in {snapshot_dir}/ -- this site blocks "
+                            f"automation; save its rendered plans page as {key}_<ts>.html"
+                        ),
+                    }
+                    continue
+                html = newest.read_text(encoding="utf-8")
+                plans = rd.discover(html, config)
+                detail = f"from manual capture {newest.name}"
+        except Exception as exc:  # noqa: BLE001 -- one REP's failure mustn't abort the rest
+            logger.info("%s: FAILED -- %r", label, exc)
+            result["reps"][key] = {
+                "retailer": label,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": repr(exc),
+            }
+            continue
+        found = len(plans)
+        buyback = sum(1 for p in plans if p.is_buyback)
+        # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
+        # TXU/Ambit) keep only their buyback plans -- pulling every conventional
+        # plan would just add un-downloadable EFLs for plans already on PTC.
+        if not getattr(config, "broaden", True):
+            plans = [p for p in plans if p.is_buyback]
+        logger.info(
+            "%s: %s -- %d plan(s) found, %d buyback, %d kept",
+            label, detail, found, buyback, len(plans),
+        )
+        result["reps"][key] = {
+            "retailer": label,
+            "status": "ok",
+            "plans_found": found,
+            "buyback": buyback,
+            "detail": detail,
+        }
+        all_plans.extend(plans)
+
+    if not all_plans:
+        return result
+
+    # Drop discovered plans PTC already carries (conservative -- only confident
+    # duplicates), so we don't re-download/duplicate what PTC has.
+    ptc_index = _build_ptc_identity_index(ptc_df)
+    if ptc_index:
+        kept = [p for p in all_plans if not _discovered_plan_in_ptc(p.retailer, p.plan_name, ptc_index)]
+        result["ptc_deduped"] = len(all_plans) - len(kept)
+        all_plans = kept
+
+    if not all_plans:
+        return result
+
+    # Download ALL discovered EFLs (not just buyback) into efl_dir (writes its
+    # own rep_discovery manifest so downstream can tell these from PTC/meterplan).
+    result["downloaded"] = rd.download_discovered(
+        all_plans,
+        dest=efl_dir,
+        headless=headless,
+        buyback_only=False,
+        progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
+    )
+
+    # Parse ONLY the newly discovered PDFs (downloaded now, or already on disk
+    # from a prior run) into drafts -- the caller's stage-5 EFL parse already ran
+    # before this, so this avoids re-parsing the whole efl_dir.
+    dl = result["downloaded"]
+    discovered_pdfs = sorted({Path(p) for p in (dl["downloaded"] + dl["skipped"])})
+    if discovered_pdfs:
+        result["parsed"] = parse_downloaded_efls(
+            discovered_pdfs,
+            drafts_dir=drafts_dir,
+            plans_dir=plans_dir,
+            progress_callback=lambda d, t, n: _report("discovery-parse", d, t, n),
+        )
+    return result
+
+
 def refresh_market_data(
     plans_dir: Path = PLANS_DIR,
     drafts_dir: Path = DRAFTS_DIR,
@@ -266,6 +797,10 @@ def refresh_market_data(
     language: Optional[str] = "English",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     fetch: bool = True,
+    run_discovery: bool = False,
+    discovery_zip: str = "78665",
+    discovery_headless: bool = True,
+    discovery_reps: Optional[list[str]] = None,
 ) -> dict:
     """"Refresh market data" one-button pipeline (ARCHITECTURE.md §9).
 
@@ -308,6 +843,26 @@ def refresh_market_data(
        stamped with `retrieved = today` (and `source` defaulted to `"ptc"`
        if somehow unset), saved via `plans_io.save_plan`, and their draft
        file deleted. A single bad draft cannot abort the batch.
+    8. **Supersede** synthetic meterplan plans (`supersede_meterplan_plans`):
+       remove any `source="meterplan"` plan now covered by a real/authoritative
+       plan (parsed EFL from PTC/discovery/Meter's own /plans page, or a manual
+       entry) for the same underlying plan. Only meterplan-source plans are
+       removed; each removal is recorded in `meterplan_superseded` + `notes`.
+
+    Just before step 6, a **Meter-EFL** stage (`fetch_meterplan_efls`) pulls
+    Meter Energy's own real EFLs from its /plans page and parses them, so Meter's
+    own plans come from real EFLs (and its synthetic markdown rows are excluded
+    in step 6). Between meterplan (6) and auto-promote (7), if ``run_discovery``
+    is set, an
+    optional **REP-site discovery** stage (`_run_rep_discovery`, ARCHITECTURE.md
+    §7) queries individual retailer marketing sites for solar-buyback EFLs that
+    Power to Choose and meterplan.com miss, downloads them into `efl_dir`, and
+    parses them into drafts the auto-promote step then handles. It's off by
+    default because each REP is a live browser session (the sweep is slow), uses
+    `discovery_zip` for the ZIP gates (`discovery_reps` optionally limits which
+    REPs run; `discovery_headless` toggles the browser), and is fully
+    self-tolerant -- a per-REP failure (Playwright missing, a WAF, a missing
+    ESI-ID secret) is recorded, not raised.
 
     `progress_callback`, if given, is called after every item in every stage
     as `progress_callback(stage_done, stage_total, "<stage>: <item>")` so a
@@ -319,12 +874,15 @@ def refresh_market_data(
     'parsed': <parse_downloaded_efls() summary>, 'meterplan': {'fetched':
     bool, 'snapshot_path': str | None, 'imported': [id, ...],
     'skipped_battery': int, 'skipped_existing': int, 'flagged_for_review':
-    int}, 'promoted': [plan_id, ...], 'needing_review': [draft_stem, ...],
-    'notes': [str, ...]}`.
+    int}, 'discovery': {'enabled': bool, 'reps': {rep_key: {'retailer': str,
+    'status': 'ok'|'error'|'manual-needed', 'plans_found': int, 'buyback': int,
+    'detail': str}, ...}, 'downloaded': <download_discovered() summary>,
+    'parsed': <parse_downloaded_efls() summary>}, 'promoted': [plan_id, ...],
+    'needing_review': [draft_stem, ...], 'notes': [str, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS
     from energyanalyzer.fetchers.meterplan import (
         fetch_meterplan,
+        fetch_meterplan_efls,
         filter_meterplan,
         load_meterplan,
         meterplan_to_drafts,
@@ -345,7 +903,7 @@ def refresh_market_data(
         "deleted_snapshots": 0,
         "fetched": False,
         "snapshot_path": None,
-        "downloaded": {"downloaded": [], "skipped": [], "failed": []},
+        "downloaded": {"downloaded": [], "skipped": [], "failed": [], "deferred": []},
         "parsed": {"parsed": [], "skipped": [], "failed": []},
         "meterplan": {
             "fetched": False,
@@ -353,10 +911,24 @@ def refresh_market_data(
             "imported": [],
             "skipped_battery": 0,
             "skipped_existing": 0,
+            "skipped_own": 0,
             "flagged_for_review": 0,
+        },
+        "meterplan_efl": {
+            "fetched": False,
+            "offers": 0,
+            "downloaded": {"downloaded": [], "skipped": [], "failed": []},
+            "parsed": {"parsed": [], "skipped": [], "failed": []},
+        },
+        "discovery": {
+            "enabled": run_discovery,
+            "reps": {},
+            "downloaded": {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0},
+            "parsed": {"parsed": [], "skipped": [], "failed": []},
         },
         "promoted": [],
         "needing_review": [],
+        "meterplan_superseded": [],
         "notes": notes,
     }
 
@@ -426,6 +998,7 @@ def refresh_market_data(
         snapshot_path = newest_snapshot
         notes.append("fetch=False -- using existing snapshot without contacting powertochoose.org")
 
+    ptc_df_for_dedup = None  # filtered PTC listing, reused by discovery dedup
     if snapshot_path is None:
         notes.append(
             "No Power to Choose snapshot available (live fetch failed/skipped and none on "
@@ -437,6 +1010,7 @@ def refresh_market_data(
         # --- 3. load + filter ------------------------------------------#
         df_raw = load_ptc(snapshot_path)
         df = filter_plans(df_raw, tdu=tdu, language=language)
+        ptc_df_for_dedup = df
 
         # --- 4. download EFLs -------------------------------------------#
         summary["downloaded"] = download_efls(
@@ -450,6 +1024,43 @@ def refresh_market_data(
             drafts_dir=drafts_dir,
             plans_dir=plans_dir,
             progress_callback=lambda d, t, n: _report("parse", d, t, n),
+        )
+
+    # --- 6a. Meter Energy's own real EFLs (from the /plans HTML page) -------#
+    # The markdown index (step 6) omits document URLs, but Meter's /plans page
+    # embeds the *real* EFL PDFs (presigned, ~7-day). Fetch + parse those so
+    # Meter's own plans come from real EFLs, not the synthetic markdown rows.
+    # When it succeeds we exclude Meter's markdown rows below (step 6) so the
+    # two don't duplicate. Skipped when fetch=False (there's no on-disk fallback
+    # for the HTML page); fully tolerant -- failure is noted, never raised.
+    meter_efl_ok = False
+    if fetch:
+        _report("meter-efl", 0, 1, "fetching Meter Energy EFLs")
+        try:
+            me_dl = fetch_meterplan_efls(
+                zip_code=discovery_zip,
+                dest=efl_dir,
+                tdu=tdu,
+                progress_callback=lambda d, t, n: _report("meter-efl", d, t, n),
+            )
+            summary["meterplan_efl"]["fetched"] = True
+            summary["meterplan_efl"]["offers"] = me_dl.get("offers", 0)
+            summary["meterplan_efl"]["downloaded"] = me_dl
+            meter_efl_ok = bool(me_dl.get("downloaded") or me_dl.get("skipped"))
+            me_pdfs = [Path(p) for p in me_dl.get("downloaded", [])]
+            if me_pdfs:
+                summary["meterplan_efl"]["parsed"] = parse_downloaded_efls(
+                    me_pdfs,
+                    drafts_dir=drafts_dir,
+                    plans_dir=plans_dir,
+                    progress_callback=lambda d, t, n: _report("meter-efl-parse", d, t, n),
+                )
+        except Exception as exc:  # noqa: BLE001 -- Meter EFL fetch must never abort the run
+            notes.append(f"Meter Energy /plans EFL fetch failed: {exc!r}")
+            _report("meter-efl", 1, 1, "meter EFL fetch failed")
+    else:
+        notes.append(
+            "fetch=False -- skipped Meter Energy /plans EFL fetch (no on-disk fallback for it)."
         )
 
     # --- 6. meterplan.com solar buyback plan index --------------------------#
@@ -499,7 +1110,12 @@ def refresh_market_data(
                 for p in surviving_plans
             }
 
-            mp_summary = meterplan_to_drafts(mp_df, drafts_dir, existing_plan_keys)
+            # When we fetched Meter's own real EFLs above, drop Meter Energy's
+            # synthetic markdown rows so the two don't duplicate the same plans.
+            skip_own = {"Meter Energy"} if meter_efl_ok else None
+            mp_summary = meterplan_to_drafts(
+                mp_df, drafts_dir, existing_plan_keys, skip_retailers=skip_own
+            )
             summary["meterplan"].update(mp_summary)
             _report(
                 "meterplan",
@@ -511,7 +1127,136 @@ def refresh_market_data(
             notes.append(f"Could not parse meterplan.com snapshot {mp_snapshot_path.name}: {exc!r}")
             _report("meterplan", 1, 1, "snapshot parse failed")
 
-    # --- 7. auto-promote confident drafts (EFL- and meterplan-sourced) -----#
+    # --- 6.5 REP-site solar buyback discovery (optional; slow) --------------#
+    # Independent of the PTC/meterplan stages: queries individual REP marketing
+    # sites (Playwright/manual capture) for solar-buyback EFLs the two aggregate
+    # sources miss, downloads them into efl_dir, and parses them into drafts that
+    # the auto-promote step below then handles. Off by default (each REP is a
+    # live browser session, so the whole sweep is slow) and fully self-tolerant:
+    # a per-REP failure is recorded in the summary, and the whole stage is
+    # wrapped so it can never abort the refresh.
+    if run_discovery:
+        _report("discovery", 0, 1, "starting REP-site solar buyback discovery")
+        try:
+            summary["discovery"].update(
+                _run_rep_discovery(
+                    zip_code=discovery_zip,
+                    efl_dir=efl_dir,
+                    drafts_dir=drafts_dir,
+                    plans_dir=plans_dir,
+                    reps=discovery_reps,
+                    headless=discovery_headless,
+                    progress_callback=progress_callback,
+                    ptc_df=ptc_df_for_dedup,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 -- discovery must never abort the refresh
+            notes.append(f"REP discovery stage failed: {exc!r}")
+            _report("discovery", 1, 1, "discovery stage failed")
+
+    # --- 7 + 8. auto-promote confident drafts, then supersede ---------------#
+    finish_refresh(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        summary=summary,
+        notes=notes,
+        progress_callback=progress_callback,
+    )
+
+    return summary
+
+
+def promote_all_drafts(
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Promote EVERY draft into the plan database, confidence gate bypassed,
+    keeping each draft's `needs_review` flag as-is.
+
+    This is the "quick look" path: the auto-promote gate deliberately holds back
+    anything the parser wasn't sure about, but sometimes you want the whole
+    market in Compare's rankings *now* and will sort out the details after. The
+    plans land flagged, so `needs_review` badges, the Compare "Stale?"/review
+    columns, and `stale_plan_ids` all still mark them as unverified -- nothing
+    here silently launders an uncertain parse into a trusted one.
+
+    Move semantics, matching single-draft promote: a promoted draft's file is
+    deleted. That discards its `_parse` block (per-field confidence + evidence),
+    which is review metadata and not part of the Plan schema -- re-parsing the
+    source EFL regenerates it. Drafts that fail schema validation are LEFT in
+    place and reported in `failed`, so a bad one is never silently dropped.
+
+    Returns `{'promoted': [id, ...], 'failed': [{'draft': name, 'error': str}],
+    'flagged': int}` where `flagged` counts promoted plans still needing review.
+    """
+    from energyanalyzer.eflparse.parser import plan_fields
+
+    plans_dir, drafts_dir = Path(plans_dir), Path(drafts_dir)
+    summary: dict = {"promoted": [], "failed": [], "flagged": 0}
+    draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
+
+    for i, draft_path in enumerate(draft_paths, start=1):
+        try:
+            raw = load_draft_raw(draft_path)
+            plan_dict = plan_fields(raw)
+            plan_dict.setdefault("source", "ptc")
+            plan_dict["retrieved"] = dt.date.today()
+            # Preserve the parser's verdict rather than forcing it: a draft the
+            # parser was confident about stays unflagged.
+            plan_dict["needs_review"] = bool(raw.get("needs_review", True))
+            plan = Plan.model_validate(plan_dict)
+            save_plan(plan, directory=plans_dir)
+            draft_path.unlink(missing_ok=True)
+            summary["promoted"].append(plan.id)
+            if plan.needs_review:
+                summary["flagged"] += 1
+        except Exception as exc:  # noqa: BLE001 -- one bad draft mustn't abort the batch
+            summary["failed"].append({"draft": draft_path.name, "error": repr(exc)[:200]})
+        if progress_callback is not None:
+            progress_callback(i, len(draft_paths), draft_path.name)
+
+    if summary["promoted"]:
+        invalidate_plans_cache()
+    return summary
+
+
+def finish_refresh(
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    summary: Optional[dict] = None,
+    notes: Optional[list] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """Steps 7 + 8 of the refresh: auto-promote confident drafts, then supersede
+    synthetic meterplan plans a real EFL now covers.
+
+    Split out of :func:`refresh_market_data` and safe to call on its own, because
+    it is purely local -- it reads `drafts_dir`, writes `plans_dir`, and touches
+    no network. That matters for recovery: the earlier stages (fetch, download,
+    parse, discovery) are slow and can be interrupted, and when they are, the
+    drafts they produced are already on disk while the database is still empty.
+    Re-running this finishes the job without repeating the sweep. The Plans page
+    exposes it as "Finish incomplete refresh".
+
+    Idempotent: a draft that doesn't clear the confidence gate is left in place,
+    and one that does is promoted and its draft deleted, so a second call is a
+    no-op. Pass `summary`/`notes` to append into an in-flight refresh's result;
+    omit them to get a fresh summary dict back.
+    """
+    from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS, plan_fields
+
+    if summary is None:
+        summary = {"promoted": [], "needing_review": [], "meterplan_superseded": []}
+    for key in ("promoted", "needing_review", "meterplan_superseded"):
+        summary.setdefault(key, [])
+    if notes is None:
+        notes = summary.setdefault("notes", [])
+
+    def _report(stage: str, done: int, total: int, item: str) -> None:
+        if progress_callback is not None:
+            progress_callback(done, total, f"{stage}: {item}")
+
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
     promote_total = len(current_draft_paths)
     for i, draft_path in enumerate(current_draft_paths, start=1):
@@ -524,7 +1269,7 @@ def refresh_market_data(
             needs_review_flag = raw.get("needs_review", True)
             eligible = (not needs_review_flag) and min_conf is not None and min_conf >= 0.8
             if eligible:
-                plan_dict = {k: v for k, v in raw.items() if k != "_parse"}
+                plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")
                 plan_dict["retrieved"] = dt.date.today()
                 plan = Plan.model_validate(plan_dict)
@@ -539,6 +1284,16 @@ def refresh_market_data(
         _report("promote", i, promote_total, draft_path.name)
 
     if summary["promoted"]:
+        invalidate_plans_cache()
+
+    # meterplan.com rows carry no EFL PDF (source="meterplan", efl_url=None). If
+    # we now have a real/authoritative plan for the same underlying plan -- from
+    # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
+    # entry -- the synthetic row is redundant and is removed (logged).
+    for mp_id, match_id in supersede_meterplan_plans(plans_dir):
+        summary["meterplan_superseded"].append(mp_id)
+        notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
+    if summary["meterplan_superseded"]:
         invalidate_plans_cache()
 
     return summary

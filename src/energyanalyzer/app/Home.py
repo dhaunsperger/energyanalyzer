@@ -31,7 +31,7 @@ st.set_page_config(page_title="EnergyAnalyzer", page_icon="⚡", layout="wide")
 st.title("⚡ EnergyAnalyzer")
 st.markdown(
     """
-Replicates the Texas Power Guide solar electric plan analysis:
+Performs a professional-grade solar electric plan analysis:
 
 1. **Usage** -- ingest 12 months of 15-minute SmartMeter Texas (SMT) interval
    data (grid import + solar export), review data quality, and see monthly /
@@ -43,7 +43,8 @@ Replicates the Texas Power Guide solar electric plan analysis:
 4. **Export** -- download an Excel workbook with the full ranking and
    supporting detail.
 
-Use the sidebar to navigate between pages.
+Use the sidebar to navigate between pages. New here? See the **Help** page for a
+guided tour, the data sources behind the plans, and troubleshooting.
 """
 )
 

@@ -1,0 +1,74 @@
+Electricity Facts Label (EFL)
+Reliant Energy Retail Services, LLC
+Reliant Solar Payback Match 12 plan
+Oncor Electric Delivery service area
+Date: 06/01/2026
+Average monthly use: 500 kWh 1000 kWh 2000 kWh
+Average price per kWh: 20.6 ¢ 19.1 ¢ 18.4 ¢
+This price disclosure is based on the following components:
+Base Charge: $9.99 per billing cycle
+Electricity
+Energy Charge: 11.6206¢ per kWh
+price
+Oncor Electric Delivery Delivery Charges: $4.06 per billing cycle and 6.1196¢ per kWh
+TDU Delivery Charges include all recurring charges passed through without mark-up.
+This price disclosure is an example based on average prices - your average price for service will vary
+according to your usage. The price you pay each month will consist of the Base Charge, Energy Charge,
+and TDSP Delivery Charges. Average prices per kWh listed above do not include credits for excess
+distributed renewable generation.
+See Terms of Service for a full listing of fees, deposit policy, and other terms.
+You will receive a Solar Grid Credit on your bill for the excess energy delivered by your eligible renewable
+energy system to the grid over a monthly billing cycle.
+The credit amount will be calculated using 15-minute interval data over the applicable monthly billing
+cycle. For each 15-minute interval data read, the credit amount will be determined by multiplying (a) the
+out-flow kWh quantity of excess energy reported by the TDSP over the applicable 15-minute interval by (b)
+the corresponding Electric Reliability Council of Texas (ERCOT) 15-minute Real-Time Settlement Point
+Price (RTSPP) in dollars per kWh for your applicable Load Zone. If the RTSPP is less than zero for a
+given 15-minute interval, the credit amount will be zero for that interval. The total credit amount applied to
+your bill will be the sum of the credit amounts calculated for each 15-minute interval data read over the
+Other Key applicable monthly billing cycle.
+Terms and
+You can find your applicable Load Zone by visiting Reliant's Solar Payback Match program page at https://
+questions
+reliant.com/en/residential/electricity/renewable-energy/solar/solarmatch. The ERCOT 15-minute RTSPP
+for each Load Zone are available at: http://www.ercot.com/content/cdr/html/real_time_spp
+In the event Reliant receives incomplete interval data from your TDSP, Reliant may estimate your out-flow
+kWh for missing periods based on the monthly meter read reported by the TDSP. When there is a
+difference in out-flow kWh between the monthly meter read and the monthly total of the interval data, the
+difference will be allocated over missing intervals and the estimated out-flow kWh will be used to calculate
+credit amounts applied to your bill.
+See the Terms of Service for additional details for customers enrolled on a renewable energy sell back
+product.
+R1F00183409100C
+Type of Product Fixed Rate
+Contract Term 12 months
+Yes. $150. Applies through the end of the contract term.
+Do I have a termination fee or any fees This fee does not apply if the customer moves, and provides
+associated with terminating service? a forwarding address and other evidence that may be
+requested to verify that the customer moved.
+Can my price change during the contract
+period? Yes
+Your price may change only to reflect actual changes in
+TDSP charges, changes to the Electric Reliability Council
+Disclosure of Texas or Texas Regional Entity administrative fees
+charged to loads, or changes resulting from federal, state or
+Chart
+If my price can change, how will it change local laws or regulatory actions that impose new or
+and by how much? modified fees or costs on us that are beyond our control.
+For other fees, please reference these paragraphs in the
+Terms of Service.
+Pricing, Billing, Payment and Payment Arrangement,
+What other fees may I be charged? Customer Care, Alternate Billing and Payment Options
+Is this a pre-pay or pay in advance product? No
+Yes; customers interested in participating in Reliant's
+distributed renewable generation buy-back program will
+Does Reliant Energy Retail Services, LLC
+purchase excess distributed renewable need to sign up for a Reliant renewable energy Payback
+generation? product.
+Renewable Content This product is 100% renewable.
+Statewide average for renewable content The statewide average for renewable content is 37%.
+Reliant, PO Box 3765, Houston, TX, 77253
+www.reliant.com, e-mail: service@reliant.com,
+phone: 1-866-RELIANT, 24 hours a day / 7 days a week
+PUCT Certificate Number #10007
+R1F00183409100C

@@ -1,0 +1,92 @@
+<!--
+  Synthetic Chariot plans-page fragment for tests. Mirrors the confirmed real
+  structure of the SOLAR-owner listing (the "My home has solar panels" gate):
+  each plan is a div.planbox with a p.planname (name in the title attr and inner
+  text), a p.plandescription (buyback wording + often the fixed rate), and a
+  div.planfiles whose first anchor is the EFL self-labeled via
+  /Home/EFl?productId=<id> (sibling TOS/YRAC links use /Home/TOS? and /Home/YRAC?).
+
+  This one file concatenates two "pages" (what _chariot_render returns joined)
+  to exercise: cross-page dedup (PowerBank 12 appears on both), the un-rendered
+  #:ProductId# template row (skipped), fixed-rate parsing from "3 Cents per kWh",
+  the "7 Buyback" tagline alt-rate path, a market-rate plan with no number
+  (buyback_ckwh None), script/SVG stripping, &amp;/&nbsp; unescaping, and the
+  non-buyback disclaimer guard: a Free Days card carrying "Restrictions apply
+  for customers with rooftop solar and/or batteries" must NOT be flagged buyback.
+  No real EFL content, no network.
+-->
+<html>
+<body>
+<h1>Based on your location, we recommend these plans for you</h1>
+
+<!-- ===== page 1 ===== -->
+<div class="planbox">
+  <div class="plantype" style="background-color:"> </div>
+  <p class="planname" style="min-height: 33px;" title="Shine 12 "> Shine 12 </p>
+  <p class="planicon" style="display:inline-block"><span>12</span></p>
+  <p class="planprice">17.4&cent; <span>500 kWh</span></p>
+  <p class="plandescription" title="For Rooftop Solar Homes"><div style="text-align:left;"><p>&bull;&nbsp;<strong>Earn a real-time market buyback rate</strong>&nbsp;for the unused energy produced by your panels</p><p>&bull;&nbsp;<strong>100% Grid Solar</strong>&nbsp;renewable energy</p></div></p>
+  <a class="newplansignup" onclick="RedirecTOCustomer('41330')">Continue</a>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=41330&amp;Promo=15225" target="_blank">EFL</a><a target="_blank" href="/Home/TOS?productId=41330">TOS</a><a target="_blank" href="/Home/YRAC?productId=41330">YRAC</a>
+  </div>
+</div>
+
+<div class="planbox">
+  <div class="plantype"><svg viewBox="0 0 512 512"><path d="M296 264V24c0-13.3-10.7-24-24-24h-32c-13.3 0-24 10.7-24 24z"></path></svg></div>
+  <p class="planname" style="min-height: 33px;" title="PowerBank 12 "> PowerBank 12 </p>
+  <p class="planicon" style="display:inline-block"><span>12</span></p>
+  <p class="plandescription" title="&bull;&nbsp;Earn a fixed buyback rate&nbsp;of 3 Cents per kWh for excess energy from your panels"><div style="text-align:left;"><p>&bull;&nbsp;<strong>Earn a fixed buyback rate</strong>&nbsp;of 3 Cents per kWh for excess energy from your panels</p><p>&bull;&nbsp;<strong>Credits never expire</strong></p></div></p>
+  <a class="newplansignup" onclick="RedirecTOCustomer('40536')">Continue</a>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=40536&amp;Promo=15225" target="_blank">EFL</a><a target="_blank" href="/Home/TOS?productId=40536">TOS</a>
+  </div>
+</div>
+
+<!-- The list template row Chariot ships un-rendered; must be skipped. -->
+<div class="planbox">
+  <p class="planname" title="#:Title#">#:Title#</p>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=#:ProductId#&amp;Promo=#:Promo#" target="_blank">EFL</a>
+  </div>
+</div>
+
+<!-- ===== page 2 ===== -->
+<div class="planbox">
+  <div class="plantype"> </div>
+  <p class="planname" style="min-height: 33px;" title="GreenVolt 24 "> GreenVolt 24 </p>
+  <p class="planicon" style="display:inline-block"><span>24</span></p>
+  <p class="carddetail">24 Months of Fixed 7&cent; Buyback</p>
+  <p class="plandescription" title="For Rooftop Solar Homes"><div style="text-align:left;"><p>&bull;&nbsp;<strong>Lock in your buyback</strong>&nbsp;for the full term</p></div></p>
+  <a class="newplansignup" onclick="RedirecTOCustomer('42114')">Continue</a>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=42114&amp;Promo=15225" target="_blank">EFL</a><a target="_blank" href="/Home/YRAC?productId=42114">YRAC</a>
+  </div>
+</div>
+
+<div class="planbox">
+  <div class="plantype"> </div>
+  <p class="planname" style="min-height: 33px;" title="Free Days 12 "> Free Days 12 </p>
+  <p class="planicon" style="display:inline-block"><span>12</span></p>
+  <p class="plandescription" title="100% Grid Solar"><div style="text-align:left;"><p>&bull;&nbsp;<strong>No energy charge</strong>&nbsp;every day 10A to 4P</p><p>&bull;&nbsp;<strong>100% Grid Solar</strong>&nbsp;renewable energy</p><p class="restrictions-apply">Restrictions apply for customers with rooftop solar and/or batteries.</p></div></p>
+  <a class="newplansignup" onclick="RedirecTOCustomer('46112')">Continue</a>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=46112&amp;Promo=15225" target="_blank">EFL</a><a target="_blank" href="/Home/TOS?productId=46112">TOS</a>
+  </div>
+</div>
+
+<!-- PowerBank 12 again (present on both pages): must dedup by product id. -->
+<div class="planbox">
+  <p class="planname" title="PowerBank 12 "> PowerBank 12 </p>
+  <div class="planfiles">
+    <a href="/Home/EFl?productId=40536&amp;Promo=15225" target="_blank">EFL</a>
+  </div>
+</div>
+
+<script>
+  // Chariot ships analytics config referencing "buyback" that must not leak
+  // into card text and false-positive anything after script stripping.
+  window.__plans = [{ "name": "Flex", "badge": "Solar Buyback" }];
+</script>
+</body>
+</html>

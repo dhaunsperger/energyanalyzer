@@ -21,7 +21,7 @@ etf_usd: 150.0
 etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 30.4
-source: efl:FRONTIER_UTILITIES_Sun_Confidence_12.pdf
-retrieved: '2026-07-21'
+source: efl:Frontier_Utilities_Frontier_Sun_Confidence_12.pdf
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

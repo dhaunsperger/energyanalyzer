@@ -205,6 +205,138 @@ def test_download_efls_skips_existing_and_downloads_new(tmp_path, monkeypatch):
         assert Path(path_str).read_bytes().startswith(b"%PDF")
 
 
+def test_download_efls_defers_html_response(tmp_path, monkeypatch):
+    # A 200 response whose body is HTML (a browser-rendered EFL viewer / SPA
+    # shell, e.g. the Vistra shopping.* PDFGenerator endpoint) must NOT be saved
+    # as a .pdf. It's not a real failure -- it's deferred (needs a browser).
+    df = ptc.load_ptc(FIXTURE).head(2)
+
+    class _HtmlResponse:
+        content = b"<!DOCTYPE html><html><head></head><body>Not found</body></html>"
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            return _HtmlResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    dest = tmp_path / "efl"
+
+    summary = ptc.download_efls(df, dest=dest)
+
+    assert summary["downloaded"] == []
+    assert summary["failed"] == []
+    assert len(summary["deferred"]) == 2
+    assert "HTML response" in summary["deferred"][0]["reason"]
+    # Nothing written to disk.
+    assert not list(dest.glob("*.pdf"))
+
+
+def test_download_efls_non_html_non_pdf_stays_failed(tmp_path, monkeypatch):
+    # A non-PDF, non-HTML body (a stale link / truncated response) is a genuine
+    # failure, NOT a deferrable browser-rendered viewer.
+    df = ptc.load_ptc(FIXTURE).head(1)
+
+    class _JunkResponse:
+        content = b"garbage-not-a-pdf"
+        headers = {"content-type": "application/octet-stream"}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):
+            return _JunkResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    summary = ptc.download_efls(df, dest=tmp_path / "efl")
+    assert summary["deferred"] == []
+    assert len(summary["failed"]) == 1
+
+
+def test_download_efls_defers_html_viewer_urls(tmp_path, monkeypatch):
+    # An HTML-viewer "EFL" URL (e.g. octopusenergy.com/efl/...) can't be
+    # fetched as a PDF over httpx -- REP discovery renders it instead. It must
+    # be deferred (reported separately), NOT counted as a download failure, and
+    # must not even hit the network.
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "retailer": "Octopus Energy",
+                "plan_name": "Octopus Simple 12",
+                "efl_url": "https://octopusenergy.com/efl/OCTO-SIMPLE-12-ONCOR.html",
+            }
+        ]
+    )
+
+    class _NoNetClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("HTML-viewer URL should be deferred, not fetched")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _NoNetClient)
+    dest = tmp_path / "efl"
+
+    summary = ptc.download_efls(df, dest=dest)
+
+    assert summary["failed"] == []
+    assert summary["downloaded"] == []
+    assert len(summary["deferred"]) == 1
+    assert "octopusenergy.com/efl/" in summary["deferred"][0]["url"]
+    assert not list(dest.glob("*.pdf"))
+
+
+def test_efl_ssl_context_enables_legacy_server_connect():
+    # Some EFL hosts (Tara/Amigo on the shared Just Energy platform) run TLS
+    # stacks that require legacy renegotiation, which OpenSSL 3.x refuses by
+    # default -- the download would fail with a bare ConnectError. The EFL
+    # client must opt back into OP_LEGACY_SERVER_CONNECT so those handshakes
+    # complete (verification otherwise unchanged).
+    import ssl
+
+    ctx = ptc._efl_ssl_context()
+    assert ctx.options & ssl.OP_LEGACY_SERVER_CONNECT
+    # Still a verifying context -- we relaxed renegotiation, not trust.
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
 # --------------------------------------------------------------------------- #
 # Issue: statewide PTC snapshot includes Spanish-language duplicate rows,
 # which made a correct tdu-filtered result look "truncated". `filter_plans`

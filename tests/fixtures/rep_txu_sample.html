@@ -1,0 +1,51 @@
+<!--
+  Synthetic TXU plans-page fragment for tests. Mirrors the confirmed real
+  structure: each plan is a show-plan card with a styled title paragraph
+  (font-mProBlack + text-txublue), a visible description, and an EFL link that
+  self-labels via PDFGenerator formType=EnergyFactsLabel and comProdId. The
+  trailing script block reproduces TXU's embedded Next.js badge metadata (which
+  contains "Solar Panel Buyback" / "Our Best Buyback Rate" strings) so the test
+  proves the extractor strips scripts and does NOT false-positive the
+  non-buyback Flex Forward card. The &amp; entity in a name exercises
+  unescaping. No real EFL content, no network.
+-->
+<html>
+<body>
+<h1>Based on your location, we recommend these plans for you</h1>
+
+<div class="w-full show-plan min-h-[250px] rounded-xl shadow-3xl flex flex-col bg-white">
+  <div class="flex flex-col basis-full">
+    <p class="font-mProBlack tee:font-gProBold text-txublue tee:text-tee-primary text-[16px] pb-2 ">Solar Buyback System Flex</p>
+    <div class="text-minus2 ">Earn automatic bill credits for your excess energy with no long-term contract. <strong>Panels required.</strong></div>
+  </div>
+  <p>... See the Terms of Service Agreement and
+    <a href="https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel&amp;comProdId=ONXSBBSYSV00AB&amp;efldate=2026-07-22&amp;tdsp=ONCOR&amp;lang=en&amp;custClass=Residential" class="text-digitalBlueBonnet" target="_blank">Electricity Facts Label<span class="icon"></span></a> (EFL) for more details.</p>
+</div>
+
+<div class="w-full show-plan min-h-[250px] rounded-xl shadow-3xl flex flex-col bg-white">
+  <div class="flex flex-col basis-full">
+    <p class="font-mProBlack tee:font-gProBold text-txublue tee:text-tee-primary text-[16px] pb-2 ">Free Nights &amp; Cool Summer 12</p>
+    <div class="text-minus2 ">Free electricity every night from 8pm to 6am.</div>
+  </div>
+  <p>... and the
+    <a href="https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel&amp;comProdId=ONXFNCOOLS12AB&amp;efldate=2026-07-22&amp;tdsp=ONCOR&amp;lang=en&amp;custClass=Residential" target="_blank">Electricity Facts Label</a> (EFL).</p>
+</div>
+
+<div class="w-full show-plan min-h-[250px] rounded-xl shadow-3xl flex flex-col bg-white">
+  <div class="flex flex-col basis-full">
+    <p class="font-mProBlack tee:font-gProBold text-txublue tee:text-tee-primary text-[16px] pb-2 ">Flex Forward</p>
+    <div class="text-minus2 ">A flexible month-to-month plan with no annual contract.</div>
+  </div>
+  <p>... and the
+    <a href="https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel&amp;comProdId=ONXFLXFW0000BA&amp;efldate=2026-07-22&amp;tdsp=ONCOR&amp;lang=en&amp;custClass=Residential" target="_blank">Electricity Facts Label</a> (EFL).</p>
+</div>
+
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"plans":[
+  {"code":{"value":"HMSOLAR"},"DefaultActiveBadge":{"value":"Solar Panel Buyback"},"PromoCodeBadge":{"value":"Solar Panel Buyback"}},
+  {"code":{"value":"SBBSYSV"},"DefaultActiveBadge":{"value":"Our Best Buyback Rate"},"PromoCodeBadge":{"value":"Our Best Buyback Rate"}},
+  {"code":{"value":"FLXFW"},"DefaultActiveBadge":{"value":""}}
+]}}
+</script>
+</body>
+</html>

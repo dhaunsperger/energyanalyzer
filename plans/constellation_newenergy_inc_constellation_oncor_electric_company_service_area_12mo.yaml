@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 12.27
+- rate_ckwh: 12.67
   label: ''
   tdu_exempt: false
 buyback:
@@ -25,6 +25,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.pdf
-retrieved: '2026-07-21'
-notes: base charge not found; defaulting to 0.0
-needs_review: true
+retrieved: '2026-07-24'
+notes: ''
+needs_review: false

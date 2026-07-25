@@ -1,0 +1,51 @@
+<!--
+  Synthetic Green Mountain plans-page fragment for tests. Mirrors the confirmed
+  real structure (rep_discovery_handoff.md): a per-plan "Learn more" modal with
+  an <h3> plan name + an "Important Documents" section carrying an explicit
+  <a>Electricity Facts Label</a>, and a separate hidden per-plan analytics div
+  whose analyticscontractrates flags buyback plans via ^BuyBack:<rate>. Names
+  deliberately include ™/® glyphs to exercise trademark-stripping in the
+  name-matching join. No real EFL content, no network.
+-->
+<div id="___gatsby">
+  <div class="plan-card">
+    <div class="modal" role="dialog">
+      <h3>Pollution Free ™  e-Plus 12</h3>
+      <div class="row"><div class="rich-text-header"><h6>Important Documents</h6></div>
+        <div class="rich-text-body">
+          <p><a class="text-xs" href="/files/pf_eplus_12.pdf" target="_blank">Electricity Facts Label</a></p>
+          <p><a class="text-xs" href="/files/pf_eplus_12_tos.pdf" target="_blank">Terms of Service</a></p>
+          <p><a class="text-xs" href="/files/pf_eplus_12_yrac.pdf" target="_blank">Your Rights as a Customer</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="plan-card">
+    <div class="modal" role="dialog">
+      <h3>Renewable Rewards® Solar Max 12</h3>
+      <div class="row"><div class="rich-text-header"><h6>Important Documents</h6></div>
+        <div class="rich-text-body">
+          <p><a class="text-xs" href="https://signup.greenmountainenergy.com/files/solar_max_12.pdf" target="_blank">Electricity Facts Label</a></p>
+          <p><a class="text-xs" href="/files/solar_max_12_tos.pdf" target="_blank">Terms of Service</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="plan-card">
+    <div class="modal" role="dialog">
+      <h3>Renewable Rewards® Solar Credit 12</h3>
+      <div class="row"><div class="rich-text-header"><h6>Important Documents</h6></div>
+        <div class="rich-text-body">
+          <p><a class="text-xs" href="/files/solar_credit_12.pdf" target="_blank">Electricity Facts Label</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden analytics markup: the site's own self-labeling of buyback plans. -->
+  <div hidden analyticsid="Product_1" analyticscontractrates="500:16.6|1000:16.2|2000:15.9" analyticsproductname="Pollution Free e-Plus 12"></div>
+  <div hidden analyticsid="Product_2" analyticscontractrates="500:21.3|1000:19.4|2000:18.4^BuyBack:11.4" analyticsproductname="Renewable Rewards Solar Max 12"></div>
+  <div hidden analyticsid="Product_3" analyticscontractrates="500:24.2|1000:20.8|2000:19.1^BuyBack:6.3" analyticsproductname="Renewable Rewards Solar Credit 12"></div>
+</div>

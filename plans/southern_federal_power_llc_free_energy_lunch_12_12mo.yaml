@@ -29,6 +29,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Free_Energy_Lunch_-_12.pdf
-retrieved: '2026-07-21'
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

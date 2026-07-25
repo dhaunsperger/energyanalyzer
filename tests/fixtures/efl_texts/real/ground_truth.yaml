@@ -1,0 +1,226 @@
+# Hand-verified ground truth for the real-EFL corpus (tests/fixtures/efl_texts/real/*.txt).
+#
+# Each entry records the LOAD-BEARING fields only -- the ones that move a bill
+# (see eflparse.parser.LOAD_BEARING_KEYS) plus term. Verified by reading each
+# fixture's own disclosure table; the quoted line is in `evidence` so a future
+# reader can re-check without re-opening the PDF.
+#
+# Consumed by scripts/eval_efl.py (parser + LLM-tier accuracy harness). The
+# pytest classes in tests/test_eflparse.py remain the regression gate; this file
+# is the measurement baseline, and the two must not disagree.
+#
+# Conventions:
+#   base_charge_usd  -- the REP's own fixed monthly charge, NOT TDU. 0.0 when the
+#                       EFL states none or states it as $0/N/A.
+#   energy_rates     -- ordered, first-match-wins, same shape as the Plan schema.
+#                       `window: null` on the final catch-all.
+#   buyback.kind     -- none | fixed | rtw. `unknown: true` marks an EFL that
+#                       answers "yes, we buy back" without disclosing a rate --
+#                       genuinely unscoreable, so the harness skips the field
+#                       rather than crediting either answer.
+
+AE_TEXAS_Smart_Secure_36_34636.txt:
+  # Corrupted font: B/E/s/b/y render as PUA codepoints ("ae Charge" = Base Charge).
+  evidence: "ae Charge $0.00 per illing ccle / nerg Charge $0.0649 per kWh"
+  term_months: 36
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.49, window: null}]
+  buyback: {kind: none}
+
+AMBIT_ENERGY_Texas_Solar_Buyback_12.txt:
+  evidence: "Base Charge: Per Month ($) $9.95 / Energy Charge: 12.7000c / Buyback Rate: 3.5c"
+  term_months: 12
+  base_charge_usd: 9.95
+  energy_rates: [{rate_ckwh: 12.70, window: null}]
+  # "can offset up to 100% of your Energy Charges each month (excluding base
+  # charge, TDU charges, and all other taxes and fees)" -> energy_only.
+  buyback: {kind: fixed, rate_ckwh: 3.5, offset_scope: energy_only}
+
+AP_GAS_ELECTRIC_TX_LLC_TrueClassic_11_33631.txt:
+  evidence: "1) Energy Rate (c) per kWh: 6.274c / 2) Base Charge ($) per month: $0.00"
+  term_months: 11
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.274, window: null}]
+  buyback: {kind: none}
+
+AP_GAS_ELECTRIC_TX_LLC_TrueClassic_36_33453.txt:
+  evidence: "1) Energy Rate (c) per kWh: 7.174c / 2) Base Charge ($) per month: $0.00"
+  term_months: 36
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 7.174, window: null}]
+  buyback: {kind: none}
+
+ATLANTEX_Solar_Buy_Back_Plan.txt:
+  # Corrupted font, same class as AE Texas ("ae Charge" = Base Charge). This is
+  # the corpus's hardest case: the static parser currently gets base_charge and
+  # buyback BOTH wrong here.
+  evidence: "ae Charge $19.95 per ill / nerg Charge $0.0559 per kWh / xport Credit Rate Real Time Market Pricing per kWh"
+  term_months: 12
+  base_charge_usd: 19.95
+  energy_rates: [{rate_ckwh: 5.59, window: null}]
+  buyback: {kind: rtw}
+
+Abundance_Energy_Confident_Renter_12_34695.txt:
+  evidence: "Base Charge $0.00 Per Billing Cycle / Energy Charge 6.22c Per kWh"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.22, window: null}]
+  buyback: {kind: none}
+
+BKV_Energy_Daisy_11_34777.txt:
+  evidence: "Base Charge: $0 per month / Energy Charge: 7.034c per kWh"
+  term_months: 11
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 7.034, window: null}]
+  buyback: {kind: none, unknown: true}   # points at a separate buyback program, no rate here
+
+BKV_Energy_Daisy_13_34683.txt:
+  evidence: "Base Charge: $0 per month / Energy Charge: 7.216c per kWh"
+  term_months: 13
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 7.216, window: null}]
+  buyback: {kind: none, unknown: true}
+
+Budget_Power_No_Gimmicks_12_34399.txt:
+  evidence: "Base Charge $0 per billing cycle / Fixed Energy Charge 5.512c per kWh"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 5.512, window: null}]
+  buyback: {kind: none}
+
+Budget_Power_No_Gimmicks_24_34398.txt:
+  evidence: "Base Charge $0 per billing cycle / Fixed Energy Charge 6.212c per kWh"
+  term_months: 24
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.212, window: null}]
+  buyback: {kind: none}
+
+CHARIOT_ENERGY_Bright_Nights_12_34727.txt:
+  evidence: "Daytime Energy Charge 6.78c / Bright Nights Energy Charge 0c / Base Monthly Charge $9.95 / Bright Nights hours are 11:00 PM to 06:00 AM"
+  term_months: 12
+  base_charge_usd: 9.95
+  energy_rates:
+    - {rate_ckwh: 0.0, window: {hours: [23, 0, 1, 2, 3, 4, 5]}}
+    - {rate_ckwh: 6.78, window: null}
+  buyback: {kind: none}
+
+CHARIOT_ENERGY_Chariot_Shine_36.txt:
+  evidence: "Energy Charge 8.51c / Buy Back Rate Real Time Market Pricing per kWh / Base Monthly Charge $9.95"
+  term_months: 36
+  base_charge_usd: 9.95
+  energy_rates: [{rate_ckwh: 8.51, window: null}]
+  buyback: {kind: rtw}
+
+CHARIOT_ENERGY_GridPlus_12.txt:
+  evidence: "Energy Charge 13.22c per kWh / Base Monthly Charge $0 per billing cycle"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 13.22, window: null}]
+  buyback: {kind: none}
+
+CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.txt:
+  # States its base charge as "Minimum Usage Fee 0.00000 $ per bill month".
+  evidence: "Energy Charge 12.27 c per kWh / Minimum Usage Fee 0.00000 $ per bill month"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 12.27, window: null}]
+  buyback: {kind: none}
+
+DIRECT_ENERGY_Direct_Solar_Unlimited_12.txt:
+  evidence: "Base Charge: $9.95 per billing cycle / Energy Charge: 10.3c per kWh / Solar Grid Credit: 5.3c per kWh"
+  term_months: 12
+  base_charge_usd: 9.95
+  energy_rates: [{rate_ckwh: 10.3, window: null}]
+  buyback: {kind: fixed, rate_ckwh: 5.3}
+
+Energy_Texas_No_Bull_12_34904.txt:
+  evidence: "Base Charge: $0 per month / Energy Charge: 6.024c per kWh"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.024, window: null}]
+  buyback: {kind: none}
+
+HERITAGE_POWER_LLC_Bright_Start_24.txt:
+  evidence: "Energy Charge: 8.5c per kWh / Base Monthly Charge: $0 per billing cycle"
+  term_months: 24
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 8.5, window: null}]
+  buyback: {kind: none}
+
+JUST_ENERGY_Basics_PTC_24_33606.txt:
+  # Answers "Yes" to the excess-generation question but discloses no rate.
+  evidence: "Energy Charge: 9.4c/kWh; no base charge line; 'purchase excess distributed renewable  Yes'"
+  term_months: 24
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 9.4, window: null}]
+  buyback: {kind: none, unknown: true}
+
+PRONTO_POWER_Power_To_Choose_33671.txt:
+  # Variable product: 17.9c/kWh bundled (TDSP included), base derived from the
+  # $0.39/day customer fee (0.39 * 30.4 = 11.86).
+  evidence: "variable rate of 17.9 cents; daily customer fee $0.39"
+  term_months: 1
+  base_charge_usd: 11.86
+  energy_rates: [{rate_ckwh: 17.9, window: null}]
+  buyback: {kind: none}
+
+RELIANT_Solar_Payback_Match_12.txt:
+  evidence: "Base Charge: $9.99 per billing cycle / Energy Charge: 11.6206c per kWh; Solar Payback Match credits at RTSPP"
+  term_months: 12
+  base_charge_usd: 9.99
+  energy_rates: [{rate_ckwh: 11.6206, window: null}]
+  buyback: {kind: rtw}
+
+Think_Energy_Think_Clean_12_34475.txt:
+  evidence: "Base Charge $4.95 Per Billing Cycle / Energy Charge 7.8 c Per kWh"
+  term_months: 12
+  base_charge_usd: 4.95
+  energy_rates: [{rate_ckwh: 7.8, window: null}]
+  buyback: {kind: none}
+
+Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected_34706.txt:
+  evidence: "Base Charge $4.95 Per Billing Cycle / Energy Charge 7.8c Per kWh"
+  term_months: 12
+  base_charge_usd: 4.95
+  energy_rates: [{rate_ckwh: 7.8, window: null}]
+  buyback: {kind: none}
+
+Think_Energy_Think_Clean_24_34491.txt:
+  evidence: "Base Charge $4.95 Per Billing Cycle / Energy Charge 8.4 c Per kWh"
+  term_months: 24
+  base_charge_usd: 4.95
+  energy_rates: [{rate_ckwh: 8.4, window: null}]
+  buyback: {kind: none}
+
+chariot_choice_24.txt:
+  # "Base Monthly Charge N/A" -- N/A means none, i.e. $0.
+  evidence: "Energy Charge 6.42c per kWh / Base Monthly Charge N/A per billing cycle"
+  term_months: 24
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.42, window: null}]
+  buyback: {kind: none}
+
+nec_coop_plain_and_simple.txt:
+  evidence: "NEC Co-op Energy $7.50 (Base Charge) 9.94c (Per kWh Charge); 'Contract Term 0 (month-to-month)'"
+  term_months: 1   # month-to-month
+  base_charge_usd: 7.5
+  energy_rates: [{rate_ckwh: 9.94, window: null}]
+  buyback: {kind: none, unknown: true}   # "Yes, contact us for buyback parameters" -- no rate
+
+sfe_rewardsplus_12.txt:
+  evidence: "Base Charge($ per month) $ 0.00 / Energy Charge(c/kWh) 6.67 c"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 6.67, window: null}]
+  buyback: {kind: none}
+
+GREEN_MOUNTAIN_Renewable_Rewards_Solar_Credit_12.txt:
+  # Regression for a real silent-wrong found by scripts/audit_plans_llm.py: the
+  # parser reported buyback=none at 0.95 confidence on a plan named "Solar
+  # Credit", because "Renewable Rewards Credit" wasn't in the buyback label
+  # vocabulary. ~$618/yr of ignored export credit at 9,803 kWh/yr export.
+  evidence: "Base Charge: $29.95 per billing cycle / Energy Charge: 11.3c per kWh / Renewable Rewards Credit: 6.3c per kWh"
+  term_months: 12
+  base_charge_usd: 29.95
+  energy_rates: [{rate_ckwh: 11.3, window: null}]
+  buyback: {kind: fixed, rate_ckwh: 6.3}

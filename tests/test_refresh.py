@@ -100,6 +100,13 @@ def _fake_parse_efl(pdf_path) -> eflparser.DraftPlan:
     )
 
 
+def _boom_meter_efls(*args, **kwargs):
+    """Stand-in for the Meter /plans EFL fetch (a live network call). Blocked
+    here like the other fetchers -- the refresh stage catches it, notes it, and
+    leaves Meter's markdown rows in place (the fetch-unavailable fallback)."""
+    raise RuntimeError("network blocked")
+
+
 def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
     plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
 
@@ -134,6 +141,7 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
         raise RuntimeError("network blocked")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     import httpx
 
@@ -207,6 +215,7 @@ def test_refresh_market_data_no_snapshot_available_is_graceful(refresh_dirs, mon
         raise RuntimeError("network blocked")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _boom_meterplan_fetch)
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     summary = app_common.refresh_market_data(
         plans_dir=plans_dir,
@@ -216,7 +225,7 @@ def test_refresh_market_data_no_snapshot_available_is_graceful(refresh_dirs, mon
         meterplan_dir=meterplan_dir,
     )
     assert summary["snapshot_path"] is None
-    assert summary["downloaded"] == {"downloaded": [], "skipped": [], "failed": []}
+    assert summary["downloaded"] == {"downloaded": [], "skipped": [], "failed": [], "deferred": []}
     assert summary["parsed"] == {"parsed": [], "skipped": [], "failed": []}
     assert summary["promoted"] == []
     assert any("no power to choose snapshot available" in n.lower() for n in summary["notes"])
@@ -238,6 +247,11 @@ def test_refresh_market_data_fetch_false_skips_network(refresh_dirs, monkeypatch
         raise AssertionError("fetch_meterplan should not be called when fetch=False")
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fail_meterplan_if_called)
+
+    def _fail_meter_efls_if_called(*a, **k):
+        raise AssertionError("fetch_meterplan_efls should not be called when fetch=False")
+
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _fail_meter_efls_if_called)
 
     import httpx
 
@@ -283,6 +297,9 @@ def test_refresh_market_data_meterplan_stage(refresh_dirs, monkeypatch):
         return dest_path
 
     monkeypatch.setattr(meterplan_module, "fetch_meterplan", _fake_fetch_meterplan)
+    # Meter's /plans EFL fetch unavailable here -> Meter's markdown rows import
+    # normally (this test exercises the markdown fallback path).
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
 
     # A manual plan matching one Lubbock row by (retailer, name, term) should
     # dedupe it out via existing_plan_keys, and must survive (source=manual).
@@ -336,6 +353,23 @@ def test_refresh_market_data_meterplan_stage(refresh_dirs, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Staleness helpers
 # --------------------------------------------------------------------------- #
+def test_efl_pdf_health_flags_non_pdf_files(tmp_path):
+    efl_dir = tmp_path / "efl"
+    efl_dir.mkdir()
+    (efl_dir / "good.pdf").write_bytes(b"%PDF-1.5\n...real content...")
+    (efl_dir / "leading_junk.pdf").write_bytes(b"\n\n%PDF-1.4 ok")  # tolerated
+    (efl_dir / "html_error.pdf").write_bytes(b"<!DOCTYPE html><html>nope</html>")
+    (efl_dir / "captcha.pdf").write_bytes(b"<html><meta http-equiv='refresh'></html>")
+
+    health = app_common.efl_pdf_health(efl_dir)
+    assert health["total"] == 4
+    assert set(health["invalid"]) == {"html_error.pdf", "captcha.pdf"}
+
+
+def test_efl_pdf_health_empty_dir(tmp_path):
+    assert app_common.efl_pdf_health(tmp_path / "missing") == {"total": 0, "invalid": []}
+
+
 def test_interval_staleness_warning():
     from energyanalyzer.ingest.smt import QualityReport
 
@@ -393,3 +427,170 @@ def test_plan_is_stale_and_stale_plan_ids():
 
     ids = app_common.stale_plan_ids([fresh_plan, stale_plan, unstamped_report, unstamped_manual])
     assert set(ids) == {"stale", "report_unstamped"}
+
+
+# --------------------------------------------------------------------------- #
+# finish_refresh: the recovery path for an interrupted run
+# --------------------------------------------------------------------------- #
+def _draft(drafts_dir: Path, plan_id: str, *, confident: bool) -> Path:
+    """A draft that either clears the auto-promote gate or doesn't."""
+    conf = 0.95 if confident else 0.4
+    path = drafts_dir / f"{plan_id}.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "id": plan_id,
+                "retailer": "Test REP",
+                "name": plan_id,
+                "term_months": 12,
+                "base_charge_usd": 0.0,
+                "energy_rates": [{"rate_ckwh": 10.0, "window": None}],
+                "buyback": {"kind": "none"},
+                "needs_review": not confident,
+                "source": "efl:x.pdf",
+                "_parse": {"confidence": {"energy_charge": conf, "base_charge": conf}},
+            }
+        )
+    )
+    return path
+
+
+def test_finish_refresh_promotes_confident_drafts_left_by_an_interrupted_run(refresh_dirs):
+    """The real-world case: fetch/download/parse completed and wrote drafts, then
+    the run was killed before auto-promote. Re-running just this stage must
+    complete the database without repeating the sweep."""
+    plans_dir, drafts_dir = refresh_dirs[0], refresh_dirs[1]
+    _draft(drafts_dir, "confident_plan_12mo", confident=True)
+    _draft(drafts_dir, "shaky_plan_12mo", confident=False)
+
+    summary = app_common.finish_refresh(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    assert summary["promoted"] == ["confident_plan_12mo"]
+    assert summary["needing_review"] == ["shaky_plan_12mo"]
+    assert (plans_dir / "confident_plan_12mo.yaml").exists()
+    assert not (drafts_dir / "confident_plan_12mo.yaml").exists()  # draft consumed
+    assert (drafts_dir / "shaky_plan_12mo.yaml").exists()  # left for review
+
+
+def test_finish_refresh_is_idempotent(refresh_dirs):
+    """Clicking "Finish incomplete refresh" twice must not error or double-write."""
+    plans_dir, drafts_dir = refresh_dirs[0], refresh_dirs[1]
+    _draft(drafts_dir, "confident_plan_12mo", confident=True)
+
+    first = app_common.finish_refresh(plans_dir=plans_dir, drafts_dir=drafts_dir)
+    second = app_common.finish_refresh(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    assert first["promoted"] == ["confident_plan_12mo"]
+    assert second["promoted"] == []  # nothing left to do
+    assert len(list(plans_dir.glob("*.yaml"))) == 1
+
+
+def test_finish_refresh_on_empty_drafts_dir_is_a_noop(refresh_dirs):
+    summary = app_common.finish_refresh(
+        plans_dir=refresh_dirs[0], drafts_dir=refresh_dirs[1]
+    )
+    assert summary == {"promoted": [], "needing_review": [], "meterplan_superseded": [], "notes": []}
+
+
+# --------------------------------------------------------------------------- #
+# promote_all_drafts: the "quick look" bulk promote
+# --------------------------------------------------------------------------- #
+def test_promote_all_drafts_bypasses_the_confidence_gate_but_keeps_flags(refresh_dirs):
+    """Every draft lands in the database, and an unconfident one arrives still
+    flagged -- the gate is bypassed, the warning is not."""
+    plans_dir, drafts_dir = refresh_dirs[0], refresh_dirs[1]
+    _draft(drafts_dir, "confident_plan_12mo", confident=True)
+    _draft(drafts_dir, "shaky_plan_12mo", confident=False)
+
+    summary = app_common.promote_all_drafts(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    assert sorted(summary["promoted"]) == ["confident_plan_12mo", "shaky_plan_12mo"]
+    assert summary["failed"] == []
+    assert summary["flagged"] == 1  # only the shaky one
+
+    shaky = Plan.model_validate(yaml.safe_load((plans_dir / "shaky_plan_12mo.yaml").read_text()))
+    confident = Plan.model_validate(
+        yaml.safe_load((plans_dir / "confident_plan_12mo.yaml").read_text())
+    )
+    assert shaky.needs_review is True, "an unverified plan must stay badged in the database"
+    assert confident.needs_review is False, "the parser's verdict is preserved, not overwritten"
+    assert shaky.retrieved == dt.date.today()
+    # Move semantics: drafts are consumed.
+    assert list(drafts_dir.glob("*.yaml")) == []
+
+
+def test_promote_all_drafts_leaves_invalid_drafts_in_place(refresh_dirs):
+    """A draft that can't validate must not vanish silently -- it stays on disk
+    and is reported, so nothing is lost to a bulk click."""
+    plans_dir, drafts_dir = refresh_dirs[0], refresh_dirs[1]
+    _draft(drafts_dir, "good_plan_12mo", confident=True)
+    (drafts_dir / "broken.yaml").write_text(yaml.safe_dump({"id": "broken", "term_months": -5}))
+
+    summary = app_common.promote_all_drafts(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    assert summary["promoted"] == ["good_plan_12mo"]
+    assert len(summary["failed"]) == 1
+    assert summary["failed"][0]["draft"] == "broken.yaml"
+    assert (drafts_dir / "broken.yaml").exists()
+    assert not (plans_dir / "broken.yaml").exists()
+
+
+def test_promote_all_drafts_on_empty_dir_is_a_noop(refresh_dirs):
+    summary = app_common.promote_all_drafts(
+        plans_dir=refresh_dirs[0], drafts_dir=refresh_dirs[1]
+    )
+    assert summary == {"promoted": [], "failed": [], "flagged": 0}
+
+
+def test_discovery_falls_back_to_manual_capture_when_a_live_render_fails(tmp_path, monkeypatch):
+    """A probabilistic WAF (Ambit) or a nav-flow drift must not cost a REP all of
+    its plans when a good capture is sitting on disk."""
+    from energyanalyzer.fetchers import rep_discovery as rd
+
+    snapshot_dir = tmp_path / "rep_discovery"
+    snapshot_dir.mkdir()
+    (snapshot_dir / "ambit_20260101T000000Z.html").write_text("<html>saved capture</html>")
+
+    def _boom(*a, **k):
+        raise RuntimeError("Blocked by WAF")
+
+    seen = {}
+
+    def _fake_discover(html, config, **k):
+        seen["html"] = html
+        return []
+
+    monkeypatch.setattr(rd, "fetch_rendered_html", _boom)
+    monkeypatch.setattr(rd, "discover", _fake_discover)
+    monkeypatch.setattr(rd, "download_discovered", lambda *a, **k: {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0})
+
+    out = app_common._run_rep_discovery(
+        zip_code="78665",
+        efl_dir=tmp_path / "efl",
+        drafts_dir=tmp_path / "drafts",
+        plans_dir=tmp_path / "plans",
+        reps=["ambit"],
+        snapshot_dir=snapshot_dir,
+    )
+    rep = out["reps"]["ambit"]
+    assert rep["status"] == "ok", rep
+    assert "ambit_20260101T000000Z.html" in rep["detail"]
+    assert seen["html"] == "<html>saved capture</html>"
+
+
+def test_discovery_reports_error_when_render_fails_and_no_capture_exists(tmp_path, monkeypatch):
+    """Without a capture to fall back on, the failure must surface -- never be
+    quietly swallowed into a zero-plan 'ok'."""
+    from energyanalyzer.fetchers import rep_discovery as rd
+
+    monkeypatch.setattr(rd, "fetch_rendered_html", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Blocked by WAF")))
+    out = app_common._run_rep_discovery(
+        zip_code="78665",
+        efl_dir=tmp_path / "efl",
+        drafts_dir=tmp_path / "drafts",
+        plans_dir=tmp_path / "plans",
+        reps=["ambit"],
+        snapshot_dir=tmp_path / "empty",
+    )
+    assert out["reps"]["ambit"]["status"] == "error"
+    assert "WAF" in out["reps"]["ambit"]["detail"]

@@ -13,6 +13,7 @@ same fact.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -27,6 +28,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DRAFTS_DIR = REPO_ROOT / "plans" / "drafts"
 
 LOAD_BEARING_KEYS = ("energy_charge", "base_charge", "buyback", "free_window")
+
+# Keys a draft YAML carries for the review UI that are NOT part of the Plan
+# schema: `_parse` (per-field confidence/evidence/notes) and `_llm_suggested`
+# (which fields a local LLM pre-filled, and its stated reasoning). Both must be
+# stripped before `Plan.model_validate` or promotion into `plans/`.
+DRAFT_META_KEYS = ("_parse", "_llm_suggested")
+
+
+def plan_fields(raw: dict) -> dict:
+    """A draft dict reduced to Plan-schema fields (review metadata removed)."""
+    return {k: v for k, v in raw.items() if k not in DRAFT_META_KEYS}
 
 
 # --------------------------------------------------------------------------- #
@@ -95,8 +107,20 @@ def extract_text(pdf_path: str | Path) -> str:
         try:
             import pdfplumber  # noqa: PLC0415
 
-            with pdfplumber.open(pdf_path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages]
+            # Some EFLs (e.g. the True Power "True Value" set) carry a slightly
+            # corrupted FlateDecode stream; pdfminer recovers the full text but
+            # logs a noisy "Data-loss while decompressing corrupted data" warning
+            # per file. Extraction still succeeds, so silence that one logger for
+            # the duration -- genuine unreadable-PDF failures raise, not warn, and
+            # still fall through to the pdftotext fallback / ValueError below.
+            _pdfminer_log = logging.getLogger("pdfminer")
+            _prev_level = _pdfminer_log.level
+            _pdfminer_log.setLevel(logging.ERROR)
+            try:
+                with pdfplumber.open(pdf_path) as pdf:
+                    pages = [p.extract_text() or "" for p in pdf.pages]
+            finally:
+                _pdfminer_log.setLevel(_prev_level)
             text = "\n".join(pages)
             if text.strip():
                 return text
@@ -235,12 +259,71 @@ _WEEKDAY_WORDS = {
 }
 
 
-def _weekdays_from_snippet(s: str) -> list[int]:
+# An EFL may DEFINE what "weekend"/"weekday" means for this plan rather than
+# leaving it to the Sat/Sun default -- e.g. Gexa "Free 3 Day Weekends":
+#   "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, ..."
+#   "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, ..."
+# so Friday is a weekend day here. Parse that definition instead of assuming.
+_DAY_DEFN_RE = re.compile(
+    r"\b(weekend|weekday)s?\b[^.\n]{0,20}?defined\s+as\s+"
+    r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+"
+    r"(?:to|through|until|-)\s+"
+    r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
+    re.I,
+)
+
+
+def _is_midnight(t: str) -> bool:
+    """True for a '12:00 AM' style time (the end of a day-range that ends at
+    midnight is EXCLUSIVE of that day)."""
+    m = re.match(r"(\d{1,2}):(\d{2})\s*([ap])", t.strip(), re.I)
+    if not m:
+        return False
+    hour, minute, ap = int(m.group(1)), int(m.group(2)), m.group(3).lower()
+    return ap == "a" and hour in (0, 12) and minute == 0
+
+
+def _day_span(start: int, end: int, end_exclusive: bool) -> list[int]:
+    """Weekdays (0=Mon..6=Sun) from `start` to `end` cyclically, dropping `end`
+    itself when the range ends at midnight of that day."""
+    days: list[int] = []
+    d = start
+    for _ in range(8):  # safety cap
+        days.append(d)
+        if d == end:
+            break
+        d = (d + 1) % 7
+    if end_exclusive and len(days) > 1:
+        days = days[:-1]
+    return sorted(set(days))
+
+
+def _defined_weekdays(full_text: str, kind: str) -> Optional[list[int]]:
+    """Weekday list from an EFL's explicit '<Weekends|Weekdays> is defined as
+    <time> <day> to <time> <day>' clause, or None when there's no such clause."""
+    if not full_text:
+        return None
+    for m in _DAY_DEFN_RE.finditer(full_text):
+        if m.group(1).lower() != kind:
+            continue
+        start_day = _WEEKDAY_WORDS.get(m.group(3).lower())
+        end_day = _WEEKDAY_WORDS.get(m.group(5).lower())
+        if start_day is None or end_day is None:
+            continue
+        return _day_span(start_day, end_day, _is_midnight(m.group(4)))
+    return None
+
+
+def _weekdays_from_snippet(s: str, full_text: str = "") -> list[int]:
     low = s.lower()
     if "weekend" in low or ("saturday" in low and "sunday" in low and "monday" not in low):
-        return [5, 6]
+        # Prefer the EFL's own "Weekends is defined as ..." clause; fall back to
+        # the Sat/Sun default only when the label isn't explicitly defined.
+        return _defined_weekdays(full_text, "weekend") or [5, 6]
     if "weekday" in low or re.search(r"monday\s*(through|-|to)\s*friday", low):
-        return [0, 1, 2, 3, 4]
+        return _defined_weekdays(full_text, "weekday") or [0, 1, 2, 3, 4]
     days = sorted({v for k, v in _WEEKDAY_WORDS.items() if k in low})
     return days if days and len(days) < 7 else []
 
@@ -464,9 +547,14 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
         (
             # Allows a stray repeated unit symbol between value and "per",
             # e.g. two-column table artifacts like "Base Charge $0.00 $ per
-            # bill month"
+            # bill month". "Base Monthly Charge" is the same field under a
+            # different word order (Heritage, Chariot's brand-prefixed tables),
+            # and the "$" is optional because some REPs omit it and let the
+            # column header carry the unit (Octopus: "Base Charge: 0.00 per
+            # month"). The trailing "per <period>" anchor keeps this from
+            # matching a per-kWh rate.
             re.compile(
-                r"Base\s*(?:Charge|Fee)\**\s*[:\-]?\s*\$\s*(\d+(?:\.\d+)?)\s*\$?\s*per\s*"
+                r"Base\s*(?:Monthly\s*)?(?:Charge|Fee)\**\s*[:\-]?\s*\$?\s*(\d+(?:\.\d+)?)\s*\$?\s*per\s*"
                 r"(?:billing\s*cycle|bill\s*month|month)",
                 re.I,
             ),
@@ -517,9 +605,25 @@ def _extract_base_charge(text: str) -> Optional[Extraction]:
         ),
         (
             # Average-price-table row style, e.g. "Base Charge($ per month) $ 0.00"
-            re.compile(r"Base\s*Charge\s*\([^)]*\)\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
+            re.compile(r"Base\s*Charge\s*\([^)]*\)\s*\$?\s*(\d+(?:\.\d+)?)\b", re.I),
             0.85,
             lambda m: float(m.group(1)),
+        ),
+        (
+            # A ZERO minimum-usage fee is an affirmative statement that this plan
+            # has no unconditional monthly charge (Constellation: "Minimum Usage
+            # Fee 0.00000 $ per bill month"; Heritage: "Minimum Usage Charge: $0
+            # per billing cycle < 0 kWh"). Matched only at zero, and last, on
+            # purpose: a NON-zero minimum-usage fee is a conditional charge that
+            # applies below a usage threshold, NOT a base charge, and must never
+            # be read as one. Anything nonzero falls through to the "not found"
+            # path so a human decides.
+            re.compile(
+                r"Minimum\s*Usage\s*(?:Fee|Charge)\s*[:\-]?\s*\$?\s*0(?:\.0+)?\s*\$?\s*(?:per|<)",
+                re.I,
+            ),
+            0.85,
+            lambda m: 0.0,
         ),
     ]
     return _first_match(text, patterns)
@@ -772,7 +876,7 @@ def _extract_free_window(text: str) -> Optional[dict]:
         if not re.search(r"night|weekend|hour|electricity|energy|power|day", low):
             continue
         hours = parse_time_range(snippet)
-        weekdays = _weekdays_from_snippet(snippet) if not hours else []
+        weekdays = _weekdays_from_snippet(snippet, text) if not hours else []
         if hours or weekdays:
             return {"hours": hours, "weekdays": weekdays, "evidence": _snippet(m)}
     return None
@@ -800,7 +904,7 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
             continue
         is_default = "off-peak" in label or "all other" in win_snip.lower() or not win_snip.strip()
         hours = [] if is_default else parse_time_range(win_snip)
-        weekdays = [] if is_default else _weekdays_from_snippet(win_snip)
+        weekdays = [] if is_default else _weekdays_from_snippet(win_snip, text)
         rows.append(
             {
                 "label": label,
@@ -1132,11 +1236,50 @@ def _extract_bill_credits(text: str) -> list[dict]:
     return out
 
 
+# "E?xport Credit Rate" is deliberate: several REPs (Atlantex, Chariot) label the
+# export credit that way, and the corrupted-font PDFs in this corpus render the
+# capital E as an invisible Private-Use-Area codepoint that extract_text strips,
+# leaving a bare "xport Credit Rate". Verified safe across all 200 downloaded
+# EFLs: every occurrence of "credit rate" is an export/excess-energy credit.
+# "Renewable Rewards Credit" is Green Mountain's brand name for its solar export
+# credit ("You will receive a Renewable Rewards Credit on your bill for the excess
+# energy delivered by your eligible renewable energy system to the grid").
+# Missing it made the parser report buyback=none at high confidence on a plan
+# literally named "Renewable Rewards Solar Credit 12" -- found by the LLM audit
+# (scripts/audit_plans_llm.py), which is exactly the silent-wrong class that
+# audit exists to catch. The (R) is optional because the glyph survives some
+# text extractions and not others.
 _BUYBACK_LABEL = re.compile(
     r"(Solar\s*(?:Repurchase|Buyback)|Buy\s*Back\s*Rate|Excess\s*Energy\s*(?:Credit|Rate|"
-    r"Purchase)|Renewable\s*Buyback)[^\n]{0,100}",
+    r"Purchase)|Renewable\s*Buyback|Solar\s*Grid\s*Credit|E?xport\s*Credit\s*Rate"
+    r"|Renewable\s*Rewards\s*(?:®|\(R\))?\s*Credit)[^\n]{0,100}",
     re.I,
 )
+
+
+# The PUCT-mandated disclosure line every EFL carries. When a REP answers YES
+# here but no buyback rate label resolves, the parser must NOT confidently
+# report "no buyback" -- the document itself says otherwise. Answer text is
+# often wrapped onto following lines, so a generous window is scanned and only
+# an unambiguous leading yes/no counts.
+_BUYBACK_DISCLOSURE_RE = re.compile(
+    r"purchase\s+excess\s+distributed\s+renewable(?:\s+generation)?\s*\??(.{0,120})",
+    re.I | re.S,
+)
+
+
+def _buyback_disclosure_answer(text: str) -> Optional[bool]:
+    """True/False if the EFL's excess-generation disclosure clearly answers
+    yes/no, else None (wrapped/absent/unparseable answer -- most EFLs)."""
+    m = _BUYBACK_DISCLOSURE_RE.search(text)
+    if not m:
+        return None
+    tail = re.sub(r"\s+", " ", m.group(1)).strip()
+    if re.match(r"(?i)\W*yes\b", tail):
+        return True
+    if re.match(r"(?i)\W*no\b", tail):
+        return False
+    return None
 
 
 _BUYBACK_HEDGE = re.compile(
@@ -1162,6 +1305,25 @@ def _extract_rtw_cap(text: str) -> Optional[float]:
     return None
 
 
+# Buyback credits that offset only the energy charge -- never the base charge,
+# TDU delivery, or taxes/fees. Searched across the FULL EFL text (not just the
+# window around the rate label) because the scope prose is often in a separate
+# paragraph well after the rate table -- e.g. Ambit states "Buyback Rate: 3.5c"
+# in the price table but "...can offset up to 100% of your Energy Charges each
+# month (excluding base charge, TDU charges, and all other taxes and fees)"
+# ~600 chars later. "exclud\w*" catches "excludes"/"excluding".
+_OFFSET_ENERGY_ONLY_RE = re.compile(
+    r"not\s*offsettable|energy\s*charges?\s*only|exclud\w*\s+(?:the\s+)?(?:base|tdu)",
+    re.I,
+)
+
+
+def _buyback_offset_scope(text: str) -> str:
+    """'energy_only' if the EFL restricts buyback credits to the energy charge
+    (excluding base/TDU/taxes), else 'all_charges'."""
+    return "energy_only" if _OFFSET_ENERGY_ONLY_RE.search(text) else "all_charges"
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
@@ -1174,7 +1336,25 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
             continue
         candidates.append(m)
 
+    # Prefer candidates that disclose a rate on the label line itself (e.g.
+    # Ambit's "Buyback Rate: Per kWh (c) 3.5c", pulse's "Buyback Rate $0.158 per
+    # kWh") over generic title/prose mentions ("...Texas Solar Buyback 12"), whose
+    # wide context window can otherwise sweep an unrelated "Average Price per kWh"
+    # estimate and read it as the buyback rate. Stable sort keeps document order
+    # within each group, so a prose-only EFL (TXU: "Solar Buyback: ...at a rate of
+    # 3.0 cents per kWh" on the next line) still resolves via its lone candidate.
+    candidates.sort(key=lambda m: 0 if _rate_ckwh_from_snippet(m.group(0)) is not None else 1)
+
+    # The EFL's own disclosure answer vetoes a confident "no buyback": if the
+    # REP says it DOES purchase excess generation, an unresolved rate is an
+    # unread field, not an absent one. Only the confidence moves (the value
+    # stays "none"), so the draft lands in review / becomes LLM-repairable
+    # instead of silently entering the rankings as a non-buyback plan.
+    says_yes = _buyback_disclosure_answer(text) is True
+
     if not candidates:
+        if says_yes:
+            return {"kind": "none"}, 0.3, "EFL discloses it purchases excess generation, but no rate found"
         return {"kind": "none"}, 0.95, ""
 
     fallback_evidence = _snippet(candidates[0])
@@ -1182,9 +1362,21 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         context = text[max(0, m.start() - 30) : m.end() + 240]
         evidence = _snippet(m)
 
+        # RTW/market-indexed signal -- searched in a WIDER window than the rate
+        # context, because the "...ERCOT 15-minute Real-Time Settlement Point
+        # Price (RTSPP)..." prose can sit several sentences after the buyback
+        # label (e.g. Reliant's Solar Payback Match: label and RTSPP wording are
+        # ~400 chars apart). Kept separate from the rate context (still +240) so
+        # a distant number can't be misread as a fixed rate.
+        rtw_context = text[max(0, m.start() - 30) : m.end() + 800]
+        # Specific market-index signals only -- deliberately NOT bare "ERCOT",
+        # which appears in the boilerplate "...changes to the Electric Reliability
+        # Council of Texas administrative fees..." that most EFLs carry and would
+        # false-flag a fixed buyback as RTW in this wider window.
         if re.search(
-            r"real\s*-?\s*time|wholesale|market\s*pric|ERCOT\s*(?:price|settlement)|hourly",
-            context,
+            r"RTSPP|settlement\s*point|wholesale|market\s*pric|hourly"
+            r"|real\s*-?\s*time\s*(?:market|settlement|energy|price|pric)",
+            rtw_context,
             re.I,
         ):
             rtw: dict = {"multiplier": 1.0, "adder_ckwh": 0.0}
@@ -1210,11 +1402,7 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
         if rate is None:
             continue
 
-        offset_scope = "all_charges"
-        if re.search(
-            r"not\s*offsettable|energy\s*charges?\s*only|excludes?\s*(?:base|tdu)", context, re.I
-        ):
-            offset_scope = "energy_only"
+        offset_scope = _buyback_offset_scope(text)
         return {"kind": "fixed", "rate_ckwh": rate, "offset_scope": offset_scope}, 0.85, evidence
 
     # None of the candidates yielded a rate. If they read like a marketing
@@ -1226,7 +1414,7 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
     hedged = any(
         _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]) for m in candidates
     )
-    conf = 0.85 if hedged else 0.3
+    conf = 0.85 if hedged and not says_yes else 0.3
     return {"kind": "none"}, conf, fallback_evidence
 
 

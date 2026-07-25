@@ -23,7 +23,6 @@ etf_per_month_remaining: true
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
-retrieved: '2026-07-21'
-notes: base charge derived from a generic '<label> Charge ... per month' table-line
-  scan
-needs_review: true
+retrieved: '2026-07-24'
+notes: ''
+needs_review: false

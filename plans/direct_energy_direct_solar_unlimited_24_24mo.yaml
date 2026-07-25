@@ -12,7 +12,7 @@ buyback:
   kind: fixed
   rate_ckwh: 4.8
   rates: []
-  offset_scope: energy_only
+  offset_scope: all_charges
   rollover: true
   cash_out: false
 bill_credits: []
@@ -21,7 +21,7 @@ etf_usd: 295.0
 etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
-source: efl:DIRECT_ENERGY_Solar_Unlimited_24.pdf
-retrieved: '2026-07-21'
+source: efl:Direct_Energy_Direct_Solar_Unlimited_24.pdf
+retrieved: '2026-07-24'
 notes: ''
 needs_review: false

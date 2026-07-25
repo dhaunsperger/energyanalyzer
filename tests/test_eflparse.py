@@ -10,6 +10,8 @@ import pytest
 from energyanalyzer.core.models import Plan
 from energyanalyzer.eflparse.parser import (
     DraftPlan,
+    _defined_weekdays,
+    _weekdays_from_snippet,
     parse_efl_text,
     parse_time_range,
     save_draft,
@@ -767,7 +769,14 @@ class TestCorpusJustEnergyBasicsPtc24:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        assert draft.plan_dict["needs_review"] is False
+        # This EFL answers "Yes" to "Does the REP purchase excess distributed
+        # renewable generation?" but discloses no buyback rate anywhere. The
+        # buyback confidence is therefore vetoed down (see
+        # _buyback_disclosure_answer) so a human resolves the rate rather than
+        # the plan entering the rankings as a confident non-buyback plan.
+        assert draft.plan_dict["needs_review"] is True
+        assert draft.plan_dict["buyback"]["kind"] == "none"
+        assert draft.confidence["buyback"] < 0.8
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
@@ -1032,13 +1041,166 @@ class TestCorpusChariotShine36:
         Plan.model_validate(draft.plan_dict)
 
 
+class TestCorpusAmbitSolarBuyback12:
+    """Ambit Energy Texas Solar Buyback 12 (Oncor): the price table lists
+    'Energy Charge: Per kWh (c) 12.7000c' and 'Buyback Rate: Per kWh (c) 3.5c',
+    but the plan TITLE ('...Texas Solar Buyback 12SM') is itself a buyback-label
+    match with no rate on its own line, so the old scan fell through to its wide
+    context window and read the '17.6c' Average-Price-per-kWh estimate (the 500
+    kWh column) as the buyback rate. The fix prefers candidates that disclose a
+    rate on the label line itself, so the '3.5c' from the 'Buyback Rate:' line
+    wins. Also, the offset-scope prose ('...offset up to 100% of your Energy
+    Charges each month (excluding base charge, TDU charges, and all other taxes
+    and fees)') sits ~600 chars after the rate, beyond the local window, so
+    offset scope is resolved over the full text -> energy_only."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("AMBIT_ENERGY_Texas_Solar_Buyback_12.txt")
+
+    def test_buyback_rate_is_the_labeled_rate_not_the_average_price(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "fixed"
+        # 3.5c from "Buyback Rate:", NOT 17.6c (the 500 kWh Average Price estimate).
+        assert bb["rate_ckwh"] == pytest.approx(3.5)
+
+    def test_buyback_offset_scope_is_energy_only(self, draft):
+        # Ambit buyback credits offset Energy Charges only -- not base/TDU/taxes.
+        assert draft.plan_dict["buyback"]["offset_scope"] == "energy_only"
+
+    def test_buyback_not_1to1_with_energy_charge(self, draft):
+        bb = draft.plan_dict["buyback"]
+        energy = draft.plan_dict["energy_rates"][-1]["rate_ckwh"]
+        assert bb["rate_ckwh"] != pytest.approx(energy)
+
+    def test_confidence_recorded_for_buyback(self, draft):
+        assert draft.confidence["buyback"] >= 0.8
+        assert draft.evidence["buyback"]
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusDirectSolarUnlimited12:
+    """Direct Energy 'Direct Solar Unlimited 12' (Oncor): a genuine solar
+    buyback plan whose credit is labeled 'Solar Grid Credit: 5.3c per kWh' --
+    a term the buyback-label vocabulary didn't recognize, so the parser reported
+    kind=none. Adding 'Solar Grid Credit' to the labels resolves it to a fixed
+    5.3c buyback."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("DIRECT_ENERGY_Direct_Solar_Unlimited_12.txt")
+
+    def test_solar_grid_credit_parsed_as_fixed_buyback(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "fixed"
+        assert bb["rate_ckwh"] == pytest.approx(5.3)
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusReliantSolarPaybackMatch12:
+    """Reliant 'Solar Payback Match 12' (Oncor): also a 'Solar Grid Credit' plan,
+    but its credit is the ERCOT 15-minute Real-Time Settlement Point Price
+    (RTSPP), floored at zero -- an RTW buyback, not a fixed rate. The RTSPP
+    wording sits ~400 chars after the buyback label, so RTW detection uses a
+    wider window than the fixed-rate context (but only specific market signals --
+    RTSPP/settlement point/real-time market -- never bare 'real-time' or
+    'ERCOT', which appear in unrelated EFL prose/boilerplate)."""
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("RELIANT_Solar_Payback_Match_12.txt")
+
+    def test_buyback_is_rtw_not_fixed(self, draft):
+        bb = draft.plan_dict["buyback"]
+        assert bb["kind"] == "rtw"
+        assert "rate_ckwh" not in bb  # RTW, no fixed rate
+
+    def test_schema_valid(self, draft):
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestWeekendDefinition:
+    """A plan may DEFINE its own weekend/weekday span (e.g. Gexa 'Free 3 Day
+    Weekends': weekends = Fri-Sun, weekdays = Mon-Thu). The parser must read
+    that definition rather than assuming the Sat/Sun default -- otherwise
+    Friday is billed at the weekday rate instead of free."""
+
+    _DEFN = (
+        "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, including holidays. "
+        "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, including holidays."
+    )
+
+    def test_weekend_span_from_definition(self):
+        # Fri-Sun; the range ends at 12:00 AM Monday, so Monday is excluded.
+        assert _defined_weekdays(self._DEFN, "weekend") == [4, 5, 6]
+
+    def test_weekday_span_from_definition(self):
+        # Mon-Thu inclusive (ends 11:59 PM Thursday, not midnight).
+        assert _defined_weekdays(self._DEFN, "weekday") == [0, 1, 2, 3]
+
+    def test_no_definition_returns_none(self):
+        assert _defined_weekdays("no such clause here", "weekend") is None
+
+    def test_snippet_prefers_definition_over_default(self):
+        assert _weekdays_from_snippet("free on weekends", self._DEFN) == [4, 5, 6]
+
+    def test_snippet_falls_back_to_sat_sun_without_definition(self):
+        assert _weekdays_from_snippet("free on weekends", "") == [5, 6]
+
+    def test_mon_fri_weekday_default_without_definition(self):
+        assert _weekdays_from_snippet("weekday rate applies", "") == [0, 1, 2, 3, 4]
+
+
 def test_corpus_all_real_fixtures_present_and_schema_valid():
     """Sanity check: every PDF-derived .txt fixture under real/ parses to a
     schema-valid Plan (never crashes), regardless of confidence -- this is
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 22
+    assert len(real_files) == 27
     for path in real_files:
         draft = _real_draft(path.name)
+        Plan.model_validate(draft.plan_dict)
+
+
+class TestCorpusGreenMountainRenewableRewards:
+    """Green Mountain "Renewable Rewards Solar Credit 12" -- a real silent-wrong
+    caught by scripts/audit_plans_llm.py.
+
+    The parser reported `buyback: none` at 0.95 confidence on a plan whose name
+    contains "Solar Credit", because Green Mountain brands its export credit
+    "Renewable Rewards Credit" and that label wasn't in `_BUYBACK_LABEL`. The
+    EFL states it plainly: "You will receive a Renewable Rewards Credit on your
+    bill for the excess energy delivered by your eligible renewable energy
+    system to the grid ... Renewable Rewards Credit: 6.3c per kWh". At the
+    owner's ~9,800 kWh/yr export that is ~$618/yr of credit dropped from the
+    ranking, on a promoted (unflagged) plan -- the exact failure mode the
+    silent-wrong metric exists to prevent.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def draft() -> DraftPlan:
+        return _real_draft("GREEN_MOUNTAIN_Renewable_Rewards_Solar_Credit_12.txt")
+
+    def test_buyback_is_the_renewable_rewards_credit(self, draft):
+        assert draft.plan_dict["buyback"]["kind"] == "fixed"
+        assert draft.plan_dict["buyback"]["rate_ckwh"] == pytest.approx(6.3)
+
+    def test_buyback_rate_is_not_the_energy_charge(self, draft):
+        """Guard against a 1:1 misread -- 6.3c is the credit, 11.3c the rate."""
+        rates = _rate_pairs(draft)
+        assert rates[0][0] == pytest.approx(11.3)
+
+    def test_base_charge(self, draft):
+        assert draft.plan_dict["base_charge_usd"] == pytest.approx(29.95)
+
+    def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
