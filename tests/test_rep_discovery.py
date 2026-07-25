@@ -1304,3 +1304,96 @@ def test_champion_captures_the_download_url_not_the_blank_popup(monkeypatch):
     assert _popup_url_when_ready(_Popup("about:blank"), timeout_ms=500) is None
     # a popup that really did navigate is still honoured
     assert _popup_url_when_ready(_Popup("https://x/e.pdf"), timeout_ms=500) == "https://x/e.pdf"
+
+
+# --------------------------------------------------------------------------- #
+# Download retry (probabilistic WAFs)
+# --------------------------------------------------------------------------- #
+class _FlakyClient:
+    """Returns `statuses` in order, then a real PDF."""
+
+    def __init__(self, statuses):
+        self.statuses = list(statuses)
+        self.calls = 0
+
+    def get(self, url):
+        self.calls += 1
+
+        class _R:
+            def __init__(self, status, body):
+                self.status_code = status
+                self.content = body
+                self.headers = {"content-type": "application/pdf"}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(f"HTTP {self.status_code}")
+
+        if self.statuses:
+            return _R(self.statuses.pop(0), b"")
+        return _R(200, b"%PDF-1.4 real")
+
+
+def test_download_retries_a_probabilistic_waf_403(monkeypatch):
+    """Ambit and TXU sit behind an Azure Front Door WAF that answers a
+    plain-text 403 *probabilistically* -- sampled 3/6 through on the identical
+    URL, and the Ambit EFL endpoint 403s on one refresh then serves a valid PDF
+    on the next. One attempt says nothing, so a small backed-off retry is the
+    difference between capturing those plans and losing them every other run."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([403, 403])
+    resp = rd._get_with_retry(c, "https://shopping.ambitenergy.com/api/getdocument", "ambit")
+    assert resp.content.startswith(b"%PDF")
+    assert c.calls == 3
+
+
+def test_download_gives_up_on_a_persistent_403(monkeypatch):
+    """A site that consistently refuses still fails -- the retry must not become
+    a way to grind past a genuine "no"."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([403, 403, 403, 403, 403])
+    resp = rd._get_with_retry(c, "https://x/y.pdf", "x")
+    assert resp.status_code == 403
+    assert c.calls == rd._DOWNLOAD_ATTEMPTS
+
+
+def test_download_does_not_retry_a_normal_404(monkeypatch):
+    """Only transient statuses retry; a 404 is a real answer."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([404])
+    resp = rd._get_with_retry(c, "https://x/y.pdf", "x")
+    assert resp.status_code == 404
+    assert c.calls == 1
+
+
+def test_retry_honours_the_per_host_rate_limit(monkeypatch):
+    """A retry must never hit a site faster than the normal path."""
+    seen = []
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda host: seen.append(host))
+    rd._get_with_retry(_FlakyClient([403, 403]), "https://x/y.pdf", "somehost")
+    assert seen == ["somehost"] * 3
+
+
+def test_meter_is_registered_as_a_harvester_rep():
+    """Meter's own EFLs used to come from JSON-LD on /plans as presigned S3
+    links. Meter rebuilt that page client-side and the links left the HTML
+    entirely -- `parse_meterplan_efl_offers` returned 0 offers on every refresh
+    (verified 2026-07-25), which is why Meter's six plans stayed synthetic
+    markdown rows. The URLs still exist behind a JS button with no href, so
+    Meter needs the harvester seam, not an extractor."""
+    assert rd.REP_CONFIGS["meter"] is rd.METER
+    assert rd.METER.harvester is not None
+    assert rd.METER.extractor is None
+
+
+def test_meter_efl_name_is_read_from_the_presigned_filename():
+    """Plan identity comes from the S3 object name
+    (EFL_<Plan>_<date>_<TDU>_<hash>.pdf), since the button carries no href."""
+    m = rd._METER_EFL_NAME_RE.search(
+        "https://light-assets.s3.amazonaws.com/efls/EFL_Earner_20260723_ONCOR_3dc6b881.pdf?X-Amz-Sig=x"
+    )
+    assert m and m.group(1) == "Earner"

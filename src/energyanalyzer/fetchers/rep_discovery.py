@@ -1221,6 +1221,53 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
     return f"{base}.pdf"[:150]
 
 
+# Statuses worth a second try. 403 is here for a specific, measured reason: Ambit
+# (and TXU) sit behind an Azure Front Door WAF that answers a plain-text
+# "Blocked by WAF" 403 *probabilistically* -- sampled 2026-07-24, plain httpx got
+# through 3 times in 6 on the very same URL, and the EFL endpoint 403s on one
+# refresh and serves a valid PDF on the next. A single attempt therefore says
+# nothing about whether the document is reachable. Kept deliberately small and
+# backed off: this is a handful of requests for one household's own shopping,
+# not a way to grind past a site that means "no" (a persistent 403 still fails).
+_RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
+_DOWNLOAD_ATTEMPTS = 3
+
+
+def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEMPTS):
+    """GET `url`, retrying a transient status with linear backoff.
+
+    Honours the per-host rate limit before every attempt, so a retry can never
+    make us hit a site faster than the normal path does.
+    """
+    last_exc: Optional[Exception] = None
+    resp = None
+    for attempt in range(1, attempts + 1):
+        _respect_rate_limit(host)
+        try:
+            resp = client.get(url)
+            # getattr: test seams supply minimal response doubles without a
+            # status_code, and "no status" must mean "not retryable", never a
+            # crash that turns a working download into a failure.
+            if getattr(resp, "status_code", None) not in _RETRY_STATUSES:
+                return resp
+            last_exc = None
+        except Exception as exc:  # noqa: BLE001 -- transport hiccups are retryable too
+            last_exc = exc
+            resp = None
+        if attempt < attempts:
+            logger.info(
+                "download: %s returned %s (attempt %d/%d), retrying",
+                host,
+                getattr(resp, "status_code", None) if resp is not None else repr(last_exc)[:40],
+                attempt,
+                attempts,
+            )
+            time.sleep(1.5 * attempt)
+    if resp is not None:
+        return resp
+    raise last_exc if last_exc else RuntimeError(f"download failed for {url}")
+
+
 def download_discovered(
     plans: list[DiscoveredPlan],
     dest: Path = Path("data/efl"),
@@ -1313,8 +1360,7 @@ def download_discovered(
                     # shell). _render_efl_pdf handles its own rate limiting.
                     content = _render_efl_pdf(plan.efl_url, headless=headless)
                 else:
-                    _respect_rate_limit(host)
-                    resp = client.get(plan.efl_url)
+                    resp = _get_with_retry(client, plan.efl_url, host)
                     resp.raise_for_status()
                     content = resp.content
                 # A direct-GET EFL URL can still resolve to an HTML viewer/SPA
@@ -2211,6 +2257,178 @@ TESLA = RepConfig(
 )
 
 
+
+# --------------------------------------------------------------------------- #
+# Meter Energy interactive harvester
+# --------------------------------------------------------------------------- #
+# Meter (meterplan.com) publishes the markdown index `fetchers/meterplan.py`
+# reads, but its OWN plans' real EFLs used to come from JSON-LD on /plans as
+# presigned S3 links. Meter rebuilt that page as a client-rendered app and the
+# links left the HTML entirely: `parse_meterplan_efl_offers` returned 0 offers on
+# every refresh (verified 2026-07-25 -- 0 offers, 0 downloaded, 0 parsed), which
+# is why Meter's six plans stayed synthetic markdown rows.
+#
+# The presigned URLs still exist, now behind a JS button ("View Electricity Facts
+# Label (EFL)") with no href -- the same shape as Champion. Clicking it fetches
+# `light-assets.s3.amazonaws.com/efls/EFL_<Plan>_<date>_<TDU>_<hash>.pdf` and
+# hands it to the browser as a download, so the URL is captured from a
+# context-level `application/pdf` response rather than from any anchor.
+_METER_PLANS_URL = "https://meterplan.com/plans?zipcode={zip}"
+_METER_EFL_NAME_RE = re.compile(r"/EFL_([A-Za-z0-9+]+)_", re.I)
+# Term filters to sweep. Meter shows one term at a time; the EFL parser reads the
+# actual term out of each PDF, so this is only about making every plan reachable.
+_METER_TERMS = ("12 months", "24 months", "36 months")
+# Usage profiles. "Solar + battery" is skipped deliberately: battery-required
+# plans are excluded everywhere else in this app (they need hardware the owner
+# doesn't have), matching `meterplan_to_drafts`' battery skip.
+# Order matters: the page loads on a profile that already lists the solar plans,
+# and clicking "No solar" first NARROWS it to Standard only. Sweep the default
+# view first, then the alternatives.
+_METER_PROFILES = (None, "Solar", "No solar")
+
+
+def _click_any_matching(page: object, name: str, timeout_ms: int = 6000) -> bool:
+    """Click the first ACTIONABLE control with this accessible name.
+
+    Meter renders its filter chips twice (a desktop row and a mobile one), so
+    `.first` is often the off-screen copy: Playwright then waits for
+    actionability and times out even though `is_visible()`/`is_enabled()` both
+    report True. Trying each match -- scrolling it into view first -- is what
+    makes the filter sweep work.
+    """
+    try:
+        loc = page.get_by_role("button", name=name)  # type: ignore[attr-defined]
+        n = loc.count()
+    except Exception:  # noqa: BLE001
+        return False
+    for i in range(n):
+        try:
+            el = loc.nth(i)
+            el.scroll_into_view_if_needed(timeout=2000)
+            el.click(timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001 -- try the next copy
+            continue
+    return False
+
+
+def _close_extra_pages(page: object) -> None:
+    """Close every page in the context except `page` itself."""
+    ctx = page.context  # type: ignore[attr-defined]
+    for other in list(getattr(ctx, "pages", [])):
+        if other is page:
+            continue
+        try:
+            other.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Interactive harvester for Meter Energy's own plans.
+
+    Sweeps the term filters and clicks every "View Electricity Facts Label (EFL)"
+    button, capturing each presigned S3 URL from the network.
+
+    **A fresh page load per capture is deliberate.** Clicking an EFL hands the
+    browser a download and opens a blank popup, after which the plans page stops
+    responding to clicks entirely -- every subsequent filter or EFL button times
+    out on actionability even though it reports visible and enabled. Reloading
+    is the only reliable reset found, and the cost is small (a handful of loads).
+    """
+    captured: list[str] = []
+
+    def _on_response(resp) -> None:
+        try:
+            if "application/pdf" in (resp.headers.get("content-type") or "").lower():
+                captured.append(resp.url)
+        except Exception:  # noqa: BLE001 -- listener must never raise
+            pass
+
+    try:
+        page.context.on("response", _on_response)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 -- fake page seam in tests
+        pass
+
+    url = _METER_PLANS_URL.format(zip=zip_code)
+
+    def _load_and_filter(term: Optional[str]) -> int:
+        """Reload the plans page, apply `term`, return the EFL-button count."""
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)  # type: ignore[attr-defined]
+            page.wait_for_timeout(6000)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return 0
+        if term and not _click_any_matching(page, term, 8000):
+            return 0
+        try:
+            page.wait_for_timeout(1500)  # type: ignore[attr-defined]
+            return page.get_by_role(  # type: ignore[attr-defined]
+                "button", name="View Electricity Facts Label (EFL)"
+            ).count()
+        except Exception:  # noqa: BLE001
+            return 0
+
+    seen: set[str] = set()
+    plans: list[DiscoveredPlan] = []
+    for term in _METER_TERMS:
+        n = _load_and_filter(term)
+        logger.info("Meter Energy: %s -- %d EFL button(s)", term, n)
+        for i in range(n):
+            # Reload before each click: the previous capture left the page inert.
+            if i and _load_and_filter(term) <= i:
+                break
+            before = len(captured)
+            try:
+                el = page.get_by_role(  # type: ignore[attr-defined]
+                    "button", name="View Electricity Facts Label (EFL)"
+                ).nth(i)
+                el.scroll_into_view_if_needed(timeout=2000)
+                el.click(timeout=10_000)
+            except Exception:  # noqa: BLE001
+                continue
+            for _ in range(24):
+                if len(captured) > before:
+                    break
+                try:
+                    page.wait_for_timeout(250)  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001
+                    break
+            _close_extra_pages(page)
+            if len(captured) <= before:
+                continue
+            got = captured[-1]
+            # Presigned URLs carry a rotating signature; key on the path so the
+            # same document isn't captured once per term filter.
+            key = got.split("?", 1)[0]
+            if key in seen:
+                continue
+            seen.add(key)
+            name_m = _METER_EFL_NAME_RE.search(got)
+            plan_name = name_m.group(1) if name_m else "Meter plan"
+            logger.info("Meter Energy: captured EFL for %s (%s)", plan_name, term)
+            plans.append(
+                DiscoveredPlan(
+                    retailer=config.retailer,
+                    plan_name=plan_name,
+                    efl_url=got,
+                    # Saver/Earner are the solar buyback products; Standard isn't.
+                    is_buyback=plan_name.lower() != "standard",
+                    extraction_method="harvest",
+                    context=f"Meter Energy /plans, {term}",
+                )
+            )
+    return plans
+
+
+METER = RepConfig(
+    key="meter",
+    retailer="Meter Energy",
+    homepage="https://meterplan.com/plans",
+    harvester=_meter_harvest,
+)
+
+
 REP_CONFIGS: dict[str, RepConfig] = {
     c.key: c
     for c in (
@@ -2226,5 +2444,6 @@ REP_CONFIGS: dict[str, RepConfig] = {
         RELIANT,
         ATLANTEX,
         TESLA,
+        METER,
     )
 }
