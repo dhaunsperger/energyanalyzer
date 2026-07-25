@@ -1,0 +1,27 @@
+id: nec_co_op_energy_rep_10166x_oncor_nec_ce_res_07012026_1mo
+retailer: 'NEC Co-op Energy (REP # 10166X)'
+name: ONCOR NEC CE RES-07012026
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 7.5
+energy_rates:
+- rate_ckwh: 9.94
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 15.0
+etf_per_month_remaining: false
+rate_type: variable
+renewable_pct: 15.4
+source: efl:NEC_Co-op_Energy_Residential_Electricity_Plain_and_simple.pdf
+retrieved: '2026-07-24'
+notes: energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider
+  row; base charge derived from the same split 4-column Energy/Base/TDU charge row
+needs_review: false

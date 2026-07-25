@@ -1,0 +1,27 @@
+id: unknown_retailer_unnamed_plan_10mo
+retailer: AE Texas
+name: Smart Secure 10
+term_months: 10
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.6899999999999995
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+source: efl:AE_TEXAS_Smart_Secure_10.pdf
+retrieved: '2026-07-24'
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan; base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
+needs_review: false
