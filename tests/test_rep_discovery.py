@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -1232,3 +1233,47 @@ def test_ambit_and_txu_share_the_same_document_endpoint_shape():
     ambit = _ambit_efl_url("ONAMTXSBBC12AA", "2026-07-25")
     assert ambit.startswith("https://shopping.ambitenergy.com/api/getdocument?")
     assert "productid=ONAMTXSBBC12AA" in ambit and "efldate=2026-07-25T00:00:00" in ambit
+
+
+# --------------------------------------------------------------------------- #
+# Tesla Electric
+# --------------------------------------------------------------------------- #
+TESLA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_tesla_sample.html"
+
+
+def _extract_tesla():
+    return rd.extract_tesla(TESLA_FIXTURE.read_text(encoding="utf-8"), rd.TESLA)
+
+
+def test_tesla_extractor_finds_the_plan_efls():
+    plans = _extract_tesla()
+    assert {p.plan_name for p in plans} == {"Fixed", "Drive 12M"}
+    assert all(p.retailer == "Tesla Electric" for p in plans)
+    assert all(p.efl_url.endswith(".pdf") for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+
+
+def test_tesla_extractor_ignores_terms_and_conditions_pdfs():
+    """The plan tabs link T&C documents from the SAME asset host, so the host
+    can't be the filter -- only EFLs carry the `TE_<plan>_PLAN` filename."""
+    plans = _extract_tesla()
+    assert not any("Terms" in p.efl_url for p in plans)
+    assert all(re.search(r"/TE_.+?_PLAN", p.efl_url, re.I) for p in plans)
+
+
+def test_tesla_plans_are_all_flagged_buyback():
+    """Every Tesla Electric plan buys back exports -- the EFLs state
+    "Other Energy Exports: 3c / kWh" and "Vehicle Energy Exports: 90% of the
+    Real-Time Market Price"."""
+    assert all(p.is_buyback for p in _extract_tesla())
+
+
+def test_tesla_is_registered_and_forces_a_headful_browser():
+    """Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
+    page (verified 2026-07-25: headless 403, headful 200 on the same URL/UA), so
+    this REP opts into a real window. Per-REP, never a blanket default."""
+    assert rd.REP_CONFIGS["tesla"] is rd.TESLA
+    assert rd.TESLA.force_headful is True
+    assert all(
+        c.force_headful is False for k, c in rd.REP_CONFIGS.items() if k != "tesla"
+    ), "headful must stay opt-in"

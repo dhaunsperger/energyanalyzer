@@ -11,6 +11,7 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 import logging
 import re
 import subprocess
@@ -275,7 +276,52 @@ def _build_ptc_identity_index(ptc_df) -> list:
     return index
 
 
-def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
+@dataclass
+class _CoverageCandidate:
+    """Minimal stand-in for a Plan, so a *draft* can act as authoritative
+    coverage in :func:`_plan_supersedes` (which only reads retailer/name/term).
+    Drafts can't be Plan-validated in general -- that's often exactly why
+    they're still drafts -- so we don't try."""
+
+    id: str
+    retailer: str
+    name: str
+    term_months: Optional[int]
+
+
+def _real_draft_candidates(drafts_dir: Path) -> list:
+    """Real (non-meterplan) drafts, as coverage candidates.
+
+    A parsed EFL sitting in review is still better evidence than a synthetic
+    index row, so it should stop that synthetic from being promoted over it.
+    """
+    out = []
+    for path in sorted(Path(drafts_dir).glob("*.yaml")) if Path(drafts_dir).exists() else []:
+        try:
+            raw = load_draft_raw(path)
+        except Exception:  # noqa: BLE001 -- an unreadable draft simply isn't coverage
+            continue
+        if str(raw.get("source") or "") == "meterplan":
+            continue
+        out.append(
+            _CoverageCandidate(
+                id=str(raw.get("id") or path.stem),
+                retailer=str(raw.get("retailer") or ""),
+                name=str(raw.get("name") or ""),
+                term_months=raw.get("term_months"),
+            )
+        )
+    return out
+
+
+def _covered_by_real(synthetic, candidates) -> Optional[object]:
+    """The first authoritative plan/draft covering this synthetic, or None."""
+    return next((c for c in candidates if _plan_supersedes(synthetic, c)), None)
+
+
+def supersede_meterplan_plans(
+    plans_dir: Path = PLANS_DIR, drafts_dir: Path = DRAFTS_DIR
+) -> list[tuple]:
     """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
     that a real/authoritative plan now covers, and return the removals as a list
     of ``(removed_plan_id, superseding_plan_id)`` tuples.
@@ -299,7 +345,30 @@ def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
         if match is not None:
             (Path(plans_dir) / f"{mp_plan.id}.yaml").unlink(missing_ok=True)
             removed.append((mp_plan.id, match.id))
+            continue
+        # Only a real DRAFT covers it: don't delete (that would leave a hole in
+        # the rankings with nothing promoted in its place), but flag it so the
+        # synthetic can't sit in Compare looking as verified as a parsed EFL.
+        draft_match = _covered_by_real(mp_plan, _real_draft_candidates(drafts_dir))
+        if draft_match is not None and not mp_plan.needs_review:
+            _flag_plan_needs_review(
+                Path(plans_dir) / f"{mp_plan.id}.yaml",
+                f"Third-party index row; a real EFL for this plan ({draft_match.id}) is "
+                "awaiting review in plans/drafts/. Promote that draft to replace this.",
+            )
     return removed
+
+
+def _flag_plan_needs_review(path: Path, note: str) -> None:
+    """Set needs_review on a saved plan and append a note. Best-effort."""
+    try:
+        raw = yaml.safe_load(path.read_text()) or {}
+        raw["needs_review"] = True
+        existing = str(raw.get("notes") or "").strip()
+        raw["notes"] = f"{existing} {note}".strip() if existing else note
+        path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    except Exception as exc:  # noqa: BLE001 -- flagging must never break a refresh
+        logger.info("Could not flag %s for review: %r", path.name, exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -667,7 +736,10 @@ def _run_rep_discovery(
         try:
             if config.harvester is not None:
                 plans = rd.harvest_live(
-                    config, zip_code, headless=headless, check_robots=config.check_robots
+                    config,
+                    zip_code,
+                    headless=headless and not config.force_headful,
+                    check_robots=config.check_robots,
                 )
                 detail = "harvested live"
             elif config.render is not None:
@@ -675,7 +747,9 @@ def _run_rep_discovery(
                     html, _snap = rd.fetch_rendered_html(
                         config,
                         zip_code,
-                        headless=headless,
+                        # Tesla's Akamai edge 403s headless Chromium; its config
+                        # opts into a real window (see RepConfig.force_headful).
+                        headless=headless and not config.force_headful,
                         snapshot_dir=snapshot_dir,
                         check_robots=config.check_robots,
                     )
@@ -1257,6 +1331,18 @@ def finish_refresh(
         if progress_callback is not None:
             progress_callback(done, total, f"{stage}: {item}")
 
+    # A synthetic meterplan row must never be promoted over a REAL plan for the
+    # same plan -- not even one still sitting in review. Without this, an
+    # unverified third-party rate can auto-promote into the rankings (simple
+    # meterplan rows come out needs_review=False) while the authoritative EFL
+    # waits in the draft queue. Supersede (below) only cleans that up once the
+    # real plan is *promoted*, which may never happen.
+    try:
+        _real_coverage = [p for p in load_plans(plans_dir) if str(p.source) != "meterplan"]
+    except Exception:  # noqa: BLE001 -- degrade to "no coverage known"
+        _real_coverage = []
+    _real_coverage += _real_draft_candidates(drafts_dir)
+
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
     promote_total = len(current_draft_paths)
     for i, draft_path in enumerate(current_draft_paths, start=1):
@@ -1268,6 +1354,23 @@ def finish_refresh(
             min_conf = min(seen) if seen else None
             needs_review_flag = raw.get("needs_review", True)
             eligible = (not needs_review_flag) and min_conf is not None and min_conf >= 0.8
+            if eligible and str(raw.get("source") or "") == "meterplan":
+                synthetic = _CoverageCandidate(
+                    id=str(raw.get("id") or draft_path.stem),
+                    retailer=str(raw.get("retailer") or ""),
+                    name=str(raw.get("name") or ""),
+                    term_months=raw.get("term_months"),
+                )
+                covered = _covered_by_real(synthetic, _real_coverage)
+                if covered is not None:
+                    eligible = False
+                    summary.setdefault("meterplan_not_promoted", []).append(
+                        {"synthetic": synthetic.id, "covered_by": getattr(covered, "id", "?")}
+                    )
+                    notes.append(
+                        f"Did not promote synthetic meterplan plan {synthetic.id}: real plan "
+                        f"{getattr(covered, 'id', '?')} covers it (left as a draft)."
+                    )
             if eligible:
                 plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")

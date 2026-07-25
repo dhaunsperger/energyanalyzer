@@ -155,6 +155,12 @@ class RepConfig:
     # and silently, because a bad base only surfaces later as a failed download.
     # Observed 2026-07-24: all 11 Chariot EFLs 404'd exactly this way.
     efl_base: Optional[str] = None
+    # Force a HEADFUL browser for this REP. Tesla sits behind Akamai, which
+    # answers headless Chromium with a 403 "Access Denied" page (verified
+    # 2026-07-25: headless 403, headful 200 on the same URL and UA). Needs a
+    # display -- fine under WSLg, which exports DISPLAY. Per-REP, never a
+    # blanket default: headful pops a visible window and is slower.
+    force_headful: bool = False
 
     @property
     def link_base(self) -> str:
@@ -2044,6 +2050,98 @@ ATLANTEX = RepConfig(
 )
 
 # Registry of configured REPs. Add more here as their flows are recorded.
+# --------------------------------------------------------------------------- #
+# Tesla Electric extractor
+# --------------------------------------------------------------------------- #
+# Tesla puts each plan behind a tab ("With Powerwall" / "With Vehicle" / "None")
+# on /tesla-electric/view-plans, and each tab's "Electricity Facts Label" link is
+# a DIRECT PDF on digitalassets-energy.tesla.com -- no viewer page, no popup URL
+# to capture, so a plain extractor is enough once the tabs have been clicked.
+# `_tesla_render` concatenates the per-tab HTML (same trick as Chariot's
+# paginated listing) and this dedups by PDF URL.
+_TESLA_EFL_URL_RE = re.compile(
+    r'href="(https://digitalassets-energy\.tesla\.com/[^"]+\.pdf)"', re.I
+)
+# Plan identity is encoded in the filename, e.g.
+# ".../Drive%2012M/TE_DRIVE_12M_PLAN_ONCOR_JUN_2026.pdf" -> "Drive 12M".
+_TESLA_PLAN_FROM_FILE_RE = re.compile(r"/TE_(.+?)_PLAN", re.I)
+
+
+def extract_tesla(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Tesla Electric's rendered plans tabs.
+
+    Every Tesla Electric plan buys back exported energy -- the EFLs state
+    "Other Energy Exports: 3c / kWh" and "Vehicle Energy Exports: 90% of the
+    Real-Time Market Price" -- so `is_buyback` is True for all of them. The rate
+    itself is left to the EFL parser: for a solar house the relevant number is
+    the "Other Energy Exports" one, not the vehicle rate.
+    """
+    html = _SCRIPT_RE.sub("", _strip_comments(html))
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for m in _TESLA_EFL_URL_RE.finditer(html):
+        url = unescape(m.group(1))
+        if url in seen:
+            continue
+        seen.add(url)
+        # The tabs also link Terms & Conditions PDFs from the same asset host.
+        # Only the EFLs carry the `TE_<plan>_PLAN` filename, so that pattern --
+        # not the host -- is what identifies an EFL.
+        name_m = _TESLA_PLAN_FROM_FILE_RE.search(url)
+        if not name_m:
+            continue
+        raw = name_m.group(1).replace("_", " ").title()
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=raw,
+                efl_url=url,
+                is_buyback=True,
+                extraction_method="static",
+                context="Tesla Electric plan tab; EFL is a direct digitalassets PDF",
+            )
+        )
+    return plans
+
+
+def _tesla_render(page: object, zip_code: str) -> Optional[str]:
+    """Tesla nav flow, from a `playwright codegen` recording: ZIP -> View Plans,
+    then click each plan tab and collect its HTML.
+
+    Returns the concatenated per-tab HTML (extract_tesla dedups by PDF URL), so
+    one render captures every plan. Tabs are best-effort -- Tesla varies which
+    are offered by address -- but at least one EFL link must appear or this
+    raises, so discovery reports a failure rather than silently finding nothing.
+    """
+    page.get_by_role("textbox", name="Zip Code").fill(zip_code, timeout=25_000)
+    page.get_by_role("button", name="View Plans").first.click(timeout=25_000)
+    page.wait_for_timeout(6_000)
+
+    parts: list[str] = []
+    for tab in ("With Powerwall", "With Vehicle", "None"):
+        try:
+            page.get_by_role("tab", name=tab, exact=True).first.click(timeout=15_000)
+            page.wait_for_timeout(3_000)
+            parts.append(page.content())
+        except Exception:  # noqa: BLE001 -- not every tab is offered everywhere
+            logger.info("Tesla: tab %r not available (continuing)", tab)
+    joined = "\n".join(parts) if parts else page.content()
+    if not _TESLA_EFL_URL_RE.search(joined):
+        raise RuntimeError("Tesla: no Electricity Facts Label PDF link found after the tab sweep")
+    return joined
+
+
+TESLA = RepConfig(
+    key="tesla",
+    retailer="Tesla Electric",
+    homepage="https://www.tesla.com/tesla-electric/plans",
+    extractor=extract_tesla,
+    render=_tesla_render,
+    # Akamai serves headless Chromium a 403 "Access Denied"; headful gets 200.
+    force_headful=True,
+)
+
+
 REP_CONFIGS: dict[str, RepConfig] = {
     c.key: c
     for c in (
@@ -2058,5 +2156,6 @@ REP_CONFIGS: dict[str, RepConfig] = {
         DIRECT_ENERGY,
         RELIANT,
         ATLANTEX,
+        TESLA,
     )
 }
