@@ -79,6 +79,25 @@ n_hidden = len(all_plans) - len(usable_plans)
 if n_hidden:
     st.caption(f"{n_hidden} `needs_review` plan(s) hidden -- toggle above to include them.")
 
+# Eligibility is not a scoring question: a REP that won't sell to a solar home
+# makes its plan unbuyable here, however well it prices. These are hidden by
+# default and behind their own toggle, because free-nights plans score well
+# against a solar export profile and would otherwise rank near the top.
+excluded_plans = [p for p in usable_plans if getattr(p, "excludes_solar", False)]
+if excluded_plans:
+    include_ineligible = st.toggle(
+        "Include plans this home can't enrol in (rooftop solar excluded by the REP)",
+        value=False,
+        key="compare_include_ineligible",
+    )
+    if not include_ineligible:
+        usable_plans = [p for p in usable_plans if not getattr(p, "excludes_solar", False)]
+        st.caption(
+            f"{len(excluded_plans)} plan(s) hidden as ineligible: "
+            + ", ".join(f"{p.retailer} {p.name}" for p in excluded_plans[:4])
+            + (" …" if len(excluded_plans) > 4 else "")
+        )
+
 results = rank(usable_plans, intervals, tdu, prices)
 for w in getattr(results, "warnings", []):
     st.warning(w)

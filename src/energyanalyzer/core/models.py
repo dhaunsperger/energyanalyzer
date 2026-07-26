@@ -182,6 +182,14 @@ class Plan(BaseModel):
     efl_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False
+    # The REP will not sell this plan to a home with rooftop solar (TXU's Free
+    # Nights & Cool Summer 12: "Customers with electric vehicles, batteries,
+    # and/or solar panels are ineligible"). This premise HAS solar, so such a
+    # plan is not merely mispriced, it is unbuyable -- and free-nights plans
+    # tend to score well against a solar export profile, so it would otherwise
+    # rank near the top. Ranking hides these by default rather than deleting
+    # them: the exclusion is the REP's current policy, not a permanent fact.
+    excludes_solar: bool = False
 
     @model_validator(mode="after")
     def _default_last(self) -> "Plan":

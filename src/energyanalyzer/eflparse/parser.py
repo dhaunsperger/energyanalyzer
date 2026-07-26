@@ -296,6 +296,30 @@ _WEEKDAY_WORDS = {
 # the weekend definition. Frontier's weekend came back as Mon-Fri and Gexa's
 # ("Free 3 Day Weekends", genuinely Fri-Sun) as Mon-Thu -- which would have
 # applied the free rate to weekdays and the full rate to the weekend.
+# An EXTRA percentage credit stacked on top of the ordinary pricing -- TXU's
+# "Cool Summer Bonus: an additional 25% credit on all Energy Charges" during
+# Jul-Aug-Sep. Deliberately requires "additional": a bare "100% credit/discount
+# on all Energy Charges" is the standard free-nights wording, which the parser
+# already models as a 0.0 rate over the stated window. Audited over 243 EFLs:
+# matches exactly one plan, and the plain free-nights clause is not caught.
+_BONUS_CREDIT_RE = re.compile(
+    r"additional\s+\d{1,3}\s*%\s*(?:credit|discount)", re.I
+)
+
+# The REP refusing to sell this plan to a home with rooftop solar. TXU's Free
+# Nights & Cool Summer 12 puts it in a footnote: "Customers with electric
+# vehicles, batteries, and/or solar panels are ineligible". Requires BOTH an
+# ineligibility word and a solar/EV/battery word within one sentence, because
+# "solar" alone is everywhere in these documents (renewable content, buyback
+# terms, brand names) and would flag half the corpus.
+_SOLAR_EXCLUSION_RE = re.compile(
+    r"[^.\n]{0,200}?(?:ineligible|not eligible|excluded|exclusions? include|"
+    r"not available to|do(?:es)? not qualify)[^.\n]{0,200}",
+    re.I,
+)
+_SOLAR_SUBJECT_RE = re.compile(r"rooftop solar|solar panel|distributed generation|net meter", re.I)
+
+
 _DAY_DEFN_RE = re.compile(
     r"\b(weekend|weekday)s?\b(?:(?!week)[^.\n]){0,20}?defined\s+as\s+"
     r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
@@ -2373,6 +2397,35 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     needs_review = any(confidence.get(k, 0.0) < 0.8 for k in LOAD_BEARING_KEYS if k in confidence)
     if any("multiple differing" in n for n in notes):
+        needs_review = True
+    # A bonus credit the schema cannot express makes the plan look WORSE than it
+    # is, which is quiet in a way a wrong rate is not: nothing is misparsed, so
+    # nothing scores low, and the plan simply under-ranks. Flag it rather than
+    # promote a model we know is incomplete. Only "additional N%" is caught --
+    # the plain "100% credit/discount" of an ordinary free-nights plan IS
+    # modelled (a 0.0 rate over the stated window) and must not be flagged.
+    # Eligibility comes before economics: a plan the REP won't sell to a solar
+    # home is not a cheap plan, it is not a plan at all. Recorded on the Plan so
+    # ranking can hide it, and noted so the reason survives promotion (which
+    # strips the _parse block).
+    for _sentence in _SOLAR_EXCLUSION_RE.finditer(text or ""):
+        if _SOLAR_SUBJECT_RE.search(_sentence.group(0)):
+            plan_dict["excludes_solar"] = True
+            notes.append(
+                "REP excludes homes with rooftop solar from this plan: "
+                f"{' '.join(_sentence.group(0).split())[:160]}"
+            )
+            plan_dict["notes"] = "; ".join(notes)
+            break
+
+    bonus = _BONUS_CREDIT_RE.search(text or "")
+    if bonus:
+        note = (
+            f"unmodelled bonus credit ({bonus.group(0).strip()}) -- the schema has no way to "
+            "express it, so this plan's cost is OVERstated"
+        )
+        notes.append(note)
+        plan_dict["notes"] = "; ".join(notes)
         needs_review = True
     plan_dict["needs_review"] = needs_review
 
