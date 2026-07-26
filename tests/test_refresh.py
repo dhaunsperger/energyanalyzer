@@ -9,6 +9,7 @@ fetch/download/parse internals -- no live network, deterministic outcomes.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import time
@@ -914,6 +915,109 @@ def test_precedence_confident_old_copy_outranks_an_unverified_new_draft(tmp_path
     assert (drafts_dir / "gexa_12.yaml").exists(), "its replacement must stay in review"
 
 
+def _hashed_pair(tmp_path, plan_sha, draft_sha, plan_source="efl:x.pdf", draft_source="efl:x.pdf"):
+    """A verified quarantined plan + the draft this run re-parsed, each stamped
+    with the EFL hash it was read from."""
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    verified = q / "plans" / "gexa_12.yaml"
+    _q_plan(verified, "gexa_12", "Gexa Energy", "Gexa 12", 12, source=plan_source)
+    if plan_sha:
+        verified.write_text(verified.read_text() + f"source_sha256: {plan_sha}\n")
+    draft = drafts_dir / "gexa_12.yaml"
+    _q_plan(draft, "gexa_12", "Gexa Energy", "Gexa 12", 12, source=draft_source)
+    draft.write_text(
+        draft.read_text()
+        + "needs_review: true\n_parse:\n  confidence: {}\n"
+        + (f"  source_sha256: {draft_sha}\n" if draft_sha else "")
+    )
+    return plans_dir, q, drafts_dir
+
+
+def test_a_reparse_of_an_unchanged_efl_is_not_re_queued_for_review(tmp_path):
+    """The treadmill this exists to stop.
+
+    A refresh re-parses every EFL, so a plan the user hand-corrected gets read
+    again by the same parser that failed on it, producing the identical failed
+    draft and re-queuing it. Ambit Lone Star Plus 12 was verified at 12.3c/kWh
+    and the re-parse put 0.0 back in the queue -- seventeen drafts were in that
+    state on 2026-07-26. Same document + same reading = nothing to review.
+    """
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", "abc123")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["already_reviewed"] == ["gexa_12"]
+    assert out["kept_pending_review"] == []
+    assert (plans_dir / "gexa_12.yaml").exists(), "the verified reading still ranks"
+    assert not (drafts_dir / "gexa_12.yaml").exists(), "nothing new -- don't ask again"
+
+
+def test_a_republished_efl_reopens_review(tmp_path):
+    """The case that must NOT be suppressed. A stale verified price is the one
+    failure worse than a noisy queue, so a changed document always comes back."""
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", "def456")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["already_reviewed"] == []
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
+def test_a_different_source_file_reopens_review(tmp_path):
+    """Same hash would be a coincidence, but the plan is now backed by another
+    document entirely -- that is a new reading whatever the bytes say."""
+    plans_dir, q, drafts_dir = _hashed_pair(
+        tmp_path, "abc123", "abc123", plan_source="efl:old.pdf", draft_source="efl:new.pdf"
+    )
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
+def test_an_unstamped_plan_is_backfilled_but_still_shown_once(tmp_path):
+    """Plans verified before hash stamping have nothing to compare against.
+
+    Stamping them from the draft that just re-read the file is safe enough to
+    make the NEXT refresh quiet, but suppressing on the strength of a hash we
+    only just invented is not -- so the user sees this one a final time.
+    """
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, None, "abc123")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["already_reviewed"] == []
+    assert (drafts_dir / "gexa_12.yaml").exists(), "shown once more"
+    restored = yaml.safe_load((plans_dir / "gexa_12.yaml").read_text())
+    assert restored["source_sha256"] == "abc123", "stamped, so next refresh is quiet"
+
+
+def test_a_draft_with_no_hash_at_all_is_still_shown(tmp_path):
+    """A draft that didn't come from a file (hand-entered, or an older draft
+    written before stamping) can't be proved redundant -- show it."""
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", None)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
 def test_precedence_unreviewed_old_copy_loses_to_the_fresher_draft(tmp_path):
     """An old copy that was never verified is just an older guess -- drop it."""
     plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
@@ -956,3 +1060,42 @@ def test_a_rebuilt_plan_is_never_flagged_delisted(tmp_path):
 
     assert out["delisted"] == []
     assert (drafts_dir / "je_24.yaml").exists()
+
+
+def test_the_efl_hash_survives_parse_then_promote(tmp_path):
+    """End to end for the stamp: a real PDF's content hash has to reach the
+    promoted plan, or the suppression above never has anything to compare.
+
+    Three promote paths write plans (auto-promote inside the refresh,
+    promote_all_drafts, and the Plans page form); this covers the shared helper
+    they all now call, plus the parser end that produces the value.
+    """
+    from energyanalyzer.eflparse import parser as efl_parser
+
+    pdf = tmp_path / "sample.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not really a pdf, but bytes are bytes")
+    expected = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    assert efl_parser.efl_sha256(pdf) == expected
+    assert efl_parser.efl_sha256(tmp_path / "missing.pdf") is None
+
+    # save_draft writes it into the _parse block...
+    draft = efl_parser.DraftPlan(
+        plan_dict={"id": "x_12mo", "retailer": "R", "name": "N", "term_months": 12},
+        source_sha256=expected,
+    )
+    drafts = tmp_path / "drafts"
+    raw = yaml.safe_load(efl_parser.save_draft(draft, drafts_dir=drafts).read_text())
+    assert raw["_parse"]["source_sha256"] == expected
+
+    # ...and promotion carries it onto the plan, where reconcile can read it.
+    plan_dict: dict = {"id": "x_12mo"}
+    app_common._carry_source_hash(plan_dict, raw)
+    assert plan_dict["source_sha256"] == expected
+
+
+def test_a_hand_edited_hash_is_not_overwritten_on_promote():
+    """The promote form is editable YAML; if a value is already there it stands."""
+    plan_dict = {"source_sha256": "mine"}
+    app_common._carry_source_hash(plan_dict, {"_parse": {"source_sha256": "parsers"}})
+    assert plan_dict["source_sha256"] == "mine"

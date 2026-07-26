@@ -639,6 +639,20 @@ def draft_energy_rate_summary(plan_dict: dict) -> str:
     return f"{label} ({len(rates)} rate{'s' if len(rates) != 1 else ''})"
 
 
+def _carry_source_hash(plan_dict: dict, raw: dict) -> dict:
+    """Copy a draft's parse-time EFL hash onto the plan being promoted.
+
+    `plan_fields` strips the `_parse` block (it is parser bookkeeping, not plan
+    data), but this one value has to survive: it is what lets a later refresh
+    tell "the EFL changed" from "the same EFL, read the same way again". Set
+    only when absent, so a hand-edited value in the promote form wins.
+    """
+    stamp = (raw.get("_parse") or {}).get("source_sha256")
+    if stamp and not plan_dict.get("source_sha256"):
+        plan_dict["source_sha256"] = str(stamp)
+    return plan_dict
+
+
 def draft_summary_rows(paths: list) -> tuple[list[dict], list[Path]]:
     """Summary rows for `paths`, skipping drafts that vanished mid-render.
 
@@ -908,6 +922,51 @@ def _listing_covers(plan: Plan, retailer: str, name: str, term: Optional[int]) -
     return not distinctive
 
 
+def _draft_source_sha256(draft_path: Path) -> Optional[str]:
+    """The EFL hash a draft was parsed from, or None."""
+    try:
+        raw = yaml.safe_load(Path(draft_path).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    value = (raw.get("_parse") or {}).get("source_sha256")
+    return str(value) if value else None
+
+
+def _rerun_verdict(draft_path: Path, plan: Plan) -> str:
+    """Does this draft have anything new to say about an already-verified plan?
+
+    Returns ``"rerun"`` (same document, same parser -- nothing to review),
+    ``"new"`` (a different document, or a different source: worth a look), or
+    ``"unknown"`` (the plan predates hash stamping, so we can't tell).
+
+    The problem this exists for: a refresh re-parses every EFL, so a plan the
+    user hand-corrected gets re-read by the same parser that failed on it the
+    first time, producing the identical failed draft and re-queuing it for
+    review. Ambit Lone Star Plus 12 was verified at 12.3c/kWh and the re-parse
+    put 0.0 back in the queue -- forever, every refresh. Seventeen drafts were
+    in that state on 2026-07-26.
+
+    Identity is the PDF's CONTENT hash, not its name or mtime: every refresh
+    re-downloads the whole EFL directory, so timestamps always differ while the
+    bytes usually don't. If the REP republishes the EFL the hash moves and the
+    draft is surfaced again, which is the case that actually matters -- a stale
+    verified price is the one failure mode worse than a noisy queue.
+    """
+    stamped = getattr(plan, "source_sha256", None)
+    fresh = _draft_source_sha256(draft_path)
+    if not fresh:
+        return "new"  # not parsed from a file (or an older draft): show it
+    if not stamped:
+        return "unknown"
+    try:
+        draft_source = str((yaml.safe_load(Path(draft_path).read_text()) or {}).get("source") or "")
+    except (OSError, yaml.YAMLError):
+        return "new"
+    if draft_source != str(plan.source or ""):
+        return "new"  # a different EFL file now backs this plan
+    return "rerun" if fresh == stamped else "new"
+
+
 def reconcile_quarantine(
     plans_dir: Path = PLANS_DIR,
     efl_dir: Path = EFL_DIR,
@@ -953,7 +1012,7 @@ def reconcile_quarantine(
     plans_dir, efl_dir = Path(plans_dir), Path(efl_dir)
     q = Path(quarantine_dir)
     result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0,
-              "kept_pending_review": []}
+              "kept_pending_review": [], "already_reviewed": []}
     _restored_plans: list = []
     if not q.exists():
         return result
@@ -991,6 +1050,29 @@ def reconcile_quarantine(
             # copy that was itself unreviewed loses to the fresher draft and is
             # dropped -- keeping it would only preserve an older guess.
             if not plan.needs_review:
+                draft_path = drafts_dir / path.name
+                verdict = _rerun_verdict(draft_path, plan)
+                if verdict == "rerun":
+                    # Same document, read the same way again: this is the parse
+                    # the user already adjudicated, so there is nothing to
+                    # review. Dropping it is what keeps the queue from becoming
+                    # a treadmill of work already done.
+                    draft_path.unlink(missing_ok=True)
+                    shutil.move(str(path), str(plans_dir / path.name))
+                    _restored_plans.append(plan)
+                    result["already_reviewed"].append(plan.id)
+                    continue
+                if verdict == "unknown":
+                    # Verified before this plan recorded which document it came
+                    # from. Stamp it now, from the draft that just re-read the
+                    # same file, but DON'T suppress on the strength of a hash we
+                    # only just invented -- the user sees this one last time.
+                    plan.source_sha256 = _draft_source_sha256(draft_path)
+                    save_plan(plan, directory=plans_dir)
+                    path.unlink(missing_ok=True)
+                    _restored_plans.append(plan)
+                    result["kept_pending_review"].append(plan.id)
+                    continue
                 shutil.move(str(path), str(plans_dir / path.name))
                 _restored_plans.append(plan)
                 result["kept_pending_review"].append(plan.id)
@@ -1895,6 +1977,7 @@ def promote_all_drafts(
             plan_dict = plan_fields(raw)
             plan_dict.setdefault("source", "ptc")
             plan_dict["retrieved"] = dt.date.today()
+            _carry_source_hash(plan_dict, raw)
             # Preserve the parser's verdict rather than forcing it: a draft the
             # parser was confident about stays unflagged.
             plan_dict["needs_review"] = bool(raw.get("needs_review", True))
@@ -1994,6 +2077,7 @@ def finish_refresh(
                 plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")
                 plan_dict["retrieved"] = dt.date.today()
+                _carry_source_hash(plan_dict, raw)
                 plan = Plan.model_validate(plan_dict)
                 save_plan(plan, directory=plans_dir)
                 draft_path.unlink(missing_ok=True)
@@ -2034,6 +2118,15 @@ def finish_refresh(
         notes.append(
             f"Kept verified plan {plan_id} in the ranking: this refresh re-parsed it, but the "
             "new reading needs review. The previous verified copy stands until you accept it."
+        )
+    _already = reconciled.get("already_reviewed", [])
+    if _already:
+        notes.append(
+            f"Dropped {len(_already)} re-parsed draft(s) with nothing new to review: the EFL "
+            "is unchanged since you verified the plan, so the parser produced the same reading "
+            f"you already corrected ({', '.join(_already[:6])}"
+            f"{f', +{len(_already) - 6} more' if len(_already) > 6 else ''}). "
+            "If a REP republishes one of these EFLs, its draft comes back."
         )
     for plan_id in reconciled["restored"]:
         notes.append(

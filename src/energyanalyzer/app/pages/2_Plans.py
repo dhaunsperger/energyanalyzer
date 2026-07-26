@@ -20,6 +20,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     EFL_DIR,
     METERPLAN_DIR,
     PTC_DIR,
+    _carry_source_hash,
     commit_and_push_plan_db,
     default_plan_db_commit_message,
     draft_summary_rows,
@@ -1252,6 +1253,10 @@ if current_draft_paths:
                 try:
                     edited_dict = yaml.safe_load(edited_draft_yaml)
                     edited_dict["retrieved"] = dt.date.today()  # promotion (re)stamps freshness
+                    # Record WHICH document this reading was checked against, so
+                    # the next refresh can tell a changed EFL from the same one
+                    # re-read; without it your correction gets re-queued forever.
+                    _carry_source_hash(edited_dict, raw_draft)
                     plan = Plan.model_validate(edited_dict)
                     promoted_path = save_plan(plan, directory=PLANS_DIR)
                     selected_draft_path.unlink(missing_ok=True)

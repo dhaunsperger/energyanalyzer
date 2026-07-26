@@ -13,6 +13,7 @@ same fact.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -50,6 +51,11 @@ class DraftPlan:
     confidence: dict[str, float] = field(default_factory=dict)
     evidence: dict[str, str] = field(default_factory=dict)
     unparsed_notes: list[str] = field(default_factory=list)
+    # SHA-256 of the PDF this reading came from, when parsed from a file.
+    # Carried onto the Plan at promote time so a later refresh can tell "the
+    # document changed" from "the same document, read the same way again" --
+    # the difference between a review worth doing and one already done.
+    source_sha256: Optional[str] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -2603,10 +2609,25 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     )
 
 
+def efl_sha256(pdf_path: str | Path) -> Optional[str]:
+    """SHA-256 of an EFL PDF, or None if it can't be read.
+
+    Identity for "is this the same document I already reviewed?". Content, not
+    mtime: every refresh re-downloads the whole EFL directory, so timestamps
+    change on every run while the bytes usually don't.
+    """
+    try:
+        return hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 def parse_efl(pdf_path: str | Path) -> DraftPlan:
     pdf_path = Path(pdf_path)
     text = extract_text(pdf_path)
-    return parse_efl_text(text, source_name=pdf_path.name)
+    draft = parse_efl_text(text, source_name=pdf_path.name)
+    draft.source_sha256 = efl_sha256(pdf_path)
+    return draft
 
 
 def save_draft(draft: DraftPlan, drafts_dir: str | Path = DEFAULT_DRAFTS_DIR) -> Path:
@@ -2617,6 +2638,7 @@ def save_draft(draft: DraftPlan, drafts_dir: str | Path = DEFAULT_DRAFTS_DIR) ->
         "confidence": draft.confidence,
         "evidence": draft.evidence,
         "unparsed_notes": draft.unparsed_notes,
+        "source_sha256": draft.source_sha256,
     }
     path = drafts_dir / f"{draft.plan_dict['id']}.yaml"
     with open(path, "w") as f:

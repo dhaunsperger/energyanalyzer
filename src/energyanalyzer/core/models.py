@@ -179,6 +179,13 @@ class Plan(BaseModel):
     source: str = "manual"  # manual | efl:<file> | ptc | report-2026-07
     retrieved: Optional[dt.date] = None  # when the rate data was obtained;
     #   stamped by the EFL parse/promote flow, used for staleness badges
+    # SHA-256 of the EFL PDF this reading was taken from, stamped at promote
+    # time. It answers one question a refresh cannot otherwise answer: when a
+    # re-parse of an already-verified plan lands back in review, is this a NEW
+    # reading of a CHANGED document, or the same failed parse of the same
+    # document the user already corrected by hand? Without it every refresh
+    # re-queues work that was already done (17 such drafts on 2026-07-26).
+    source_sha256: Optional[str] = None
     efl_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False

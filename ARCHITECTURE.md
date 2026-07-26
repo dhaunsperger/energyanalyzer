@@ -572,6 +572,41 @@ Three independent mechanisms now:
    is completed **without repeating the sweep**. Idempotent. Surfaced on the
    Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
 
+### 9c. "Nothing new to review" (`Plan.source_sha256`)
+
+A refresh re-parses every EFL, so a plan the user hand-corrected is read again
+by the same parser that failed on it the first time -- producing the identical
+failed draft and re-queuing it for review. Ambit Lone Star Plus 12 was verified
+at 12.3c/kWh and every refresh put 0.0 back in the queue. **17 of the 42 review
+items on 2026-07-26 were this**, and they would have recurred forever.
+
+`Plan.source_sha256` is the SHA-256 of the EFL PDF a reading was taken from,
+stamped at promote time (all three promote paths call `_carry_source_hash`) and
+carried from the draft's `_parse` block. `reconcile_quarantine` then asks
+`_rerun_verdict` one question when a re-parse lands in review against an
+already-verified plan:
+
+| verdict | condition | action |
+|---|---|---|
+| `rerun` | same `source` file **and** same hash | drop the draft (`already_reviewed`) |
+| `new` | hash differs, source file differs, or the draft has no hash | keep it in review |
+| `unknown` | the plan predates stamping | stamp it, show the draft once more |
+
+Identity is the PDF's **content**, never its name or mtime: a refresh
+re-downloads the whole EFL directory, so timestamps always differ while the
+bytes usually don't. A republished EFL moves the hash and the draft comes
+back -- deliberately, because a stale verified price is worse than a noisy
+queue.
+
+The one accepted gap: if the parser improves but the new reading *still* lands
+in review, it is suppressed. The plan keeps its hand-verified value, which
+remains correct until the document changes; and a parser improvement that
+actually works promotes over the top via precedence row 1 without ever becoming
+a draft.
+
+Existing plans were backfilled in bulk on 2026-07-26 (249 stamped, 12 skipped
+as not EFL-backed: meterplan synthetics, report-derived, manual).
+
 Note the discovery caveat: promote/supersede recover the database from drafts
 already on disk, but *discovery itself* is not resumable — REPs it never reached
 still need a fresh run.
