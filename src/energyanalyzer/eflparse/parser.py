@@ -288,8 +288,16 @@ _WEEKDAY_WORDS = {
 #   "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, ..."
 #   "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, ..."
 # so Friday is a weekend day here. Parse that definition instead of assuming.
+# The gap before "defined as" must not swallow the OTHER keyword. These EFLs
+# print the rate rows immediately above the definitions, so the text runs
+# "...0.0000 ¢ per kWh - Weekends Weekdays is defined as 12:01 AM Monday to
+# 11:59 PM Friday": a permissive gap let a match start at the rate row's
+# "Weekends", skip " Weekdays is " as filler, and return the WEEKDAY range as
+# the weekend definition. Frontier's weekend came back as Mon-Fri and Gexa's
+# ("Free 3 Day Weekends", genuinely Fri-Sun) as Mon-Thu -- which would have
+# applied the free rate to weekdays and the full rate to the weekend.
 _DAY_DEFN_RE = re.compile(
-    r"\b(weekend|weekday)s?\b[^.\n]{0,20}?defined\s+as\s+"
+    r"\b(weekend|weekday)s?\b(?:(?!week)[^.\n]){0,20}?defined\s+as\s+"
     r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
     r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+"
     r"(?:to|through|until|-)\s+"
@@ -966,6 +974,52 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
         )
     labels = {r["label"] for r in rows}
     if len(labels) < 2:
+        return None
+    return rows
+
+
+_SUFFIXED_TIER_RE = re.compile(
+    r"Energy\s*Charge\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*per\s*kWh\s*"
+    r"[–—-]\s*([A-Za-z][A-Za-z ]{2,20}?)(?=[\s.,]|$)",
+    re.I,
+)
+
+
+def _extract_suffixed_energy_tiers(text: str) -> Optional[list[dict]]:
+    """Rate rows whose qualifier TRAILS the rate rather than leading it:
+
+        Energy Charge 17.6000 ¢ per kWh – Weekdays
+        Energy Charge 0.0000 ¢ per kWh – Weekends
+
+    (Frontier Free Weekends, Gexa Free 3 Day Weekends.) The brand-tier reader
+    only recognises a leading label, so these fell through to the flat-rate
+    reader, which took the first row and modelled the WEEKDAY rate every day of
+    the week -- the free weekend silently dropped.
+
+    Returns rows as ``{"qualifier", "rate_ckwh", "weekdays", "evidence"}`` only
+    when exactly two rows resolve to non-empty, non-overlapping day sets --
+    anything less clear-cut is left to the callers' other readers.
+    """
+    rows = []
+    for m in _SUFFIXED_TIER_RE.finditer(text):
+        qualifier = m.group(2).strip()
+        days = _weekdays_from_snippet(qualifier, text)
+        rows.append(
+            {
+                "qualifier": qualifier,
+                "rate_ckwh": float(m.group(1)),
+                "weekdays": days,
+                "evidence": _snippet(m),
+            }
+        )
+    if len(rows) != 2:
+        return None
+    a, b = rows
+    if not a["weekdays"] or not b["weekdays"]:
+        return None
+    if set(a["weekdays"]) & set(b["weekdays"]):
+        return None  # overlapping definitions -- don't guess which wins
+    if a["rate_ckwh"] == b["rate_ckwh"]:
         return None
     return rows
 
@@ -1925,11 +1979,29 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # more reliable read than the generic scanners -- the columns are positional
     # and the TDU's pair is always last. Checked before them so the discounted
     # column can't be mistaken for the flat rate.
-    multi_row = None if tou_rows else _extract_multi_rate_charge_row(text)
+    suffixed_rows = None if tou_rows else _extract_suffixed_energy_tiers(text)
+    multi_row = None if (tou_rows or suffixed_rows) else _extract_multi_rate_charge_row(text)
     if multi_row is not None and multi_row["restricted_index"] is None:
         multi_row = None  # can't tell which column is restricted; don't guess
 
-    if multi_row is not None:
+    if suffixed_rows is not None:
+        # The cheaper row carries the window; the dearer one is the catch-all,
+        # so any interval the window misses still bills at the full rate.
+        cheap, dear = sorted(suffixed_rows, key=lambda r: r["rate_ckwh"])
+        energy_rates.append(
+            {
+                "label": cheap["qualifier"],
+                "rate_ckwh": cheap["rate_ckwh"],
+                "window": {"weekdays": cheap["weekdays"]},
+            }
+        )
+        energy_rates.append({"label": dear["qualifier"], "rate_ckwh": dear["rate_ckwh"], "window": None})
+        flat_ckwh = dear["rate_ckwh"]
+        confidence["energy_charge"] = 0.85
+        confidence["free_window"] = 0.85
+        evidence["energy_charge"] = " | ".join(r["evidence"] for r in suffixed_rows)
+        evidence["free_window"] = cheap["evidence"]
+    elif multi_row is not None:
         ri = multi_row["restricted_index"]
         restricted_rate = multi_row["rates"][ri]
         general_rate = multi_row["rates"][1 - ri]

@@ -381,12 +381,13 @@ class TestCorpusAeTexasSmartSecure36:
         Plan.model_validate(draft.plan_dict)
 
 
-def test_multiple_differing_energy_rows_never_look_confident():
-    """A weekday/weekend pair is a schedule, not a flat rate.
+def test_unresolvable_differing_energy_rows_never_look_confident():
+    """Differing energy rows are a schedule; if it can't be resolved, flag it.
 
-    The generic scan takes the first row; if that were scored confidently the
-    plan would auto-promote as flat 17.6c with the free weekend silently
-    dropped. Must stay in review.
+    When the qualifiers DO map to day sets the schedule is read properly (see
+    test_suffixed_qualifier_rows_become_a_weekend_schedule). When they don't,
+    the generic scan takes the first row -- and scoring that confidently would
+    auto-promote a flat rate with the other tier silently dropped.
     """
     from energyanalyzer.eflparse.parser import parse_efl_text
 
@@ -394,14 +395,74 @@ def test_multiple_differing_energy_rows_never_look_confident():
         "Electricity Facts Label\nAcme Energy\nSome Plan 12\nOncor\n"
         "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
         "Base Charge $0.00 per billing cycle\n"
-        "Energy Charge 17.6000 ¢ per kWh – Weekdays\n"
-        "Energy Charge 0.0000 ¢ per kWh – Weekends\n"
+        "Energy Charge 17.6000 ¢ per kWh – Tier One\n"
+        "Energy Charge 8.0000 ¢ per kWh – Tier Two\n"
         "TDU Delivery Charge $4.06 per billing cycle\n"
         "Contract Term 12 Month(s)\n"
     )
     d = parse_efl_text(text, "acme.pdf")
     assert d.confidence["energy_charge"] < 0.8
     assert d.plan_dict["needs_review"] is True
+
+
+def test_suffixed_qualifier_rows_become_a_weekend_schedule():
+    """A qualifier can TRAIL the rate instead of leading it.
+
+    "Energy Charge 17.6000 ¢ per kWh – Weekdays" / "... 0.0000 ¢ per kWh –
+    Weekends" (Frontier, Gexa). The brand-tier reader only sees leading labels,
+    so these fell through to the flat-rate reader, which took the first row and
+    billed the WEEKDAY rate every day -- the free weekend silently dropped.
+
+    The weekend definition comes from the EFL, not a Sat/Sun assumption: Gexa's
+    "Free 3 Day Weekends" defines weekends as Friday to Monday.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl_text
+
+    def _efl(weekend_defn: str) -> str:
+        return (
+            "Electricity Facts Label\nAcme Energy\nFree Weekends 12\nOncor\n"
+            "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
+            "Base Charge $0.00 per billing cycle\n"
+            "Energy Charge 22.9000 ¢ per kWh - Weekdays\n"
+            "Energy Charge 0.0000 ¢ per kWh - Weekends\n"
+            f"{weekend_defn}\n"
+            "TDU Delivery Charge $4.06 per billing cycle\n"
+            "Contract Term 12 Month(s)\n"
+        )
+
+    d = parse_efl_text(_efl("Weekends is defined as 12:00 AM Saturday to 12:00 AM Monday."), "a.pdf")
+    assert d.plan_dict["energy_rates"] == [
+        {"label": "Weekends", "rate_ckwh": 0.0, "window": {"weekdays": [5, 6]}},
+        {"label": "Weekdays", "rate_ckwh": 22.9, "window": None},
+    ]
+    assert d.plan_dict["needs_review"] is False
+
+    # A three-day weekend, and the catch-all must remain the PAID rate.
+    d3 = parse_efl_text(_efl("Weekends is defined as 12:00 AM Friday to 12:00 AM Monday."), "b.pdf")
+    assert d3.plan_dict["energy_rates"][0]["window"] == {"weekdays": [4, 5, 6]}
+    assert d3.plan_dict["energy_rates"][-1]["rate_ckwh"] == 22.9
+
+
+def test_day_definition_does_not_swallow_the_other_keyword():
+    """"Weekends" from a rate row must not bind to "Weekdays is defined as".
+
+    These EFLs print the rate rows immediately above the definitions, so the
+    text runs "...0.0000 ¢ per kWh - Weekends Weekdays is defined as 12:01 AM
+    Monday to 11:59 PM Friday". A permissive gap let the match start at the rate
+    row's "Weekends" and return the WEEKDAY range as the weekend definition --
+    Frontier's weekend came back as Mon-Fri, Gexa's as Mon-Thu, which would have
+    applied the free rate to weekdays and the full rate to the weekend.
+    """
+    from energyanalyzer.eflparse.parser import _defined_weekdays
+
+    text = (
+        "Energy Charge 22.9000 ¢ per kWh - Weekdays "
+        "Energy Charge 0.0000 ¢ per kWh - Weekends "
+        "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, including holidays. "
+        "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, including holidays."
+    )
+    assert _defined_weekdays(text, "weekend") == [4, 5, 6]
+    assert _defined_weekdays(text, "weekday") == [0, 1, 2, 3]
 
 
 class TestCorpusApGasTrueClassic11:
