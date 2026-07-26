@@ -1665,3 +1665,30 @@ def test_base_charge_amount_may_follow_the_unit():
         "a monthly Base Electricity Charge per ESI-ID of $9.95 applies."
     )
     assert nonzero is not None and nonzero[0] == 9.95
+
+
+def test_credited_window_is_read_even_though_the_efl_never_says_free():
+    """A window whose energy charge is credited back, not called "free".
+
+    Amigo/Just Energy/Tara "Days Bundle" plans say "Your bill will contain a
+    credit for Energy Charges resulting from energy consumed during Day Hours"
+    and define it separately as "Day Hours = 9:00 AM - 4:00 PM". The free-window
+    reader keys off the word "free", which appears nowhere, so all three billed
+    the full rate for seven hours a day that cost nothing.
+
+    Both phrases wrap mid-sentence in the real PDFs, so the match runs against
+    whitespace-normalised text; a newline-sensitive pattern saw half of each and
+    found nothing on two of the three documents.
+    """
+    from energyanalyzer.eflparse.parser import _extract_credited_window
+
+    wrapped = (
+        "Day Hours = 9:00 AM –\n4:00 PM. Your bill will contain a credit for Energy\n"
+        "Charges resulting from energy consumed during Day Hours.\n"
+    )
+    got = _extract_credited_window(wrapped)
+    assert got is not None
+    assert got["hours"] == [9, 10, 11, 12, 13, 14, 15]
+
+    # No credit sentence -> nothing to infer, even with an hours definition.
+    assert _extract_credited_window("Day Hours = 9:00 AM - 4:00 PM.\n") is None

@@ -939,6 +939,43 @@ def _extract_free_window(text: str) -> Optional[dict]:
     return None
 
 
+_CREDITED_WINDOW_RE = re.compile(
+    r"credit\s+for\s+Energy\s+Charges?\s+resulting\s+from\s+energy\s+consumed\s+"
+    r"during\s+(?:the\s+)?([A-Za-z][A-Za-z ]{1,20}?\bHours)",
+    re.I,
+)
+
+
+def _extract_credited_window(text: str) -> Optional[dict]:
+    """A window whose energy charge is credited back rather than called "free".
+
+    The Amigo/Just Energy/Tara "Days Bundle" plans say "Your bill will contain a
+    credit for Energy Charges resulting from energy consumed during Day Hours",
+    and define the window separately as "Day Hours = 9:00 AM - 4:00 PM". Nothing
+    on the document says "free", so :func:`_extract_free_window` -- which keys
+    off that word -- never saw it, and the plans were modelled as billing the
+    full rate for seven hours a day that cost nothing.
+
+    Returns the same shape as `_extract_free_window`, or None.
+    """
+    # Match against whitespace-normalised text: both the credit sentence and the
+    # window definition wrap mid-phrase in these PDFs ("Day Hours = 9:00 AM -"
+    # with "4:00 PM" on the next line), so anything newline-sensitive sees only
+    # half of each and silently finds nothing.
+    flat = " ".join((text or "").split())
+    m = _CREDITED_WINDOW_RE.search(flat)
+    if not m:
+        return None
+    label = m.group(1).strip()
+    defn = re.search(rf"{re.escape(label)}\s*(?:=|:|are|is)\s*([^.]{{4,50}})", flat, re.I)
+    if not defn:
+        return None
+    hours = parse_time_range(defn.group(0))
+    if not hours:
+        return None
+    return {"hours": hours, "weekdays": [], "evidence": defn.group(0).strip()[:120]}
+
+
 def _extract_tou_table(text: str) -> Optional[list[dict]]:
     """Detect a labeled Peak/Mid-Peak/Off-Peak energy-charge table where each
     line also carries its time window in parentheses, e.g.:
@@ -1976,7 +2013,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- energy charge / free windows / TOU -------------------------------
     tou_rows = _extract_tou_table(text)
-    free_win = _extract_free_window(text)
+    free_win = _extract_free_window(text) or _extract_credited_window(text)
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
     split_base_charge: Optional[float] = None
