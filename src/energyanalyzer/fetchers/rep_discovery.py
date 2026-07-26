@@ -2598,6 +2598,10 @@ TESLA = RepConfig(
 # context-level `application/pdf` response rather than from any anchor.
 _METER_PLANS_URL = "https://meterplan.com/plans?zipcode={zip}"
 _METER_EFL_NAME_RE = re.compile(r"/EFL_([A-Za-z0-9+]+)_", re.I)
+# The "page has finished rendering its plan cards" signal, waited on instead of
+# a flat sleep after every reload. Text-matched rather than by class: Meter's
+# markup is build-hashed, but this button label is user-facing copy.
+_METER_EFL_SELECTOR = "button:has-text('View Electricity Facts Label')"
 # Term filters to sweep. Meter shows one term at a time; the EFL parser reads the
 # actual term out of each PDF, so this is only about making every plan reachable.
 _METER_TERMS = ("12 months", "24 months", "36 months")
@@ -2727,10 +2731,22 @@ def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[Disco
         )
 
     def _load(profile: Optional[str]) -> int:
-        """Fresh load + optional profile chip; returns the EFL-button count."""
+        """Fresh load + optional profile chip; returns the EFL-button count.
+
+        This runs once per (card, term) -- fifteen times a sweep -- so the wait
+        after goto is the single biggest cost in Meter's harvest. It used to be
+        a flat 6s sleep; waiting for the EFL buttons to actually appear does the
+        same job in a fraction of it (Meter was 2m38s of a 6m40s refresh, at a
+        steady 11s per plan). Timing out here means the page really has no plan
+        cards, which is the same answer a count() would have given.
+        """
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)  # type: ignore[attr-defined]
-            page.wait_for_timeout(6000)  # type: ignore[attr-defined]
+            page.wait_for_selector(_METER_EFL_SELECTOR, timeout=45_000)  # type: ignore[attr-defined]
+            # Short settle anyway: the buttons render slightly before React
+            # attaches their handlers, and a click that lands in that gap is
+            # silently swallowed.
+            page.wait_for_timeout(800)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             return 0
         if profile and not _click_any_matching(page, profile, 8000):

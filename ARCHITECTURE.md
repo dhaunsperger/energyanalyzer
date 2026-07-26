@@ -594,6 +594,16 @@ no longer block Chariot's eleven. It is used three ways:
   touched twice at once.
 * **Discovered EFL downloads** and **PTC EFL downloads** (`max_workers=4`).
 
+Measured end to end: a full refresh went **15m54s -> 6m40s** (2026-07-26).
+Meter's harvester is now the longest single REP and cannot be parallelized --
+it drives one browser through nine plans on one host -- so it was cut the other
+way, by replacing the flat 6s sleep after each reload with a wait for the EFL
+buttons to actually appear (`_METER_EFL_SELECTOR`). That reload runs once per
+(card, term), fifteen times a sweep: 11s per plan -> 6s, 2m38s -> 1m27s, still
+9/9 plans with nine distinct EFL documents. The 2s settle after a term-tab
+click is deliberately left alone -- clicking through before it lands is what
+once made Earner return the same PDF for all three terms.
+
 Two invariants the tests pin down, because breaking either is invisible at
 runtime: results come back in **input order** regardless of completion order (so
 manifests and run reports stay diffable), and a host's **peak concurrency is 1**.
