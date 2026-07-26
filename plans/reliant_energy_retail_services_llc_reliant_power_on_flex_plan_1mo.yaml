@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_Flex_plan.pdf
 retrieved: '2026-07-26'
+source_sha256: a5e2a70a6d88f819fcff7adf964eb5e4817069f9fa8a06e641c65767ec0c99f1
 notes: ''
 needs_review: false
 excludes_solar: false

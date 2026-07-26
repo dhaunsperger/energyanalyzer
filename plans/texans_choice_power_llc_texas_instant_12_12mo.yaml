@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Texas_Instant_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 05b71787b75c8fc31f6447fe25ed60b9bff3f98987238a002aa069c7f214c6b9
 notes: ''
 needs_review: false
 excludes_solar: false

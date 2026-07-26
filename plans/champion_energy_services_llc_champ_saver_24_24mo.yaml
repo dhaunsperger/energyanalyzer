@@ -26,6 +26,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CHAMPION_ENERGY_SERVICES_LLC_Champ_Saver-24.pdf
 retrieved: '2026-07-26'
+source_sha256: 6ff17527f2794ae3faec5aea9bdd1b27ad119eaa211225c3512a5b20d038f4b3
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

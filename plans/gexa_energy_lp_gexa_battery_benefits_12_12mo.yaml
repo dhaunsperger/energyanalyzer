@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_Battery_Benefits_12.pdf
 retrieved: '2026-07-26'
+source_sha256: e8aee1dfe3e4de3ab9d353368aa3ca47068590071685b8ab552341a01e949433
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Battery_Awards_12.pdf
 retrieved: '2026-07-26'
+source_sha256: de1533769b080fe00416803c08130091ef41e0b8641041fdee4c67398b6cee75
 notes: ''
 needs_review: false
 excludes_solar: false

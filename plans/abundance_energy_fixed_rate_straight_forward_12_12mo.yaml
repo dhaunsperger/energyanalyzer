@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 25.5
 source: efl:Abundance_Energy_Straight_Forward_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 3c477253022860e3f4f21653b41272e6731c60bca7164a70766640228096ee31
 notes: ''
 needs_review: false
 excludes_solar: false

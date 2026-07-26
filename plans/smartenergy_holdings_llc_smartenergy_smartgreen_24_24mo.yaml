@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:SMARTENERGY_HOLDINGS_LLC_SmartGreen_24_200_Bill_Credit.pdf
 retrieved: '2026-07-26'
+source_sha256: b2e7c04b1bbbb71b4bb89806b7516fd8c52c3754a6a7536120c30f604cda84d7
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan
 needs_review: false

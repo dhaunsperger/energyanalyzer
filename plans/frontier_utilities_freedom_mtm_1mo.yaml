@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Freedom_MTM.pdf
 retrieved: '2026-07-26'
+source_sha256: cbbe0b1fc2b0b89db45828c0902ffe26b8e5a76f4b0a57e97fee48c858dd6998
 notes: TDU delivery charges appear bundled into the Energy Charge (tdu_passthrough=False)
 needs_review: false
 excludes_solar: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Saver_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 0233578b50b15e6c16d0ee2232c06cc42395e26c995d834282469638532e778d
 notes: ''
 needs_review: false
 excludes_solar: false

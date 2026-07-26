@@ -1,0 +1,28 @@
+id: txu_energy_retail_company_llc_txu_energy_saver_s_choice_12sm_12mo
+retailer: TXU Energy Retail Company LLC
+name: TXU Energy Saver's Choice 12SM
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 12.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_Saver_s_Choice_12.pdf
+retrieved: '2026-07-26'
+source_sha256: dcb030f3d44127c455f7a009c4d14f75becb8bc91f86cb3d0ad36833309f0d26
+notes: could not find an Energy Charge rate
+needs_review: false
+excludes_solar: false

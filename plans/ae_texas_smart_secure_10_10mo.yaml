@@ -21,6 +21,7 @@ etf_per_month_remaining: true
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_10.pdf
 retrieved: '2026-07-26'
+source_sha256: 5f926cf01cda151cc486a66bf3962203e239a8ff65b8840aa0b1ce1a27a25620
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

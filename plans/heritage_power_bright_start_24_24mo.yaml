@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 23.9
 source: efl:HERITAGE_POWER_LLC_Bright_Start_24_-_25_credit_on_your_first_bill.pdf
 retrieved: '2026-07-26'
+source_sha256: 42793adc79a50d2e40f34fa0c90b013c1ae404fc017bb8f8264eb2e98a02bf7a
 notes: ''
 needs_review: false
 excludes_solar: false

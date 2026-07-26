@@ -30,6 +30,7 @@ rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Free_Energy_Lunch_-_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 3d87a68bf349e42a7947a0f8026c4fcbd6482de2203e3347eac5634452b94a2d
 notes: ''
 needs_review: false
 excludes_solar: false

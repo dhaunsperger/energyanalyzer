@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 8ba963fe47fb8f5b273771f8a91b87db7a4520da57462f579b641a14fbddc2be
 notes: ''
 needs_review: false
 excludes_solar: false

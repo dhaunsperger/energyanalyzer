@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Sustainable_Home_Bundle_-_5.pdf
 retrieved: '2026-07-26'
+source_sha256: 3d1cf4d61fae00be57322137a9aa4fc53fb7879a21ec069d0447d4ada457a907
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

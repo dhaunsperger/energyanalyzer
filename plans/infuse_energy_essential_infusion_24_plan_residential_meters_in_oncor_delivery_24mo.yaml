@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_24.pdf
 retrieved: '2026-07-26'
+source_sha256: ddd4f310e1d5d0ad3f9d3217f872cf071c6ddda8e301a4a5f76ddf460d6f1826
 notes: ''
 needs_review: false
 excludes_solar: false

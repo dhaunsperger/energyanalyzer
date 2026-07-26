@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected.pdf
 retrieved: '2026-07-26'
+source_sha256: 63d64c14ee3315d10b87a8f0e18e356c5cb3ac53b21ef486dda166e5db1b00be
 notes: ''
 needs_review: false
 excludes_solar: false

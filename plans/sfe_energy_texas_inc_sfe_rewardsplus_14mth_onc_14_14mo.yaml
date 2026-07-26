@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 23.9
 source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_14.pdf
 retrieved: '2026-07-26'
+source_sha256: 04cf19e96bfaded3267bbc0c4bf534330ae7bbe34f6dc6537cc874bc8254a724
 notes: ''
 needs_review: false
 excludes_solar: false

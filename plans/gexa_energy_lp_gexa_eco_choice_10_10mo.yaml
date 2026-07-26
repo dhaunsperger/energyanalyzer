@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:GEXA_ENERGY_Gexa_Eco_Choice_10.pdf
 retrieved: '2026-07-26'
+source_sha256: 5dc0a2e288de4e644253c23099ac9f22d1c6504426232429841df35f238b721f
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 5.85
 source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_24.pdf
 retrieved: '2026-07-26'
+source_sha256: d7e34f293b26ca5b45ec80a5cefc201e5ea01e226c41a9864df2cd848ac34b93
 notes: ''
 needs_review: false
 excludes_solar: false

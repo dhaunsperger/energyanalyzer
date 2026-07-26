@@ -31,6 +31,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Free_Weekends_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 5e48ce36d716e7878854c1e0309b0373937e3aa712bcc352fe2b1bbbd7384eb6
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line; TDU delivery charge waived during the free window (Delivery Charges
   0.0000 ¢ per kWh - Weekend)'

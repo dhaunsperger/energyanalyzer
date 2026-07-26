@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Abundance_Energy_Clean_Energy_12.pdf
 retrieved: '2026-07-26'
+source_sha256: ac344beed65c5afe962d9000fa17a7d4e772a371d66ff768e7f65ff35806f1d2
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -36,6 +36,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Bright_Nights_11.pdf
 retrieved: '2026-07-26'
+source_sha256: 7baa0db9dcf5cd80e2376cf4473cd648f06d9adc08381f5344eb5738950b6a97
 notes: ''
 needs_review: false
 excludes_solar: false

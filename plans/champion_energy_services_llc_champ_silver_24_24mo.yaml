@@ -26,6 +26,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Champ_Silver-24.pdf
 retrieved: '2026-07-26'
+source_sha256: b106d3590996f66e160892e5879910042879b0ae4cfab3d74195fcc9d42d90f5
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

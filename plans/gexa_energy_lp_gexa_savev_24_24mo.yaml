@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_SavEV_24.pdf
 retrieved: '2026-07-26'
+source_sha256: 84e7344df8ea357867c08d122449c0d79adf8d77d6eb4c176d198e1fb5c06f81
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'
 needs_review: false

@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Bill_Credit_Bundle_13.pdf
 retrieved: '2026-07-26'
+source_sha256: 2504a00ff52574199a6efb168206c690db0f5e99a59603113350a3301a1e3904
 notes: ''
 needs_review: false
 excludes_solar: false

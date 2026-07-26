@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Rhythm_Max_Saver_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 24645b49b13c3a4b7d10381b6caba2e5395db26726a64ff3f515dcd1395e9e4e
 notes: ''
 needs_review: false
 excludes_solar: false

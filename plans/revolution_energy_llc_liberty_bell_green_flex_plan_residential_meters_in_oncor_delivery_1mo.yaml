@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 100.0
 source: efl:REVOLUTION_ENERGY_LLC_Liberty_Bell_Green_Flex.pdf
 retrieved: '2026-07-26'
+source_sha256: 78e24e1a94b4d1e55b53a19c2318d58515eb154649f9bf6351ee69e48f5cf696
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Ultimate_Perks_12.pdf
 retrieved: '2026-07-26'
+source_sha256: c955313003b8698419d2830ec99e01df59a58bffb7b0d368e16b201ea75f5554
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_18.pdf
 retrieved: '2026-07-26'
+source_sha256: 03abfff3144993b9e4dbb59cec9e8b37e312fff86db21a4cb950dfb52e926225
 notes: ''
 needs_review: false
 excludes_solar: false

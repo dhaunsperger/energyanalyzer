@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Digital_Choice_24.pdf
 retrieved: '2026-07-26'
+source_sha256: ea9fb6963436a3c1ea4cc5e9b0743ff7ede0c9239d4db4a62f59269cda385d71
 notes: ''
 needs_review: false
 excludes_solar: false

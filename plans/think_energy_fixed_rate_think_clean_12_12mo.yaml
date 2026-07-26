@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 7516a1352c8584edafb3cba64ee5bf516527111d736e0aa533a6261e9c21107c
 notes: ''
 needs_review: false
 excludes_solar: false

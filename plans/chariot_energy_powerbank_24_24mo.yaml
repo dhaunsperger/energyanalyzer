@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_PowerBank_24.pdf
 retrieved: '2026-07-26'
+source_sha256: 13695d5cade4a22702fd6663c3c4a17c6943a7ad50b802eb986160ebe9057a04
 notes: ''
 needs_review: false
 excludes_solar: false

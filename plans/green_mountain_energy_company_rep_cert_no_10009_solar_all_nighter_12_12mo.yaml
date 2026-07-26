@@ -39,6 +39,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Solar_All_Nighter_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 83bc36d134e9028ed585e6770c4dad90b42393df7c5cf0d97887060403c7837e
 notes: ''
 needs_review: false
 excludes_solar: false

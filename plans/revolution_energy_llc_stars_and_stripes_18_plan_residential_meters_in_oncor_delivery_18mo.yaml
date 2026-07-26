@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_18.pdf
 retrieved: '2026-07-26'
+source_sha256: 958519279de8060de8508d302338a38129c3cf4b88489d8ad5985e8d667a6631
 notes: ''
 needs_review: false
 excludes_solar: false

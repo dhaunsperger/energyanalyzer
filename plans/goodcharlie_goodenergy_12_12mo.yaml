@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:GOOD_CHARLIE_CO_LLC_GoodEnergy_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 30ebbc89cc475533956ca97a091d88afd4335cb8387a59045e2118dc35b6fe8c
 notes: ''
 needs_review: false
 excludes_solar: false

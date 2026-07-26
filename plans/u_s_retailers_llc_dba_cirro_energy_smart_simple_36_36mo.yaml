@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:CIRRO_ENERGY_Smart_Simple_36.pdf
 retrieved: '2026-07-26'
+source_sha256: 160eb2d6e52bad93a09de10726ed49913c95c5f981c313a853e59483e0d8c7e9
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -26,6 +26,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Champion_Energy_Green_Energy-24.pdf
 retrieved: '2026-07-26'
+source_sha256: a5e9514ca678f3a184d1449e2627672464430a6237b6454dbbb60b07bee22bd3
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

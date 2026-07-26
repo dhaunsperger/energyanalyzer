@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 5e4c108f2f41dbd998d81090f94133e32964e86d9707d4084fd39a14f19e7917
 notes: ''
 needs_review: false
 excludes_solar: false

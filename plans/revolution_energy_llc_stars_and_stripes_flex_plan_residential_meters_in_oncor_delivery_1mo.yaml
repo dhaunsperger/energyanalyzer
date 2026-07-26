@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_Flex.pdf
 retrieved: '2026-07-26'
+source_sha256: cc4789dbaf533482b448bb0f9734acf04e60f4531e939b5f3e527ee14b919af7
 notes: ''
 needs_review: false
 excludes_solar: false

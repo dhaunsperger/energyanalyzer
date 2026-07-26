@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:DIRECT_ENERGY_Autopay_Texas_24.pdf
 retrieved: '2026-07-26'
+source_sha256: 465506d75c5baa79193c9783d7ae6bd6e6870eaa9cc0462dc24b065a86f00b4a
 notes: ''
 needs_review: false
 excludes_solar: false

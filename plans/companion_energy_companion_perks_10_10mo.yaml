@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Companion_Energy_Companion_Perks_10.pdf
 retrieved: '2026-07-26'
+source_sha256: f36f266aeb4bf40c3b658a8195b9d78113789d8669fc89ef456e78601dae5dc0
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

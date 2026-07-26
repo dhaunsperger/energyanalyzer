@@ -21,6 +21,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 98da76d4c0b78fc4e3da405ecba4a19d878d17c344b69aa9b192f4514c3bb425
 notes: ''
 needs_review: false
 excludes_solar: false

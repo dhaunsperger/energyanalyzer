@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_Basic_Plus_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 2bdfe8b68072a686ff7af9a7b489899b277a34e49528a34d927a37c5a7b4cb66
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'
 needs_review: false

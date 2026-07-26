@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_Flex.pdf
 retrieved: '2026-07-26'
+source_sha256: 685333cec53ece2adee36d69fb140bd2b81fcbd6c43a1a072337e2ed8a85515f
 notes: ''
 needs_review: false
 excludes_solar: false

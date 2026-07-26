@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Better_Rate_-_5.pdf
 retrieved: '2026-07-26'
+source_sha256: dc3ddd1aa29b367574159d83a476f31e606952031217787593d53da57ced679b
 notes: ''
 needs_review: false
 excludes_solar: false

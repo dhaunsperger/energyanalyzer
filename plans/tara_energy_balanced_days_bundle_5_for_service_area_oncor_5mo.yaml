@@ -36,6 +36,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Balanced_Days_Bundle_-_5.pdf
 retrieved: '2026-07-26'
+source_sha256: df6c57b57c1bd0e7722904edb0614a5f116fdd2fd818bf5796682f7cbc05ecf2
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'
 needs_review: false

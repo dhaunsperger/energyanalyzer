@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Meter_Energy_Standard_36.pdf
 retrieved: '2026-07-26'
+source_sha256: 9acbb601fb65058fba3e8624d0d29b8ee6b8a650e0f08b0fb6aa59ca22212617
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'
 needs_review: false

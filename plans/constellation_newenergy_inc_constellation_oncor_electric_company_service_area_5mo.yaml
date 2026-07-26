@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_Simple_Switch_5.pdf
 retrieved: '2026-07-26'
+source_sha256: bc509c0c7be23d6c0c1026b1c973c8679e3114fb661c6ff7f8058af36daabf17
 notes: ''
 needs_review: false
 excludes_solar: false

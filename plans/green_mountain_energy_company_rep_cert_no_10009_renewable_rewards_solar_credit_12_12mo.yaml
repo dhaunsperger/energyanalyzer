@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
 retrieved: '2026-07-26'
+source_sha256: d16899e0c5c636bf0672265bb3a36236f53ed5d24325f184aec6d2c266610eeb
 notes: ''
 needs_review: false
 excludes_solar: false

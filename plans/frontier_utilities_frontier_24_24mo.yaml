@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_24.pdf
 retrieved: '2026-07-26'
+source_sha256: aa0dc631e1d7f8ba1de0392a8df45769e87cae47a6757dc62094288bfa22c093
 notes: ''
 needs_review: false
 excludes_solar: false

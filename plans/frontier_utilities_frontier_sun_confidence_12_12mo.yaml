@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Sun_Confidence_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 7192ac75714329b5377a3e481df178032f23f99787cd78975573be2f05262dae
 notes: ''
 needs_review: false
 excludes_solar: false

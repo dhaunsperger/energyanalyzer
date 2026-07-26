@@ -23,6 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Meter_Energy_Earner_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 4f40cbdb7e310265a2c1a78b8087fa32d32319120acb88b80fc1105707b83c78
 notes: ''
 needs_review: false
 excludes_solar: false

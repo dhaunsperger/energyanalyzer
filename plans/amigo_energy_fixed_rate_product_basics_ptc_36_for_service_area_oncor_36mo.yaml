@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Basics_PTC_-_36.pdf
 retrieved: '2026-07-26'
+source_sha256: 51f5a703c1ad8fe7578517cf347db49e571d85d35e66b6a5456596137dfc14b2
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

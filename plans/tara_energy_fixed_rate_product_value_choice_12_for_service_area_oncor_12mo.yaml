@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Value_Choice_-_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 95aa0201b6085473552fcbb732ae54b70ced4d965ee94004990fb3e23b97ee66
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

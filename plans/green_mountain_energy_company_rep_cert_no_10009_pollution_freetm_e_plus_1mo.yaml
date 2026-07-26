@@ -22,6 +22,7 @@ rate_type: variable
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus.pdf
 retrieved: '2026-07-26'
+source_sha256: 8f5ec4fd6a8955a2a2889744e93b722ca1b165b180bf015cfd03f27a5969edb3
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Choice_24.pdf
 retrieved: '2026-07-26'
+source_sha256: 87317dc6d153969d0ec840c879d48bb9c3570039ed9d8df70169fdeab6f91762
 notes: ''
 needs_review: false
 excludes_solar: false

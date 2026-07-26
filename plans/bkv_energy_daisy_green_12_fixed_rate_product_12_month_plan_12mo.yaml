@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:BKV_Energy_Daisy_Green_12.pdf
 retrieved: '2026-07-26'
+source_sha256: c483eb54fed9c1337079fd7a0132c956af0a388e430f0adc8efa711385218c75
 notes: ''
 needs_review: false
 excludes_solar: false

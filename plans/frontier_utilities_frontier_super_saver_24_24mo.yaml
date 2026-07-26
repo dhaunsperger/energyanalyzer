@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Super_Saver_24.pdf
 retrieved: '2026-07-26'
+source_sha256: 8e8eb64131298248631747df1df2b493193e7577ce0266b383f0d1755602a536
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

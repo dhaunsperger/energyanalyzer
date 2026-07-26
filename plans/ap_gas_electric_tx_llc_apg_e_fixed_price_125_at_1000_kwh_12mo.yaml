@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_SimpleSaver_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 65542fe3ab18ed2e598fea739dbedff5776f45eab4f19df325d11f662ed469c0
 notes: ''
 needs_review: false
 excludes_solar: false

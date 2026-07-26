@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Summer_Break_24.pdf
 retrieved: '2026-07-26'
+source_sha256: c78aa7ae42eeea3759927ee65d6a523556577faa66f1fc63985d825e3f92c963
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

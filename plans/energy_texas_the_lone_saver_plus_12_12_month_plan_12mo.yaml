@@ -24,6 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_The_Lone_Saver_Plus_12.pdf
 retrieved: '2026-07-26'
+source_sha256: efc94b9dc6e0d5773351b0cf26848b8616132e1bc91485ea2347203c740e1da8
 notes: ''
 needs_review: false
 excludes_solar: false

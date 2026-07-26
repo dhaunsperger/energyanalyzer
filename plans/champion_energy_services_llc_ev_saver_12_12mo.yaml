@@ -39,6 +39,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_EV_Saver-12.pdf
 retrieved: '2026-07-26'
+source_sha256: 5b237305a8413de7372ba770099f95f7009614fd633d1fb1275f31c22cffad91
 notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
 excludes_solar: false

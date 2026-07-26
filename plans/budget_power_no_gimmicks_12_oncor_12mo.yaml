@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_12.pdf
 retrieved: '2026-07-26'
+source_sha256: f15fed75dc4428edee4f4dd0200c7bb295bb0ee797b918a807fdffde10c21671
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_No_Bull_24.pdf
 retrieved: '2026-07-26'
+source_sha256: cba726ac96915732788662c965115319be286a0c97776e627782be1ef5ed81e4
 notes: ''
 needs_review: false
 excludes_solar: false

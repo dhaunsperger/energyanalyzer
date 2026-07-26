@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Budget_Relief_12.pdf
 retrieved: '2026-07-26'
+source_sha256: e932b878a2be42070f7b2de62ce7e2d0dda71aa0b78586f48922d7f95c2629d1
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

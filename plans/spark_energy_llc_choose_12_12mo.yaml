@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 5c0f45d0a454b8ba9be8965ddac5a42feb8a7ef76d0200e2cab836ceccb7c4d7
 notes: ''
 needs_review: false
 excludes_solar: false

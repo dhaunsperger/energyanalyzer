@@ -1,0 +1,28 @@
+id: ambit_texas_llc_ambit_lone_star_plus_12sm_12mo
+retailer: Ambit Texas, LLC
+name: Ambit Lone Star Plus 12SM
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 12.3
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 199.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:Ambit_Energy_Lone_Star_Plus_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 29c6a809d95e7d804b6d1516c2664b4b92ed54534c8f7ac33752aff79c8ebf55
+notes: could not find an Energy Charge rate
+needs_review: false
+excludes_solar: false

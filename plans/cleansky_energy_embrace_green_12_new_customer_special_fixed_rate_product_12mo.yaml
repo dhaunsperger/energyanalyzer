@@ -22,6 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CleanSky_Energy_Embrace_Green_12_-_New_Customer_Special.pdf
 retrieved: '2026-07-26'
+source_sha256: 82cf43c5c630515982356617fdd3a089d346026ab1a33ec6f9e39f5d191b2d5e
 notes: ''
 needs_review: false
 excludes_solar: false
