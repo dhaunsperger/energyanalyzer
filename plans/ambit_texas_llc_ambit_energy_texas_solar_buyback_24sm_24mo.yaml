@@ -1,0 +1,27 @@
+id: ambit_texas_llc_ambit_energy_texas_solar_buyback_24sm_24mo
+retailer: Ambit Texas, LLC
+name: Ambit Energy Texas Solar Buyback 24SM
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 12.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 3.5
+  rates: []
+  offset_scope: energy_only
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 199.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Ambit_Energy_Texas_Solar_Buyback_24.pdf
+retrieved: '2026-07-26'
+notes: ''
+needs_review: false

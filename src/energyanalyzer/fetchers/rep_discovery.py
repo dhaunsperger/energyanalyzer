@@ -161,6 +161,12 @@ class RepConfig:
     # display -- fine under WSLg, which exports DISPLAY. Per-REP, never a
     # blanket default: headful pops a visible window and is slower.
     force_headful: bool = False
+    # Apply playwright-stealth's evasions to this REP's browser context. Ambit
+    # only, and measured rather than assumed (2026-07-26, site verifiably up):
+    # plain Playwright gets a 165-byte "Blocked by WAF" at /Path2Plans, stealth
+    # renders all 14 plans through the same funnel. Not a blanket default -- it
+    # injects init scripts into every page, and the other REPs need none of it.
+    stealth: bool = False
 
     @property
     def link_base(self) -> str:
@@ -1034,6 +1040,33 @@ def robots_allows(url: str, user_agent: str = _USER_AGENT, timeout: float = 10.0
     return rp.can_fetch(user_agent, url)
 
 
+def _playwright_ctx(config: "RepConfig"):
+    """Playwright context manager, stealth-patched when the REP needs it.
+
+    Ambit is the only one so far, and the A/B on a healthy site is stark: plain
+    Playwright gets a 165-byte "Blocked by WAF" at /Path2Plans, while a
+    stealth-patched context walks the same funnel and renders all 14 plans. The
+    site is emphatically up either way -- the EFL API serves PDFs to plain httpx
+    with no session at all -- so this is fingerprinting of the automated browser
+    specifically, not a policy against being read.
+
+    Opt-in per REP rather than global: it is extra surface (init scripts on every
+    page) and the other twelve retailers render fine without it.
+    """
+    from playwright.sync_api import sync_playwright
+
+    if not getattr(config, "stealth", False):
+        return sync_playwright()
+    try:
+        from playwright_stealth import Stealth
+    except ImportError as exc:
+        raise RuntimeError(
+            f"{config.retailer} needs playwright-stealth to render (plain Playwright is "
+            "served a 'Blocked by WAF' page). Install it with:  pip install playwright-stealth"
+        ) from exc
+    return Stealth().use_sync(sync_playwright())
+
+
 def fetch_rendered_html(
     config: RepConfig,
     zip_code: str,
@@ -1057,7 +1090,10 @@ def fetch_rendered_html(
     saving the page's HTML by hand into ``snapshot_dir``.
     """
     try:
-        from playwright.sync_api import sync_playwright
+        # Availability probe only -- _playwright_ctx does the real import (and
+        # may wrap it in stealth). Kept here so a missing Playwright fails with
+        # the install hint below rather than deep inside the render.
+        from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             "Playwright is required for live REP-site discovery but is not installed. "
@@ -1080,8 +1116,13 @@ def fetch_rendered_html(
     snapshot_dir = Path(snapshot_dir)
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-    with sync_playwright() as pw:
-        logger.info("%s: launching browser (headless=%s)", config.retailer, headless)
+    with _playwright_ctx(config) as pw:
+        logger.info(
+            "%s: launching browser (headless=%s%s)",
+            config.retailer,
+            headless,
+            ", stealth" if getattr(config, "stealth", False) else "",
+        )
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(user_agent=_USER_AGENT)
         page = context.new_page()
@@ -1130,7 +1171,10 @@ def harvest_live(
     missing, ValueError if the config has no harvester.
     """
     try:
-        from playwright.sync_api import sync_playwright
+        # Availability probe only -- _playwright_ctx does the real import (and
+        # may wrap it in stealth). Kept here so a missing Playwright fails with
+        # the install hint below rather than deep inside the render.
+        from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             "Playwright is required for live REP-site discovery but is not installed. "
@@ -1148,8 +1192,13 @@ def harvest_live(
         )
     _respect_rate_limit(host)
 
-    with sync_playwright() as pw:
-        logger.info("%s: launching browser (headless=%s)", config.retailer, headless)
+    with _playwright_ctx(config) as pw:
+        logger.info(
+            "%s: launching browser (headless=%s%s)",
+            config.retailer,
+            headless,
+            ", stealth" if getattr(config, "stealth", False) else "",
+        )
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(user_agent=_USER_AGENT)
         page = context.new_page()
@@ -1723,6 +1772,8 @@ AMBIT = RepConfig(
     # httpx). Was buyback-only on the same false premise as TXU: the 2026-07-25
     # PTC snapshot lists 1 Ambit product against 14 on Ambit's own site.
     broaden=True,
+    # Required: plain Playwright is served "Blocked by WAF" at /Path2Plans.
+    stealth=True,
 )
 
 
