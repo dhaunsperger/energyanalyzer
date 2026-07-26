@@ -616,8 +616,8 @@ def _scan_efl_header(text: str) -> tuple[Optional[str], Optional[str], str, str]
 # Field extractors
 # --------------------------------------------------------------------------- #
 # Legal entity -> brand, applied to whatever `_extract_retailer` reads off the
-# EFL. Texas REPs often issue EFLs under a licence-holding entity whose name
-# appears nowhere else the user would recognise, which makes a plan hard to place
+# EFL. Texas REPs often issue EFLs under a license-holding entity whose name
+# appears nowhere else the user would recognize, which makes a plan hard to place
 # in the UI and -- worse -- stops `app.common._plan_supersedes` from matching the
 # brand-named synthetic index row for the same plan (it compares retailer brand
 # tokens, and "Light Energy" shares none with "Meter Energy").
@@ -632,7 +632,7 @@ _RETAILER_ALIASES = {
 
 
 def _apply_retailer_alias(retailer: str) -> str:
-    """Map a licence-holding legal entity to the brand customers shop under."""
+    """Map a license-holding legal entity to the brand customers shop under."""
     key = re.sub(r"[^a-z ]+", "", (retailer or "").lower()).strip()
     for legal, brand in _RETAILER_ALIASES.items():
         if key.startswith(legal):
@@ -1079,7 +1079,7 @@ def _extract_credited_window(text: str) -> Optional[dict]:
     credit for Energy Charges resulting from energy consumed during Day Hours",
     and define the window separately as "Day Hours = 9:00 AM - 4:00 PM". Nothing
     on the document says "free", so :func:`_extract_free_window` -- which keys
-    off that word -- never saw it, and the plans were modelled as billing the
+    off that word -- never saw it, and the plans were modeled as billing the
     full rate for seven hours a day that cost nothing.
 
     Returns the same shape as `_extract_free_window`, or None.
@@ -1155,8 +1155,8 @@ def _extract_suffixed_energy_tiers(text: str) -> Optional[list[dict]]:
         Energy Charge 0.0000 ¢ per kWh – Weekends
 
     (Frontier Free Weekends, Gexa Free 3 Day Weekends.) The brand-tier reader
-    only recognises a leading label, so these fell through to the flat-rate
-    reader, which took the first row and modelled the WEEKDAY rate every day of
+    only recognizes a leading label, so these fell through to the flat-rate
+    reader, which took the first row and modeled the WEEKDAY rate every day of
     the week -- the free weekend silently dropped.
 
     Returns rows as ``{"qualifier", "rate_ckwh", "weekdays", "evidence"}`` only
@@ -1199,7 +1199,7 @@ def _extract_brand_energy_tiers(text: str) -> list[dict]:
     # kWh") -- Green Mountain's Pollution Free Nights prints its daytime tier in
     # cents and its night tier in dollars on the very same list. Only matching
     # cents found one tier, which is not a schedule, so the whole plan fell
-    # through to the flat-rate reader and modelled the DAY rate around the clock.
+    # through to the flat-rate reader and modeled the DAY rate around the clock.
     pat = re.compile(
         r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\s*[:\-]?\s*"
         r"(?:\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:¢|cents?)?)\s*per\s*kWh",
@@ -1473,7 +1473,7 @@ def _extract_base_charge_trailing_amount(text: str) -> Optional[Extraction]:
     """A base charge whose amount follows the unit rather than preceding it.
 
     Constellation writes the components as a numbered prose clause: "(iii) a
-    monthly Base Electricity Charge per ESI-ID of $0.00". Every labelled reader
+    monthly Base Electricity Charge per ESI-ID of $0.00". Every labeled reader
     expects "<label> ... $X per <unit>", so the amount was never found and the
     charge defaulted to $0.00 -- right by luck here, but unread.
     """
@@ -1483,7 +1483,7 @@ def _extract_base_charge_trailing_amount(text: str) -> Optional[Extraction]:
 
 # "Base Charge: $9.95" with no period unit at all. Direct Energy prints the
 # unit on some EFLs ("Base Charge: $9.95   per billing cycle" -- Free Days 12)
-# and omits it on others (Twelve Hour Power 24), and every labelled reader
+# and omits it on others (Twelve Hour Power 24), and every labeled reader
 # requires the unit, so the charge silently defaulted to $0.00 -- understating
 # the plan by ~$119/yr. Anchored tight: the amount must follow the label on the
 # SAME line with only a colon and spaces between, which the "Price per kWh =
@@ -1495,7 +1495,7 @@ _BASE_CHARGE_BARE_AMOUNT = re.compile(
 
 
 def _extract_base_charge_bare_amount(text: str) -> Optional[Extraction]:
-    """A labelled base charge stated as a bare dollar amount, with no unit.
+    """A labeled base charge stated as a bare dollar amount, with no unit.
 
     Skips the DELIVERY utility's own base charge, which is written the same way
     and is not the REP's: Tesla's Drive 12M prints "Oncor Base Charge: $4.06
@@ -1541,7 +1541,7 @@ def _extract_base_charge_absent_from_bullet_list(text: str) -> Optional[Extracti
     # A one-time/setup fee is not a recurring monthly charge.
     recurring = [i for i in rep_items if not re.search(r"one[\s-]*time|set\s*up|enrollment", i, re.I)]
     if any(_BASE_COMPONENT_WORDS.search(i) for i in recurring):
-        return None  # the REP DOES levy a base charge; let a labelled reader find it
+        return None  # the REP DOES levy a base charge; let a labeled reader find it
     return 0.0, 0.85, "; ".join(items[:4])[:200]
 
 
@@ -2229,7 +2229,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             confidence["energy_charge"] = 0.6
             notes.append(
                 f"split charge row gave a restricted rate of {restricted_rate}c/kWh but the EFL "
-                "does not state its hours; only the general rate is modelled"
+                "does not state its hours; only the general rate is modeled"
             )
         else:
             energy_rates.append({"label": label, "rate_ckwh": restricted_rate, "window": window})
@@ -2362,23 +2362,23 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 # charge -- even through a broken subset font, where "Energy"
                 # survives as "nerg" -- is a real read, not a guess. Only fall
                 # back to the cautious score when nothing identifies the row.
-                labelled = [r for r in generic_kwh_rows if _looks_like_energy_label(r["prefix"])]
-                r = (labelled or generic_kwh_rows)[0]
+                labeled = [r for r in generic_kwh_rows if _looks_like_energy_label(r["prefix"])]
+                r = (labeled or generic_kwh_rows)[0]
                 flat_ckwh = r["value"]
                 # Several DIFFERING energy rows are a schedule, not a flat rate
                 # ("Energy Charge 17.6000¢ per kWh - Weekdays" / "... 0.0000¢
                 # per kWh - Weekends"). Taking the first as a flat rate drops
                 # the free window entirely, so this must never look confident --
-                # the same rule the labelled-line reader applies above.
-                distinct = {row["value"] for row in (labelled or generic_kwh_rows)}
+                # the same rule the labeled-line reader applies above.
+                distinct = {row["value"] for row in (labeled or generic_kwh_rows)}
                 if len(distinct) > 1:
                     confidence["energy_charge"] = 0.5
                     notes.append(
                         f"multiple differing Energy Charge rows found {sorted(distinct)}; used "
-                        f"{flat_ckwh} as a flat rate -- any time-of-use window is NOT modelled"
+                        f"{flat_ckwh} as a flat rate -- any time-of-use window is NOT modeled"
                     )
                 else:
-                    confidence["energy_charge"] = 0.85 if labelled else 0.6
+                    confidence["energy_charge"] = 0.85 if labeled else 0.6
                 evidence["energy_charge"] = r["evidence"]
                 notes.append("energy rate derived from a generic '<label> Charge ... per kWh' table-line scan")
             elif avg_ext is not None:
@@ -2437,10 +2437,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 # Prefer a row whose label actually reads as a base charge; that
                 # is what separates "the REP's fixed monthly charge" from some
                 # other per-month fee, and it earns a promotable score.
-                labelled = [r for r in generic_month_rows if _looks_like_base_label(r["prefix"])]
-                r = (labelled or generic_month_rows)[0]
+                labeled = [r for r in generic_month_rows if _looks_like_base_label(r["prefix"])]
+                r = (labeled or generic_month_rows)[0]
                 base_charge = record(
-                    "base_charge", (r["value"], 0.85 if labelled else 0.6, r["evidence"])
+                    "base_charge", (r["value"], 0.85 if labeled else 0.6, r["evidence"])
                 )
                 notes.append("base charge derived from a generic '<label> Charge ... per month' table-line scan")
             elif absent_ext is not None:
@@ -2507,7 +2507,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     if buyback_ev:
         evidence["buyback"] = buyback_ev
 
-    # --- free window stated outside any recognised rate table --------------#
+    # --- free window stated outside any recognized rate table --------------#
     # Direct Energy's Twelve Hour Power prices its free period in a separate
     # column from its label, so no row extractor sees it: the flat scan finds
     # only the daytime 21.7727c and the plan looks like an ordinary fixed rate
@@ -2578,7 +2578,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # nothing scores low, and the plan simply under-ranks. Flag it rather than
     # promote a model we know is incomplete. Only "additional N%" is caught --
     # the plain "100% credit/discount" of an ordinary free-nights plan IS
-    # modelled (a 0.0 rate over the stated window) and must not be flagged.
+    # modeled (a 0.0 rate over the stated window) and must not be flagged.
     # Eligibility comes before economics: a plan the REP won't sell to a solar
     # home is not a cheap plan, it is not a plan at all. Recorded on the Plan so
     # ranking can hide it, and noted so the reason survives promotion (which

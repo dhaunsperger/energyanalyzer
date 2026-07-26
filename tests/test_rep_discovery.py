@@ -376,7 +376,7 @@ def test_ambit_has_a_render_flow_with_manual_capture_as_backstop():
 
     The render must not become a single point of failure -- `_run_rep_discovery`
     falls back to the newest manual capture when a live render raises, so a
-    blocked night degrades to the old behaviour instead of dropping every
+    blocked night degrades to the old behavior instead of dropping every
     buyback plan (which PTC and meterplan both miss).
     """
     assert rd.REP_CONFIGS["ambit"].retailer == "Ambit Energy"
@@ -1680,7 +1680,7 @@ def test_champion_captures_the_download_url_not_the_blank_popup(monkeypatch):
     # the failing case: a popup that never leaves the placeholder
     assert _popup_url_when_ready(_Popup(":"), timeout_ms=500) is None
     assert _popup_url_when_ready(_Popup("about:blank"), timeout_ms=500) is None
-    # a popup that really did navigate is still honoured
+    # a popup that really did navigate is still honored
     assert _popup_url_when_ready(_Popup("https://x/e.pdf"), timeout_ms=500) == "https://x/e.pdf"
 
 
@@ -1747,7 +1747,7 @@ def test_download_does_not_retry_a_normal_404(monkeypatch):
     assert c.calls == 1
 
 
-def test_retry_honours_the_per_host_rate_limit(monkeypatch):
+def test_retry_honors_the_per_host_rate_limit(monkeypatch):
     """A retry must never hit a site faster than the normal path."""
     seen = []
     monkeypatch.setattr(rd.time, "sleep", lambda *_: None)

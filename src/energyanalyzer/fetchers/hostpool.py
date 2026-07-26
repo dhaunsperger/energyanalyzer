@@ -106,7 +106,7 @@ def run_per_host(
     workers = max(1, min(max_workers, len(queues)))
     if workers == 1:
         # One host (or concurrency disabled): stay on the calling thread so the
-        # serial path keeps its exact behaviour, tracebacks included.
+        # serial path keeps its exact behavior, tracebacks included.
         for indices in queues.values():
             _run_queue(indices)
     else:

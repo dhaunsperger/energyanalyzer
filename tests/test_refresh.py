@@ -718,20 +718,46 @@ def test_parse_restores_identity_and_rebuilds_the_id(refresh_dirs, monkeypatch):
     assert not (drafts_dir / "unknown_retailer_unnamed_plan_12mo.yaml").exists()
 
 
-def test_parse_does_not_override_an_identity_the_parser_read(refresh_dirs, monkeypatch):
-    """Only the placeholders are replaced -- a retailer the parser read from the
-    document itself is more trustworthy than a download-time label."""
+def test_the_row_that_fetched_the_efl_decides_who_the_plan_is(refresh_dirs, monkeypatch):
+    """Identity comes from the row, not the PDF -- always, not just as a rescue.
+
+    Power to Choose and the discovery manifest both carry retailer and plan name
+    as DATA. The parser can only guess at them from a header whose layout
+    differs per REP and whose font is sometimes broken, and guessing is what put
+    "For Service Area: Oncor" in the name field of 20 plans -- two of them in
+    the top ten -- with the retailer field swallowing the real plan name.
+
+    The parser stays authoritative for what is actually in the document: rates,
+    windows, charges, terms.
+    """
     plans_dir, drafts_dir, efl_dir, ptc_dir, _ = refresh_dirs
     pdf = efl_dir / "Some_Retailer_Some_Plan.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
     (efl_dir / "rep_discovery_manifest.jsonl").write_text(
-        f'{{"file": "{pdf}", "retailer": "WRONG", "plan_name": "WRONG"}}\n'
+        f'{{"file": "{pdf}", "retailer": "GEXA ENERGY", "plan_name": "Gexa Eco Choice 12"}}\n'
     )
     monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
     out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
-    assert out["identified"] == []
+
+    saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
+    assert saved["retailer"] == "Gexa Energy", "shouted PTC names are tidied for the UI"
+    assert saved["name"] == "Gexa Eco Choice 12"
+    assert saved["energy_rates"][0]["rate_ckwh"] == 11.0, "rates still come from the PDF"
+
+
+def test_a_manual_efl_keeps_the_name_the_parser_read(refresh_dirs, monkeypatch):
+    """An EFL saved by hand into data/efl/manual/ has no row behind it -- no PTC
+    listing, no discovery manifest entry -- so the parser's read is all there is
+    and must stand."""
+    plans_dir, drafts_dir, efl_dir, _ptc, _ = refresh_dirs
+    pdf = efl_dir / "Hand_Saved_Plan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+    out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
+
     saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
     assert saved["retailer"] == "Test Retailer"
+    assert out["identified"] == []
 
 
 def test_manual_efls_survive_the_refresh_wipe(tmp_path):
@@ -879,7 +905,7 @@ def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
     """Discovery coverage publishes plan names only -- no term column.
 
     A term of None must be read as "this source didn't say", not as a mismatch
-    against every plan (which would flag a fully-scraped REP's whole catalogue
+    against every plan (which would flag a fully-scraped REP's whole catalog
     as delisted).
     """
     plans_dir, q = _setup_quarantine(tmp_path, [["Champion Energy", "Champ Saver-24", None]])

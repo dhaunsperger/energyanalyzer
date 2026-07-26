@@ -207,7 +207,7 @@ def _llm_same_plan(
     ``a``/``b`` are ``{"retailer", "plan_name", "term"}``. Returns True/False, or
     **None** when the LLM is unavailable, returns junk, or isn't confident enough
     -- callers must treat None as "no opinion" and fall back to deterministic
-    behaviour (keep the plan).
+    behavior (keep the plan).
     """
     user = (
         f"Listing A: retailer={a.get('retailer')!r}, plan={a.get('plan_name')!r}, "
@@ -682,20 +682,44 @@ def draft_energy_rate_summary(plan_dict: dict) -> str:
 
 
 # Boilerplate every Texas EFL carries that a name-hunting regex can mistake for
-# the plan's name. Tesla's Drive 12M landed in the database as "PUCT Certificate
-# Number: 10296" -- unreadable in the UI, and unmatchable, so the synthetic
-# meterplan row for the same plan could never be superseded and sat in the
-# ranking beside it. Treated like "Unnamed Plan": a failed read, so discovery's
-# own name (which came off the REP's plan card) is used instead.
-# Needs a qualifier -- "PUCT/REP certificate", or "certificate number" -- so a
-# bare "Certificate 12" can still be somebody's actual product name.
+# the plan's name. Two families seen in the wild, both of which left plans
+# unreadable in the UI and unmatchable for dedup:
+#
+#   * a certificate line -- Tesla's Drive 12M landed as "PUCT Certificate
+#     Number: 10296", so the synthetic meterplan row for the same plan could
+#     never be superseded and sat in the ranking beside it;
+#   * a service-area line -- 20 plans across Amigo, Tara, Just Energy,
+#     Constellation and Payless were named "For Service Area: Oncor" or "Oncor
+#     Electric Company Service Area", two of them in the top ten.
+#
+# Both are treated like "Unnamed Plan": a failed read, so the name PTC or
+# discovery already knows for that EFL is used instead. Each pattern needs a
+# qualifier so it cannot swallow a real product name -- "Certificate 12" and
+# "Free Nights 12" both survive.
 _NOT_A_PLAN_NAME_RE = re.compile(
     r"^\s*(?:"
-    r"(?:puct|rep)\s*certificat(?:e|ion)(?:\s*(?:no\.?|number|#))?"
-    r"|certificat(?:e|ion)\s*(?:no\.?|number|#)"
-    r")[\s:#.]*\d*\s*$",
+    r"(?:puct|rep)\s*certificat(?:e|ion)(?:\s*(?:no\.?|number|#))?[\s:#.]*\d*"
+    r"|certificat(?:e|ion)\s*(?:no\.?|number|#)[\s:#.]*\d*"
+    # "For Service Area: Oncor", "Oncor Electric Company Service Area",
+    # "Oncor Electric Delivery Service Area effective as of July 10, 2026".
+    r"|(?:for\s+)?[\w .,'-]*?service\s+area\b.*"
+    r")\s*$",
     re.I,
 )
+
+
+def _tidy_retailer(name: str) -> str:
+    """Make a PTC retailer readable. Power to Choose shouts every retailer name
+    ("AMIGO ENERGY"), which is fine as data and ugly in a ranking table."""
+    text = str(name or "").strip()
+    if not text or text != text.upper():
+        return text  # already mixed case -- leave it alone
+    keep = {"LLC", "LP", "LLP", "INC", "TX", "US", "PUCT", "PTC", "AC", "DBA"}
+    words = []
+    for word in text.split():
+        bare = word.strip(".,")
+        words.append(word if bare.upper() in keep else word.title())
+    return " ".join(words)
 
 
 def _is_not_a_plan_name(name) -> bool:
@@ -867,12 +891,23 @@ def parse_downloaded_efls(
             # each other's draft file. Restore the known identity and rebuild the id.
             known = identities.get(pdf_path.name)
             if known:
+                # WHO the plan is comes from the row that fetched it, never from
+                # the PDF. Power to Choose and the discovery manifest both carry
+                # retailer and plan name as data; the parser can only guess at
+                # them from a header whose layout differs per REP and whose font
+                # is sometimes broken. Guessing produced "For Service Area:
+                # Oncor" as the name of 20 plans -- two of them in the top ten --
+                # with the retailer field swallowing the real plan name
+                # ("Amigo Energy - Fixed Rate Product: Basics PTC - 24").
+                #
+                # The parser stays authoritative for everything that is actually
+                # IN the document: rates, windows, charges, terms.
                 retailer, plan_name = known
                 changed_identity = False
-                if retailer and draft.plan_dict.get("retailer") == "Unknown Retailer":
-                    draft.plan_dict["retailer"] = retailer
+                if retailer and draft.plan_dict.get("retailer") != _tidy_retailer(retailer):
+                    draft.plan_dict["retailer"] = _tidy_retailer(retailer)
                     changed_identity = True
-                if plan_name and _is_not_a_plan_name(draft.plan_dict.get("name")):
+                if plan_name and draft.plan_dict.get("name") != plan_name:
                     draft.plan_dict["name"] = plan_name
                     changed_identity = True
                 if changed_identity:

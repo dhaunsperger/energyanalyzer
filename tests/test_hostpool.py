@@ -163,7 +163,7 @@ def test_empty_input_is_a_no_op():
 
 
 def test_single_worker_stays_on_the_calling_thread():
-    """max_workers=1 is the documented escape hatch back to serial behaviour;
+    """max_workers=1 is the documented escape hatch back to serial behavior;
     it must not spin up a pool (tracebacks and profiling stay intact)."""
     caller = threading.get_ident()
     threads: list[int] = []

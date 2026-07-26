@@ -210,7 +210,7 @@ def _tdu_numerals(tdu_name: str = "oncor") -> list[float]:
     Both leak into LLM proposals because an EFL prints the REP's charges and the
     TDU's side by side, and `_verify_number_in_text` can't tell the columns
     apart -- the TDU number IS in the EFL. Returns [] if the tariff can't be
-    read, so a missing tdu/ file degrades to the old behaviour.
+    read, so a missing tdu/ file degrades to the old behavior.
     """
     try:
         from energyanalyzer.core.plans_io import current_tdu
@@ -298,7 +298,7 @@ def llm_repair_draft(
     (:func:`_verify_number_in_text`) -- small local models report 0 confidence for
     every field, so their self-assessment can't be the gate -- and such a value is
     recorded at ``verified_confidence``. A model that does report real confidence
-    (>= ``min_confidence``) is honoured too, capped at ``cap_confidence``.
+    (>= ``min_confidence``) is honored too, capped at ``cap_confidence``.
 
     Returns ``(draft, report)``. ``report`` is ``{"used_llm": bool, "changed":
     [field, ...], "note": str}``. The draft is only modified when at least one
@@ -325,7 +325,7 @@ def llm_repair_draft(
         "buyback": draft.plan_dict.get("buyback"),
     }
     # Naming the TDU's actual numbers beats the abstract "do NOT include TDU
-    # delivery charges" the schema already carries -- gemma3:4b honoured the
+    # delivery charges" the schema already carries -- gemma3:4b honored the
     # rule in its reasoning while still returning $4.06. The deterministic
     # _is_tdu_charge guard below is what actually enforces it; this just makes
     # the model less likely to reach for the wrong column in the first place.

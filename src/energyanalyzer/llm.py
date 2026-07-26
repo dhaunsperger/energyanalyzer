@@ -9,7 +9,7 @@ static parser couldn't read confidently (``eflparse.llm_repair``).
 
 Everything here degrades gracefully: if Ollama isn't running or the model isn't
 pulled, callers get an exception (or ``None`` from :func:`chat_json`) and fall
-back to their deterministic behaviour -- the app never *depends* on the LLM.
+back to their deterministic behavior -- the app never *depends* on the LLM.
 
 Test seam: pass ``chat_fn`` to :func:`chat_json` -- ``(messages, model,
 ollama_url, timeout) -> response_dict`` -- so tests never touch the network.

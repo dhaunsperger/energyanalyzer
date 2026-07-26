@@ -392,7 +392,7 @@ def test_meterplan_bb_abbreviation_supersedes_the_spelled_out_plan():
         "txu_solar_buyback_system_flexsm_1mo",
     )
     assert app_common._plan_supersedes(synthetic, real)
-    # Still term-sensitive, and still not a licence to merge different products.
+    # Still term-sensitive, and still not a license to merge different products.
     other = _mk("TXU Energy", "TXU Energy Solar Buyback Saver 12", 12, "efl:x.pdf", "txu_saver")
     assert not app_common._plan_supersedes(synthetic, other)
 

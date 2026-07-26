@@ -368,7 +368,7 @@ class TestCorpusAeTexasSmartSecure36:
         assist-only policy pinned them in the queue permanently.
 
         The label is now matched as a subsequence, so "\\ue001nerg\\ue006 Charge"
-        is recognised as an Energy Charge and the read is scored on its merits.
+        is recognized as an Energy Charge and the read is scored on its merits.
         Audited across all 232 EFLs on disk: the matcher accepts only genuine
         Base/Energy/Monthly Base labels and the PUA-mangled "ae"/"nerg" forms --
         no false matches.
@@ -1359,8 +1359,8 @@ def test_usage_credit_table_row_form_is_parsed():
 
 
 def test_retailer_brand_alias_maps_the_licence_entity_to_the_brand():
-    """Meter's EFLs are issued by "Light Energy, LLC" -- a licence-holding entity
-    that appears nowhere a shopper would recognise, while the plan names on the
+    """Meter's EFLs are issued by "Light Energy, LLC" -- a license-holding entity
+    that appears nowhere a shopper would recognize, while the plan names on the
     same document read "Meter Saver Plan".
 
     Left unaliased it is not just confusing: `_plan_supersedes` compares retailer
@@ -1647,7 +1647,7 @@ def test_broken_font_bill_unit_is_a_monthly_basis():
 def test_base_charge_amount_may_follow_the_unit():
     """"a monthly Base Electricity Charge per ESI-ID of $0.00" (Constellation).
 
-    Every labelled reader expects "<label> ... $X per <unit>", so an amount that
+    Every labeled reader expects "<label> ... $X per <unit>", so an amount that
     trails the unit was never found and the charge defaulted to $0.00 -- right
     by luck here, but unread, and wrong for any REP that charges one.
     """
@@ -1704,7 +1704,7 @@ def test_unmodelled_bonus_credit_is_flagged_but_plain_free_nights_is_not():
     shape a confidence gate cannot see.
 
     The discrimination matters: an ordinary free-nights plan says "100% credit
-    on all Energy Charges", which IS modelled (a 0.0 rate over the window) and
+    on all Energy Charges", which IS modeled (a 0.0 rate over the window) and
     must stay unflagged, or every free-nights plan lands in review.
     """
     from energyanalyzer.eflparse.parser import _BONUS_CREDIT_RE
@@ -1837,7 +1837,7 @@ def test_bare_base_charge_is_read_but_never_the_delivery_utilitys():
     """"Base Charge: $9.95" with no unit is still a base charge.
 
     Direct Energy prints the unit on some EFLs and omits it on others; every
-    labelled reader required it, so Twelve Hour Power defaulted to $0.00.
+    labeled reader required it, so Twelve Hour Power defaulted to $0.00.
     But "Oncor Base Charge: $4.06 /month" is the TDU's own charge and must not
     be adopted as the plan's -- Tesla Drive 12M prints it right above the
     energy rates.

@@ -1472,14 +1472,14 @@ def _is_bot_block(resp) -> bool:
         # Only the first bytes: a block page is short, and a real PDF that
         # somehow 403s should not be decoded in full just to classify it.
         return bool(_BOT_BLOCK_RE.search(resp.content[:2048].decode("utf-8", "replace")))
-    except Exception:  # noqa: BLE001 -- unreadable body -> not a recognised block
+    except Exception:  # noqa: BLE001 -- unreadable body -> not a recognized block
         return False
 
 
 def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEMPTS):
     """GET `url`, retrying a transient status with linear backoff.
 
-    Honours the per-host rate limit before every attempt, so a retry can never
+    Honors the per-host rate limit before every attempt, so a retry can never
     make us hit a site faster than the normal path does.
 
     A bot block IS retried, up to `_BOT_BLOCK_ATTEMPTS`. It used to return
@@ -1558,7 +1558,7 @@ def download_discovered(
     same host at once (:mod:`energyanalyzer.fetchers.hostpool`), so each REP sees
     the identical one-at-a-time pattern with the same throttle as before -- the
     2s spacing between Gexa's fifteen EFLs just no longer blocks Chariot's
-    eleven. Pass ``max_workers=1`` for the old strictly-serial behaviour.
+    eleven. Pass ``max_workers=1`` for the old strictly-serial behavior.
 
     Returns ``{"downloaded": [...], "skipped": [...], "failed": [...],
     "filtered_out": int}``, each list in input-plan order regardless of which
@@ -2472,7 +2472,7 @@ DIRECT_ENERGY = RepConfig(
     broaden=True,
     # Required, not cosmetic: headless Chromium is served the app shell with
     # ZERO plan cards (measured 2026-07-26 -- headless 0 cards, headful 26 on
-    # the same URL and UA), the same Akamai-shaped behaviour Tesla hits. Two
+    # the same URL and UA), the same Akamai-shaped behavior Tesla hits. Two
     # refreshes reported "found 0 plan card(s)" against a perfectly healthy site
     # before this was pinned down.
     force_headful=True,
@@ -2869,7 +2869,7 @@ def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[Disco
     same document for all three terms. So the term tab is scoped to the card that
     owns the EFL button being clicked.
 
-    Two further behaviours, both measured:
+    Two further behaviors, both measured:
 
     * A profile chip ("No solar" / "Solar") changes which plans are listed;
       Standard only appears under some of them, so profiles are swept too.
