@@ -723,3 +723,30 @@ def test_parse_does_not_override_an_identity_the_parser_read(refresh_dirs, monke
     assert out["identified"] == []
     saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
     assert saved["retailer"] == "Test Retailer"
+
+
+def test_manual_efls_survive_the_refresh_wipe(tmp_path):
+    """Hand-supplied EFLs must outlive a refresh, which deletes what it refetches.
+
+    Regression guard: the wipe's glob("*.pdf") deleted Ambit's hand-saved EFLs
+    (added after its WAF began refusing every client), leaving only their
+    Zone.Identifier stubs. Nothing could restore them -- that is precisely why
+    they were manual.
+    """
+    efl_dir = tmp_path / "efl"
+    manual = efl_dir / "manual"
+    manual.mkdir(parents=True)
+    fetched = efl_dir / "Fetched_Plan.pdf"
+    fetched.write_bytes(b"%PDF-1.4 refetchable")
+    by_hand = manual / "Ambit_Texas_Solar_Buyback_12.pdf"
+    by_hand.write_bytes(b"%PDF-1.4 saved by hand")
+
+    # What the wipe sees, and what the parse stage sees.
+    wiped = sorted(efl_dir.glob("*.pdf"))
+    assert wiped == [fetched], "the wipe must not reach data/efl/manual/"
+    assert app_common.manual_efl_paths(efl_dir) == [by_hand]
+
+    for p in wiped:
+        p.unlink()
+    assert by_hand.exists()
+    assert app_common.manual_efl_paths(efl_dir) == [by_hand]

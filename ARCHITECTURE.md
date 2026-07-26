@@ -241,6 +241,12 @@ prices, EFL URL, renewable %, prepaid/TOU flags), download EFL PDFs to
 Network egress here is restricted; code defensively and make snapshots
 loadable offline.
 
+`data/efl/manual/` holds EFLs supplied by hand for REPs no fetcher can reach
+(Ambit, whose WAF refuses httpx and a real Chromium alike). A refresh wipes
+`data/efl/` and re-downloads, which is only safe for files a fetcher can
+restore, so the wipe's non-recursive `glob("*.pdf")` deliberately cannot see
+this subdirectory; `manual_efl_paths()` adds it back at the parse stage.
+
 `fetchers/meterplan.py`: meterplan.com Texas solar buyback plan index
 (`https://meterplan.com/data/texas-solar-buyback-plans.md`), an
 hourly-regenerated public markdown page published by Meter Energy Inc. (a

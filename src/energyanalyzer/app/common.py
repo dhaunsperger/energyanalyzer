@@ -35,6 +35,13 @@ DATA_DIR = REPO_ROOT / "data"
 ERCOT_DIR = DATA_DIR / "ercot"
 PTC_DIR = DATA_DIR / "ptc"
 EFL_DIR = DATA_DIR / "efl"
+# EFLs supplied by hand, for REPs no fetcher can reach (a WAF that refuses
+# automation, a captcha, a document only linked from a logged-in funnel). A
+# refresh wipes data/efl and re-downloads, which is safe only for files a
+# fetcher can restore -- a hand-saved PDF is gone for good. Being a
+# subdirectory keeps it out of the wipe's non-recursive glob("*.pdf"); the
+# parse stage adds it back explicitly.
+EFL_MANUAL_DIR = EFL_DIR / "manual"
 METERPLAN_DIR = DATA_DIR / "meterplan"
 REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
@@ -758,6 +765,20 @@ def parse_downloaded_efls(
     return summary
 
 
+def manual_efl_paths(efl_dir: Path = EFL_DIR) -> list[Path]:
+    """Hand-supplied EFL PDFs, which survive the refresh wipe.
+
+    Drop a PDF in ``data/efl/manual/`` for any REP automation cannot reach and
+    it will be parsed on every refresh like a downloaded one, without ever
+    being deleted. This exists because the wipe destroys what it cannot refetch:
+    Ambit's EFLs, saved by hand after its WAF began refusing every client, were
+    deleted by the next refresh and left only their Zone.Identifier stubs
+    behind.
+    """
+    manual = Path(efl_dir) / "manual"
+    return sorted(manual.glob("*.pdf")) if manual.exists() else []
+
+
 def efl_pdf_health(efl_dir: Path = EFL_DIR) -> dict:
     """Quick health check of the downloaded-EFL cache: how many ``.pdf`` files
     are on disk, and which of them aren't actually PDFs.
@@ -1323,6 +1344,7 @@ def refresh_market_data(
 
         # --- 5. parse downloaded EFLs into drafts ------------------------#
         pdf_paths = sorted(efl_dir.glob("*.pdf")) if efl_dir.exists() else []
+        pdf_paths += manual_efl_paths(efl_dir)
         summary["parsed"] = parse_downloaded_efls(
             pdf_paths,
             drafts_dir=drafts_dir,
