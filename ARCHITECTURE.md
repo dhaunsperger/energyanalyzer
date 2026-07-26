@@ -607,6 +607,31 @@ a draft.
 Existing plans were backfilled in bulk on 2026-07-26 (249 stamped, 12 skipped
 as not EFL-backed: meterplan synthetics, report-derived, manual).
 
+### 9d. Retiring synthetic meterplan rows
+
+meterplan.com is a third-party index published by a competing REP; its rows go
+stale, and they carry no EFL so they can never be verified. A synthetic retires
+two ways: **superseded** (a real parsed EFL now covers the same plan) or
+**pruned** (the retailer's own site was surveyed live and complete and does not
+list it). Almika is the only retailer behind a meterplan row we do NOT survey
+directly, so it is the only synthetic that should ever survive a clean run.
+
+Six others survived 2026-07-26. Three separate causes, all now fixed:
+
+* `prune_stale_meterplan_rows` (was `..._drafts`) only looked in
+  `plans/drafts/`, so a synthetic promoted *before* we started surveying its REP
+  was never re-examined. It runs over `plans/` too.
+* `reconcile_quarantine` resurrected retirements: "no plan file with this id"
+  reads the same as "never rebuilt", so it restored a synthetic moments after
+  supersede removed it -- the run summary printed both. It now takes
+  `retired_ids`.
+* Tesla's Drive 12M was named **"PUCT Certificate Number: 10296"** by the
+  parser's name regex catching EFL boilerplate, which made it unmatchable, so
+  its synthetic could never be superseded. `_is_not_a_plan_name` treats a
+  certificate line as a failed read (like `Unnamed Plan`) and discovery's name
+  wins. The pattern requires a qualifier -- PUCT/REP certificate, or certificate
+  *number* -- so a bare "Certificate 12" can still be a real product name.
+
 Note the discovery caveat: promote/supersede recover the database from drafts
 already on disk, but *discovery itself* is not resumable — REPs it never reached
 still need a fresh run.
