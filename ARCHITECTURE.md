@@ -602,6 +602,35 @@ better-credentialed attempt for when the refusal is a coin flip. When Ambit is
 in a refusing mood the right move is to leave it alone for a while -- the
 manual-capture fallback and the quarantine mean a refused run costs nothing.
 
+### 9b3. Just Energy — WON'T automate (CAPTCHA-gated)
+
+Investigated 2026-07-26 because Just Energy's website-only "Free Nights Plan -
+12" gives 10 free night hours at a cheaper day rate than Direct's Twelve Hour
+Power, which ranks top-5. Its enroll funnel cannot be driven:
+
+* the deep link `enroll.justenergy.com/US/TX/SVC/residential-plans?...` redirects
+  to `/`;
+* the rendered page exposes an EMPTY accessibility tree to Playwright -- zero
+  textboxes, buttons or matching text -- while `page.content()` returns ~597k
+  chars with `attachShadow` in it, so the app is in shadow DOM and never boots;
+* with playwright-stealth it boots slightly further and serves an **"I'm not a
+  robot" CAPTCHA**.
+
+That is a clear "no" from the site, and it is where automation stops. PTC covers
+five Just Energy plans (Basics PTC 24/60, Smart Choice 12, the two 5-month
+bundles), but not the website-only Free Nights plan.
+
+The supported route for a plan like this is `data/efl/manual/`: save the EFL by
+hand from a normal browser session and drop it in. `manual_efl_paths()` feeds it
+to the same parser as everything else, and the refresh wipe cannot see into that
+subdirectory (its glob is non-recursive), so it survives. `_plan_supersedes`
+already matches "Nights Free" to "Free Nights Plan - 12", so the stale meterplan
+synthetic retires itself once the real EFL lands.
+
+Note the naming, which is independent evidence that meterplan's index is stale:
+it lists the plan as "Nights Free", the live site calls it "Free Nights Plan -
+12".
+
 ### 9c. "Nothing new to review" (`Plan.source_sha256`)
 
 A refresh re-parses every EFL, so a plan the user hand-corrected is read again
