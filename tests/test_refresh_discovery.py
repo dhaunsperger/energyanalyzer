@@ -382,9 +382,114 @@ def test_progress_callback_receives_per_rep_labels(discovery_dirs, monkeypatch):
         progress_callback=lambda d, t, n: events.append((d, t, n)),
     )
 
+    # Reported per REP as it FINISHES: several sites are queried at once, so
+    # there is no single "currently querying" one to name.
     labels = [n for (_d, _t, n) in events]
-    assert "discovery: Champion (querying site)" in labels
-    assert "discovery: Gexa (querying site)" in labels
+    assert "discovery: Champion (done)" in labels
+    assert "discovery: Gexa (done)" in labels
+    # ...and every REP is still accounted for exactly once, counting up to the
+    # same total, however the concurrent queues interleaved.
+    assert sorted((d, t) for (d, t, _n) in events) == [(1, 2), (2, 2)]
+
+
+def test_reps_are_queried_concurrently(discovery_dirs, monkeypatch):
+    """Discovery is the longest phase of a refresh (7m56s of 15m54s on
+    2026-07-26) and nearly all of it is a browser idling on someone else's
+    JavaScript, so the sites must overlap rather than queue."""
+    import threading
+
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    keys = ["a", "b", "c"]
+    configs = {k: _render_config(k, k.upper()) for k in keys}
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", configs)
+
+    barrier = threading.Barrier(3, timeout=10)
+
+    def _rendezvous(cfg, zip_, headless=True, snapshot_dir=None, check_robots=True):
+        # Deadlocks (and fails the test) unless all three run at once.
+        barrier.wait()
+        return "<html></html>", snapshot_dir / f"{cfg.key}.html"
+
+    monkeypatch.setattr(rd_module, "fetch_rendered_html", _rendezvous)
+    monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [])
+    monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _fail_if_called)
+
+    result = app_common._run_rep_discovery(
+        "78665",
+        efl_dir=efl_dir,
+        drafts_dir=drafts_dir,
+        plans_dir=plans_dir,
+        snapshot_dir=snapshot_dir,
+        max_workers=3,
+    )
+
+    assert set(result["reps"]) == set(keys)
+
+
+def test_rep_results_are_reported_in_config_order(discovery_dirs, monkeypatch):
+    """Sites finish out of order; the run report must not. Doug reads this dict
+    top to bottom every refresh, and a shuffled order would make two identical
+    runs look different."""
+    import time
+
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    keys = ["slowpoke", "quick", "middling"]
+    configs = {k: _render_config(k, k.upper()) for k in keys}
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", configs)
+
+    delays = {"slowpoke": 0.06, "middling": 0.03, "quick": 0.0}
+
+    def _uneven(cfg, zip_, headless=True, snapshot_dir=None, check_robots=True):
+        time.sleep(delays[cfg.key])
+        return "<html></html>", snapshot_dir / f"{cfg.key}.html"
+
+    monkeypatch.setattr(rd_module, "fetch_rendered_html", _uneven)
+    monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [])
+    monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _fail_if_called)
+
+    result = app_common._run_rep_discovery(
+        "78665",
+        efl_dir=efl_dir,
+        drafts_dir=drafts_dir,
+        plans_dir=plans_dir,
+        snapshot_dir=snapshot_dir,
+        max_workers=3,
+    )
+
+    assert list(result["reps"]) == keys
+
+
+def test_one_reps_failure_still_does_not_abort_the_others(discovery_dirs, monkeypatch):
+    """The pre-existing guarantee, re-asserted now that the REPs run on separate
+    threads: an exception must stay inside its own worker."""
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    configs = {k: _render_config(k, k.upper()) for k in ("boom", "fine")}
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", configs)
+
+    def _maybe_explode(cfg, zip_, headless=True, snapshot_dir=None, check_robots=True):
+        if cfg.key == "boom":
+            raise RuntimeError("WAF said no")
+        return "<html></html>", snapshot_dir / "fine.html"
+
+    monkeypatch.setattr(rd_module, "fetch_rendered_html", _maybe_explode)
+    monkeypatch.setattr(rd_module, "discover", lambda html, cfg: [])
+    monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _fail_if_called)
+
+    result = app_common._run_rep_discovery(
+        "78665",
+        efl_dir=efl_dir,
+        drafts_dir=drafts_dir,
+        plans_dir=plans_dir,
+        snapshot_dir=snapshot_dir,
+        max_workers=2,
+    )
+
+    assert result["reps"]["boom"]["status"] == "error"
+    assert "WAF said no" in result["reps"]["boom"]["detail"]
+    assert result["reps"]["fine"]["status"] == "empty"  # ran clean, found nothing
 
 
 # --------------------------------------------------------------------------- #

@@ -50,6 +50,13 @@ QUARANTINE_DIR = DATA_DIR / "refresh_quarantine"
 REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
+# How many REP sites discovery queries at the same time. Each worker may drive
+# its own Chromium, so the ceiling here is this box's memory (~7 GB under WSL),
+# not politeness -- fetchers/hostpool.py already guarantees no single site is
+# ever hit by two workers at once. Discovery was 7m56s of the 15m54s refresh on
+# 2026-07-26, nearly all of it spent waiting on other people's JavaScript.
+DISCOVERY_MAX_WORKERS = 3
+
 # The premise's real zone, confirmed 2026-07-25 via the ESID lookup at
 # electricityplans.com and Tesla's plan page (both report "south"); the ERCOT
 # map splits Williamson County across SOUTH / NORTH / AEN / LCRA, so the county
@@ -1157,6 +1164,7 @@ def _run_rep_discovery(
     snapshot_dir: Path = REP_DISCOVERY_DIR,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ptc_df=None,
+    max_workers: int = DISCOVERY_MAX_WORKERS,
 ) -> dict:
     """Discover plan EFLs on individual REP marketing sites that Power to Choose
     and meterplan.com miss (ARCHITECTURE.md §7), download the EFLs into
@@ -1184,6 +1192,9 @@ def _run_rep_discovery(
     missing, robots.txt block, a WAF, a missing ESI-ID secret, a nav-flow drift)
     is recorded and the rest still run -- nothing here aborts the refresh.
 
+    Up to `max_workers` REPs are queried concurrently (one site per worker, never
+    two workers on one site); results are still reported in `reps` order.
+
     `reps` limits the run to those REP keys (default: all configured). PII some
     sites need to render (e.g. Octopus's ESI ID) is read by the fetcher from the
     gitignored `data/rep_discovery_secrets.yaml`, never passed in here.
@@ -1193,6 +1204,7 @@ def _run_rep_discovery(
     summary>, 'parsed': <parse_downloaded_efls() summary>}` where `status` is one
     of `'ok'`, `'error'`, or `'manual-needed'`.
     """
+    from energyanalyzer.fetchers import hostpool
     from energyanalyzer.fetchers import rep_discovery as rd
 
     efl_dir = Path(efl_dir)
@@ -1212,22 +1224,27 @@ def _run_rep_discovery(
     }
 
     keys = list(reps) if reps is not None else list(rd.REP_CONFIGS.keys())
-    all_plans: list = []
-    total = len(keys)
-    for i, key in enumerate(keys, start=1):
+
+    def _discover_one(key: str) -> tuple[dict, list]:
+        """Query one REP site. Returns its result row and the plans it yielded.
+
+        Everything is caught and reported here rather than raised: one site's
+        WAF, expired secret, or drifted nav flow must never cost the other
+        twelve. Runs on its own thread (see the pool below), so it touches no
+        shared state -- the caller stitches the rows back together in `keys`
+        order afterwards.
+        """
         config = rd.REP_CONFIGS.get(key)
         if config is None:
-            result["reps"][key] = {
+            return {
                 "retailer": key,
                 "status": "error",
                 "plans_found": 0,
                 "buyback": 0,
                 "detail": "unknown REP key (not in REP_CONFIGS)",
-            }
-            continue
+            }, []
         label = config.retailer
-        logger.info("=== Discovery %d/%d: %s ===", i, total, label)
-        _report("discovery", i, total, f"{label} (querying site)")
+        logger.info("=== Discovery: %s ===", label)
         try:
             if config.harvester is not None:
                 plans = rd.harvest_live(
@@ -1273,7 +1290,7 @@ def _run_rep_discovery(
                 # capture; if there's none, tell the user to run one by hand.
                 newest = _newest_capture(snapshot_dir, key)
                 if newest is None:
-                    result["reps"][key] = {
+                    return {
                         "retailer": label,
                         "status": "manual-needed",
                         "plans_found": 0,
@@ -1282,21 +1299,19 @@ def _run_rep_discovery(
                             f"no saved capture in {snapshot_dir}/ -- this site blocks "
                             f"automation; save its rendered plans page as {key}_<ts>.html"
                         ),
-                    }
-                    continue
+                    }, []
                 html = newest.read_text(encoding="utf-8")
                 plans = rd.discover(html, config)
                 detail = f"from manual capture {newest.name}"
         except Exception as exc:  # noqa: BLE001 -- one REP's failure mustn't abort the rest
             logger.info("%s: FAILED -- %r", label, exc)
-            result["reps"][key] = {
+            return {
                 "retailer": label,
                 "status": "error",
                 "plans_found": 0,
                 "buyback": 0,
                 "detail": repr(exc),
-            }
-            continue
+            }, []
         found = len(plans)
         buyback = sum(1 for p in plans if p.is_buyback)
         # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
@@ -1308,7 +1323,7 @@ def _run_rep_discovery(
             "%s: %s -- %d plan(s) found, %d buyback, %d kept",
             label, detail, found, buyback, len(plans),
         )
-        result["reps"][key] = {
+        return {
             "retailer": label,
             # A scrape that ran cleanly but came back empty is NOT "ok": the
             # site was up and we still learned nothing. Both known causes are
@@ -1327,7 +1342,41 @@ def _run_rep_discovery(
             "plan_names": [p.plan_name for p in plans],
             "live": not str(detail).startswith("from manual capture")
             and "used capture" not in str(detail),
-        }
+        }, plans
+
+    # Query several REPs at once. `host_of` is the REP key, so each site gets its
+    # own single-threaded queue of exactly one job: thirteen different hosts run
+    # concurrently, but no host is ever touched twice at the same moment. This is
+    # the run's longest phase -- 7m56s of the 15m54s on 2026-07-26 -- and almost
+    # all of it is a browser waiting on someone else's JavaScript.
+    outcomes = hostpool.run_per_host(
+        keys,
+        host_of=lambda key: key,
+        work=_discover_one,
+        max_workers=max_workers,
+        # Reported as each site FINISHES -- with several in flight there is no
+        # single "currently querying" REP to name, and completions still count
+        # up cleanly for the progress bar.
+        on_done=lambda done, tot, key: _report(
+            "discovery",
+            done,
+            tot,
+            f"{rd.REP_CONFIGS[key].retailer if key in rd.REP_CONFIGS else key} (done)",
+        ),
+    )
+    all_plans: list = []
+    for outcome in outcomes:  # in `keys` order, whichever site finished first
+        if not outcome.ok:  # _discover_one catches its own; only a bug lands here
+            result["reps"][outcome.item] = {
+                "retailer": outcome.item,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": repr(outcome.error),
+            }
+            continue
+        rep_row, plans = outcome.value
+        result["reps"][outcome.item] = rep_row
         all_plans.extend(plans)
 
     if not all_plans:

@@ -16,8 +16,11 @@ import datetime as dt
 import re
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
 
 import pandas as pd
+
+from energyanalyzer.fetchers import hostpool
 
 PTC_EXPORT_URL = "https://www.powertochoose.org/en-us/Plan/ExportToCsv"
 
@@ -328,6 +331,7 @@ def download_efls(
     limit: Optional[int] = None,
     timeout: float = 30.0,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    max_workers: int = hostpool.DEFAULT_MAX_WORKERS,
 ) -> dict:
     """Download each plan's EFL PDF (`efl_url` column) into `dest`.
 
@@ -335,13 +339,21 @@ def download_efls(
     tolerated and collected rather than aborting the whole batch -- EFL
     hosts vary in reliability and this is meant to run unattended against a
     few hundred plans. Returns a summary dict with 'downloaded', 'skipped',
-    and 'failed' lists.
+    and 'failed' lists, each in PTC-row order.
+
+    A PTC snapshot spreads a few hundred EFLs over dozens of REP hosts, so the
+    batch runs `max_workers` hosts at a time via
+    :mod:`energyanalyzer.fetchers.hostpool`. Any one host is still served by a
+    single worker in row order -- exactly the one-request-at-a-time pattern this
+    used to have -- so no site sees more traffic than before; the hosts merely
+    stop queueing behind each other. `max_workers=1` restores the serial path.
 
     If `progress_callback` is given, it is called after *every* row is
     processed (downloaded, skipped, failed, or missing a URL) as
     `progress_callback(done_count, total, current_name)`, so a caller (e.g.
     the Streamlit Plans page) can drive a progress bar/status line instead
     of leaving the user with no feedback until the whole batch finishes.
+    Because hosts finish out of order, `done_count` counts completions.
     """
     import httpx
 
@@ -358,79 +370,96 @@ def download_efls(
 
     summary: dict = {"downloaded": [], "skipped": [], "failed": [], "deferred": []}
     headers = {"User-Agent": _USER_AGENT, "Accept": "application/pdf,*/*"}
-    total = len(rows)
-    done = 0
+    targets = [row for _, row in rows.iterrows()]
 
-    def _report(name: str) -> None:
-        nonlocal done
-        done += 1
+    def _host_of(row) -> str:
+        return urlparse(str(row.get("efl_url") or "").strip()).netloc
+
+    def _fetch_one(row, client) -> dict:
+        """One row's EFL. Returns its outcome as a record rather than mutating
+        the summary, so the caller reassembles the lists in PTC-row order no
+        matter which host's queue finished first."""
+        url = str(row["efl_url"]).strip()
+        if not url or url.lower() in ("nan", "none"):
+            return {"kind": "none"}
+        dest_path = dest / _efl_filename(row)
+        if dest_path.exists():
+            return {"kind": "skipped", "path": dest_path}
+        if _is_html_viewer_url(url):
+            # Not a PDF over httpx -- REP discovery renders these to PDF.
+            # Defer rather than record a spurious download "failure".
+            return {
+                "kind": "deferred",
+                "url": url,
+                "reason": "HTML EFL viewer -- captured via REP discovery's "
+                "renderer, not an httpx download",
+            }
+        try:
+            resp = client.get(url)
+            resp.raise_for_status()
+            content = resp.content
+            # Guard against saving a non-PDF (an HTML "not found"/SPA shell or
+            # a bot-challenge/captcha page returned with HTTP 200) as a .pdf --
+            # those can't be parsed and otherwise land silently on disk. A PDF
+            # begins with the "%PDF" signature (allow a little leading junk).
+            if b"%PDF" not in content[:1024]:
+                ctype = resp.headers.get("content-type", "?")
+                # An HTML body (not a real error) is a browser-rendered EFL
+                # viewer / SPA shell (e.g. the Vistra shopping.* PDFGenerator
+                # endpoint) -- the PDF is generated client-side. Defer these
+                # (needs a browser) rather than logging a spurious failure;
+                # genuine errors (connection/404, a truncated non-HTML body)
+                # still count as failures.
+                if "html" in ctype.lower():
+                    return {
+                        "kind": "deferred",
+                        "url": url,
+                        "reason": f"HTML response (content-type {ctype!r}) -- a "
+                        "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                    }
+                return {
+                    "kind": "failed",
+                    "url": url,
+                    "error": f"response was not a PDF (content-type {ctype!r}, "
+                    f"{len(content)} bytes) -- likely a stale link or error page",
+                }
+            dest_path.write_bytes(content)
+            return {"kind": "downloaded", "path": dest_path}
+        except Exception as exc:
+            return {"kind": "failed", "url": url, "error": repr(exc)}
+
+    def _on_done(done: int, tot: int, row) -> None:
         if progress_callback is not None:
-            progress_callback(done, total, name)
+            name = str(row.get("plan_name") or row.get("retailer") or _efl_filename(row))
+            progress_callback(done, tot, name)
 
     with httpx.Client(
         timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
     ) as client:
-        for _, row in rows.iterrows():
-            name = str(row.get("plan_name") or row.get("retailer") or _efl_filename(row))
-            url = str(row["efl_url"]).strip()
-            if not url or url.lower() in ("nan", "none"):
-                _report(name)
-                continue
-            dest_path = dest / _efl_filename(row)
-            if dest_path.exists():
-                summary["skipped"].append(str(dest_path))
-                _report(name)
-                continue
-            if _is_html_viewer_url(url):
-                # Not a PDF over httpx -- REP discovery renders these to PDF.
-                # Defer rather than record a spurious download "failure".
-                summary["deferred"].append(
-                    {
-                        "url": url,
-                        "reason": "HTML EFL viewer -- captured via REP discovery's "
-                        "renderer, not an httpx download",
-                    }
-                )
-                _report(name)
-                continue
-            try:
-                resp = client.get(url)
-                resp.raise_for_status()
-                content = resp.content
-                # Guard against saving a non-PDF (an HTML "not found"/SPA shell or
-                # a bot-challenge/captcha page returned with HTTP 200) as a .pdf --
-                # those can't be parsed and otherwise land silently on disk. A PDF
-                # begins with the "%PDF" signature (allow a little leading junk).
-                if b"%PDF" not in content[:1024]:
-                    ctype = resp.headers.get("content-type", "?")
-                    # An HTML body (not a real error) is a browser-rendered EFL
-                    # viewer / SPA shell (e.g. the Vistra shopping.* PDFGenerator
-                    # endpoint) -- the PDF is generated client-side. Defer these
-                    # (needs a browser) rather than logging a spurious failure;
-                    # genuine errors (connection/404, a truncated non-HTML body)
-                    # still count as failures.
-                    if "html" in ctype.lower():
-                        summary["deferred"].append(
-                            {
-                                "url": url,
-                                "reason": f"HTML response (content-type {ctype!r}) -- a "
-                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
-                            }
-                        )
-                    else:
-                        summary["failed"].append(
-                            {
-                                "url": url,
-                                "error": f"response was not a PDF (content-type {ctype!r}, "
-                                f"{len(content)} bytes) -- likely a stale link or error page",
-                            }
-                        )
-                    _report(name)
-                    continue
-                dest_path.write_bytes(content)
-                summary["downloaded"].append(str(dest_path))
-            except Exception as exc:
-                summary["failed"].append({"url": url, "error": repr(exc)})
-            _report(name)
+        outcomes = hostpool.run_per_host(
+            targets,
+            host_of=_host_of,
+            work=lambda row: _fetch_one(row, client),
+            max_workers=max_workers,
+            on_done=_on_done,
+        )
+
+    for outcome in outcomes:
+        if not outcome.ok:  # only a bug in _fetch_one can land here
+            summary["failed"].append(
+                {"url": str(outcome.item.get("efl_url")), "error": repr(outcome.error)}
+            )
+            continue
+        record = outcome.value
+        kind = record["kind"]
+        if kind == "downloaded":
+            summary["downloaded"].append(str(record["path"]))
+        elif kind == "skipped":
+            summary["skipped"].append(str(record["path"]))
+        elif kind == "deferred":
+            summary["deferred"].append({"url": record["url"], "reason": record["reason"]})
+        elif kind == "failed":
+            summary["failed"].append({"url": record["url"], "error": record["error"]})
+        # "none" -- the row had no EFL URL at all; counted in progress, not here.
 
     return summary

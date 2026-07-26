@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -1079,6 +1080,137 @@ def test_download_discovered_logs_progress(tmp_path, monkeypatch, caplog):
     assert any("Download 1/" in m for m in messages)
 
 
+def test_download_discovered_never_hits_one_host_twice_at_once(tmp_path, monkeypatch):
+    """Downloads run several hosts in parallel, but a REP must still see exactly
+    one request at a time -- that is the whole politeness budget for a site whose
+    EFLs we fetch once a year."""
+    import threading
+
+    import httpx
+
+    lock = threading.Lock()
+    live: dict[str, int] = {}
+    peak: dict[str, int] = {}
+
+    class _ConcurrencyProbeClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            host = url.split("/")[2]
+            with lock:
+                live[host] = live.get(host, 0) + 1
+                peak[host] = max(peak.get(host, 0), live[host])
+            time.sleep(0.01)
+            with lock:
+                live[host] -= 1
+            return _FakeResponse(b"%PDF-1.4 fake efl content")
+
+    plans = [
+        rd.DiscoveredPlan(
+            retailer="Gexa Energy",
+            plan_name=f"Gexa {n}",
+            efl_url=f"https://gexa.example/{n}.pdf",
+            is_buyback=True,
+        )
+        for n in range(4)
+    ]
+    monkeypatch.setattr(httpx, "Client", _ConcurrencyProbeClient)
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    rd.download_discovered(plans, dest=tmp_path / "efl", max_workers=4)
+
+    assert peak == {"gexa.example": 1}
+
+
+def test_download_discovered_summary_stays_in_plan_order(tmp_path, monkeypatch):
+    """Hosts finish out of order; the summary must not. A refresh's manifest and
+    its "downloaded N" lists are diffed run to run, so completion order leaking
+    into them would make every run look different."""
+    import httpx
+
+    class _UnevenClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            if "slow" in url:
+                time.sleep(0.05)
+            return _FakeResponse(b"%PDF-1.4 fake efl content")
+
+    plans = [
+        rd.DiscoveredPlan(retailer="Slow REP", plan_name="Slow A",
+                          efl_url="https://slow.example/a.pdf", is_buyback=True),
+        rd.DiscoveredPlan(retailer="Fast REP", plan_name="Fast B",
+                          efl_url="https://fast.example/b.pdf", is_buyback=True),
+        rd.DiscoveredPlan(retailer="Slow REP", plan_name="Slow C",
+                          efl_url="https://slow.example/c.pdf", is_buyback=True),
+    ]
+    monkeypatch.setattr(httpx, "Client", _UnevenClient)
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    summary = rd.download_discovered(plans, dest=tmp_path / "efl", max_workers=3)
+
+    assert [Path(p).name for p in summary["downloaded"]] == [
+        "Slow_REP_Slow_A.pdf",
+        "Fast_REP_Fast_B.pdf",
+        "Slow_REP_Slow_C.pdf",
+    ]
+
+
+def test_rate_limit_reserves_its_slot_before_sleeping(monkeypatch):
+    """Two threads landing on one host must queue, not both read the same stale
+    timestamp and fire together. The slot is claimed under the lock; only the
+    sleep happens outside it."""
+    import threading
+
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.05)
+    monkeypatch.setattr(rd, "_last_request_at", {})
+    stamps: list[float] = []
+    lock = threading.Lock()
+
+    def hit() -> None:
+        rd._respect_rate_limit("one.example")
+        with lock:
+            stamps.append(time.monotonic())
+
+    threads = [threading.Thread(target=hit) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    stamps.sort()
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    assert all(g >= 0.04 for g in gaps), gaps
+
+
+def test_render_failure_saves_evidence_outside_the_capture_glob(tmp_path):
+    """A failed render photographs the page it died on -- but into failures/,
+    never beside the good captures: `_newest_capture` globs `<key>_*.html` for
+    the fallback, so a dead-end page parked there would become the thing
+    discovery falls back TO, turning a loud failure into a silent zero."""
+
+    class _FakePage:
+        def screenshot(self, path, full_page=False):
+            Path(path).write_bytes(b"\x89PNG fake")
+
+        def content(self):
+            return "<html>stuck on the moving-house question</html>"
+
+    rd._save_failure_evidence(_FakePage(), rd.AMBIT, tmp_path)
+
+    failures = sorted((tmp_path / "failures").iterdir())
+    assert [p.suffix for p in failures] == [".html", ".png"]
+    assert not list(tmp_path.glob("ambit_*.html"))
+
+
+def test_failure_evidence_never_masks_the_real_error(tmp_path):
+    """It runs while an exception is already propagating; a screenshot problem
+    must not become the error the user sees."""
+
+    class _DeadPage:
+        def screenshot(self, path, full_page=False):
+            raise RuntimeError("target page closed")
+
+        def content(self):
+            raise RuntimeError("target page closed")
+
+    rd._save_failure_evidence(_DeadPage(), rd.AMBIT, tmp_path)  # must not raise
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 
@@ -1268,14 +1400,23 @@ def test_tesla_plans_are_all_flagged_buyback():
     assert all(p.is_buyback for p in _extract_tesla())
 
 
-def test_tesla_is_registered_and_forces_a_headful_browser():
-    """Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
+def test_headful_stays_opt_in_per_rep():
+    """Headful pops a real window and is slower, so it is never a default --
+    only two REPs ask for it, for two different reasons.
+
+    Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
     page (verified 2026-07-25: headless 403, headful 200 on the same URL/UA), so
-    this REP opts into a real window. Per-REP, never a blanket default."""
+    for Tesla it is a requirement. Ambit's is diagnostic: its funnel fails
+    intermittently (2026-07-26 -- all 14 plans at 12:05, a plan-card timeout at
+    12:50, no code change between) and a visible window is the only way to see
+    which interstitial it actually stopped on."""
     assert rd.REP_CONFIGS["tesla"] is rd.TESLA
     assert rd.TESLA.force_headful is True
+    assert rd.AMBIT.force_headful is True
     assert all(
-        c.force_headful is False for k, c in rd.REP_CONFIGS.items() if k != "tesla"
+        c.force_headful is False
+        for k, c in rd.REP_CONFIGS.items()
+        if k not in ("tesla", "ambit")
     ), "headful must stay opt-in"
 
 

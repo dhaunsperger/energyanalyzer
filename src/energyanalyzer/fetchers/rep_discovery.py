@@ -55,6 +55,7 @@ import datetime as dt
 import json
 import logging
 import re
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -62,6 +63,8 @@ from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
+
+from energyanalyzer.fetchers import hostpool
 
 # Discovery is slow (live browser per REP). These INFO logs narrate each step so
 # a caller can stream them into a live "console" (the Plans page attaches a
@@ -80,8 +83,13 @@ OLLAMA_MODEL = "lfm2.5"
 
 # Politeness: minimum seconds between successive live requests to the same
 # host (both browser navigations and EFL downloads share this throttle).
+# Downloads run several hosts at a time (see fetchers/hostpool.py), so the
+# bookkeeping is guarded and each caller *reserves* its slot before sleeping --
+# two threads that did land on one host queue behind each other rather than
+# both reading the same stale timestamp and firing together.
 _MIN_REQUEST_INTERVAL_S = 2.0
 _last_request_at: dict[str, float] = {}
+_rate_limit_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
@@ -1009,13 +1017,16 @@ def _llm_review_plans(
 # Live browser fetch (Playwright) -- optional, lazily imported
 # --------------------------------------------------------------------------- #
 def _respect_rate_limit(host: str) -> None:
-    now = time.monotonic()
-    last = _last_request_at.get(host)
-    if last is not None:
-        wait = _MIN_REQUEST_INTERVAL_S - (now - last)
-        if wait > 0:
-            time.sleep(wait)
-    _last_request_at[host] = time.monotonic()
+    with _rate_limit_lock:
+        now = time.monotonic()
+        last = _last_request_at.get(host)
+        wait = 0.0 if last is None else _MIN_REQUEST_INTERVAL_S - (now - last)
+        # Claim the slot for when this request will actually go out, then sleep
+        # OUTSIDE the lock -- holding it across the sleep would serialize every
+        # host behind the slowest one, which is the thing we're avoiding.
+        _last_request_at[host] = now + max(wait, 0.0)
+    if wait > 0:
+        time.sleep(wait)
 
 
 def robots_allows(url: str, user_agent: str = _USER_AGENT, timeout: float = 10.0) -> bool:
@@ -1065,6 +1076,38 @@ def _playwright_ctx(config: "RepConfig"):
             "served a 'Blocked by WAF' page). Install it with:  pip install playwright-stealth"
         ) from exc
     return Stealth().use_sync(sync_playwright())
+
+
+def _save_failure_evidence(page, config: RepConfig, snapshot_dir: Path) -> None:
+    """Best-effort screenshot + HTML of the page a render died on.
+
+    Kept in ``<snapshot_dir>/failures/`` rather than beside the good captures:
+    :func:`app.common._newest_capture` picks the newest ``<key>_*.html`` as the
+    fallback when a live render fails, so a dead-end page sitting in that
+    directory would become the thing discovery falls back TO -- turning a loud
+    failure into a silent zero-plan run.
+
+    Never raises. This runs while an exception is already propagating, and
+    losing the real error to a screenshot problem would be a bad trade.
+    """
+    try:
+        failures = Path(snapshot_dir) / "failures"
+        failures.mkdir(parents=True, exist_ok=True)
+        ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stem = failures / f"{config.key}_{ts}"
+        try:
+            page.screenshot(path=str(stem.with_suffix(".png")), full_page=True)
+        except Exception:  # noqa: BLE001 -- a dead page may not screenshot
+            pass
+        try:
+            stem.with_suffix(".html").write_text(page.content(), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        logger.info(
+            "%s: saved failure evidence to %s.{png,html}", config.retailer, stem
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("could not save failure evidence for %s", config.key, exc_info=True)
 
 
 def fetch_rendered_html(
@@ -1140,6 +1183,16 @@ def fetch_rendered_html(
                     page.wait_for_timeout(settle_ms)
                 html = page.content()
             logger.info("%s: captured %d chars of rendered HTML", config.retailer, len(html))
+        except Exception:
+            # Photograph the scene before the browser closes. A drifted nav flow
+            # reports only as "Timeout waiting for <selector>", which says
+            # nothing about WHERE the funnel stopped -- an interstitial, a
+            # changed button label, a maintenance page all look identical from
+            # here. Written under failures/ so `_newest_capture`'s
+            # `<key>_*.html` glob can never mistake a dead end for a good
+            # capture and quietly discover zero plans from it.
+            _save_failure_evidence(page, config, snapshot_dir)
+            raise
         finally:
             context.close()
             browser.close()
@@ -1361,6 +1414,7 @@ def download_discovered(
     timeout: float = 30.0,
     headless: bool = True,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    max_workers: int = hostpool.DEFAULT_MAX_WORKERS,
 ) -> dict:
     """Download discovered plans' EFL PDFs into ``dest`` and append a manifest
     entry per download so downstream dedup/refresh can tell REP-discovered
@@ -1374,8 +1428,15 @@ def download_discovered(
     ``{retailer, plan_name, source_url, discovered_at, extraction_method,
     llm_confidence, is_buyback, buyback_ckwh, file}``.
 
+    Downloads run ``max_workers`` hosts at a time but never two requests to the
+    same host at once (:mod:`energyanalyzer.fetchers.hostpool`), so each REP sees
+    the identical one-at-a-time pattern with the same throttle as before -- the
+    2s spacing between Gexa's fifteen EFLs just no longer blocks Chariot's
+    eleven. Pass ``max_workers=1`` for the old strictly-serial behaviour.
+
     Returns ``{"downloaded": [...], "skipped": [...], "failed": [...],
-    "filtered_out": int}``.
+    "filtered_out": int}``, each list in input-plan order regardless of which
+    host finished first.
     """
     import httpx
 
@@ -1417,103 +1478,113 @@ def download_discovered(
     # Hosts that have explicitly refused bots. Once a site says so we stop
     # asking: the remaining URLs are recorded as failures without a request,
     # which loses nothing (they would have failed anyway) and takes a refresh
-    # from ~42 requests against a blocking host down to one.
+    # from ~42 requests against a blocking host down to one. Safe to share
+    # across the host queues below because only one queue ever touches a given
+    # host, and that queue is a single thread running in order.
     blocked_hosts: set[str] = set()
+
+    def _host_of(plan: DiscoveredPlan) -> str:
+        return urlparse(str(plan.efl_url or "")).netloc
+
+    def _fetch_one(plan: DiscoveredPlan, client) -> dict:
+        """One EFL. Returns the outcome as a record instead of mutating the
+        summary, so the caller can assemble it in input order no matter which
+        host finished first."""
+        # Guard against a malformed/constructed EFL URL (missing scheme, etc.)
+        # so it's a clear failure line, not an opaque httpx ValueError.
+        if not re.match(r"^https?://", str(plan.efl_url or ""), re.I):
+            return {"kind": "failed", "error": "malformed or non-http EFL URL -- skipped"}
+        host = _host_of(plan)
+        if host in blocked_hosts:
+            return {
+                "kind": "failed",
+                "error": f"not requested -- {host} blocked automated access "
+                "earlier in this run (bot/WAF block)",
+            }
+        file_path = dest / _efl_filename(plan)
+        if file_path.exists():
+            return {"kind": "skipped", "path": file_path}
+        if plan.efl_is_html_viewer:
+            # An HTML EFL viewer (e.g. Octopus): render + print-to-PDF in a
+            # browser rather than a plain GET (which gets only the SPA shell).
+            # _render_efl_pdf handles its own rate limiting.
+            content = _render_efl_pdf(plan.efl_url, headless=headless)
+            resp = None
+        else:
+            resp = _get_with_retry(client, plan.efl_url, host)
+            if _is_bot_block(resp):
+                blocked_hosts.add(host)
+                logger.warning(
+                    "%s refused automated access (bot/WAF block); skipping its "
+                    "remaining EFL downloads this run",
+                    host,
+                )
+                return {
+                    "kind": "failed",
+                    "error": f"{host} blocked automated access (bot/WAF block)",
+                }
+            resp.raise_for_status()
+            content = resp.content
+        # A direct-GET EFL URL can still resolve to an HTML viewer/SPA shell or
+        # error page; saving that as a .pdf would only fail the parser later, so
+        # reject anything without the "%PDF" signature.
+        if b"%PDF" not in content[:1024]:
+            # Read only in this branch: a print-to-PDF render has no response at
+            # all, and test doubles supply a minimal one without headers.
+            ctype = "(rendered page)" if resp is None else resp.headers.get("content-type", "?")
+            # An HTML body is a browser-rendered EFL viewer/SPA shell (the
+            # Vistra shopping.* PDFGenerator endpoint TXU/Ambit use returns
+            # the app shell to httpx) -- defer, don't count as a failure.
+            if "html" in ctype.lower():
+                return {
+                    "kind": "deferred",
+                    "reason": f"HTML response (content-type {ctype!r}) -- a "
+                    "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                }
+            return {
+                "kind": "failed",
+                "error": f"response was not a PDF (content-type {ctype!r}, "
+                f"{len(content)} bytes) -- likely a stale link or error page",
+            }
+        file_path.write_bytes(content)
+        return {"kind": "downloaded", "path": file_path}
+
+    def _on_done(done: int, tot: int, plan: DiscoveredPlan) -> None:
+        # Logged on COMPLETION, not on dispatch: with several host queues in
+        # flight there is no meaningful "next" item, but finishes still count up
+        # cleanly, so the refresh log keeps its readable N/total progress line.
+        logger.info("Download %d/%d: %s (%s)", done, tot, plan.plan_name, plan.retailer)
+        if progress_callback:
+            progress_callback(done, tot, plan.plan_name)
+
     with httpx.Client(
         timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
     ) as client:
-        for i, plan in enumerate(targets, start=1):
-            logger.info(
-                "Download %d/%d: %s (%s)", i, total, plan.plan_name, plan.retailer
-            )
-            # Guard against a malformed/constructed EFL URL (missing scheme, etc.)
-            # so it's a clear failure line, not an opaque httpx ValueError.
-            if not re.match(r"^https?://", str(plan.efl_url or ""), re.I):
-                summary["failed"].append(
-                    {"url": plan.efl_url, "error": "malformed or non-http EFL URL -- skipped"}
-                )
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            host = urlparse(plan.efl_url).netloc
-            if host in blocked_hosts:
-                summary["failed"].append(
-                    {
-                        "url": plan.efl_url,
-                        "error": f"not requested -- {host} blocked automated access "
-                        "earlier in this run (bot/WAF block)",
-                    }
-                )
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            file_path = dest / _efl_filename(plan)
-            if file_path.exists():
-                summary["skipped"].append(str(file_path))
-                entries.append(_manifest_entry(plan, file_path))
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            try:
-                if plan.efl_is_html_viewer:
-                    # An HTML EFL viewer (e.g. Octopus): render + print-to-PDF in
-                    # a browser rather than a plain GET (which gets only the SPA
-                    # shell). _render_efl_pdf handles its own rate limiting.
-                    content = _render_efl_pdf(plan.efl_url, headless=headless)
-                else:
-                    resp = _get_with_retry(client, plan.efl_url, host)
-                    if _is_bot_block(resp):
-                        blocked_hosts.add(host)
-                        logger.warning(
-                            "%s refused automated access (bot/WAF block); skipping its "
-                            "remaining EFL downloads this run",
-                            host,
-                        )
-                        summary["failed"].append(
-                            {
-                                "url": plan.efl_url,
-                                "error": f"{host} blocked automated access (bot/WAF block)",
-                            }
-                        )
-                        if progress_callback:
-                            progress_callback(i, total, plan.plan_name)
-                        continue
-                    resp.raise_for_status()
-                    content = resp.content
-                # A direct-GET EFL URL can still resolve to an HTML viewer/SPA
-                # shell or error page; saving that as a .pdf would only fail the
-                # parser later, so reject anything without the "%PDF" signature.
-                if b"%PDF" not in content[:1024]:
-                    ctype = resp.headers.get("content-type", "?")
-                    # An HTML body is a browser-rendered EFL viewer/SPA shell (the
-                    # Vistra shopping.* PDFGenerator endpoint TXU/Ambit use returns
-                    # the app shell to httpx) -- defer, don't count as a failure.
-                    if "html" in ctype.lower():
-                        summary["deferred"].append(
-                            {
-                                "url": plan.efl_url,
-                                "reason": f"HTML response (content-type {ctype!r}) -- a "
-                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
-                            }
-                        )
-                    else:
-                        summary["failed"].append(
-                            {
-                                "url": plan.efl_url,
-                                "error": f"response was not a PDF (content-type {ctype!r}, "
-                                f"{len(content)} bytes) -- likely a stale link or error page",
-                            }
-                        )
-                    if progress_callback:
-                        progress_callback(i, total, plan.plan_name)
-                    continue
-                file_path.write_bytes(content)
-                summary["downloaded"].append(str(file_path))
-                entries.append(_manifest_entry(plan, file_path))
-            except Exception as exc:  # noqa: BLE001
-                summary["failed"].append({"url": plan.efl_url, "error": repr(exc)})
-            if progress_callback:
-                progress_callback(i, total, plan.plan_name)
+        outcomes = hostpool.run_per_host(
+            targets,
+            host_of=_host_of,
+            work=lambda plan: _fetch_one(plan, client),
+            max_workers=max_workers,
+            on_done=_on_done,
+        )
+
+    for outcome in outcomes:
+        plan = outcome.item
+        if not outcome.ok:
+            summary["failed"].append({"url": plan.efl_url, "error": repr(outcome.error)})
+            continue
+        record = outcome.value
+        kind = record["kind"]
+        if kind == "downloaded":
+            summary["downloaded"].append(str(record["path"]))
+            entries.append(_manifest_entry(plan, record["path"]))
+        elif kind == "skipped":
+            summary["skipped"].append(str(record["path"]))
+            entries.append(_manifest_entry(plan, record["path"]))
+        elif kind == "deferred":
+            summary["deferred"].append({"url": plan.efl_url, "reason": record["reason"]})
+        else:
+            summary["failed"].append({"url": plan.efl_url, "error": record["error"]})
 
     if entries:
         with open(manifest_path, "a", encoding="utf-8") as f:
@@ -1774,6 +1845,14 @@ AMBIT = RepConfig(
     broaden=True,
     # Required: plain Playwright is served "Blocked by WAF" at /Path2Plans.
     stealth=True,
+    # Headful for OBSERVATION, not (like Tesla) because the edge demands it:
+    # this funnel is the flakiest of the thirteen and fails intermittently --
+    # 2026-07-26 it rendered all 14 plans at 12:05 and timed out on the
+    # plan-card wait at 12:50 with no code change in between, after two steps
+    # ("I already live here", the second "See Plans") reported not-present.
+    # A visible window is the only way to see which interstitial it actually
+    # stopped on; failures/ also gets a screenshot for unattended runs.
+    force_headful=True,
 )
 
 
