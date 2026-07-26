@@ -26,3 +26,4 @@ source_sha256: fd385157f285fc93cbe11f91aeef14b88123fed104f387445b9d38b52c8ca905
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://signup.texanschoicepower.com/?PromoCode=PTC

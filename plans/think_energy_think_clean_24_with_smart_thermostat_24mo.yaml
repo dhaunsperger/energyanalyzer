@@ -26,3 +26,4 @@ source_sha256: 9d3771162293f6d0610e616904b2ea28e2b3accaafe82d53b77e575794f6c750
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://www.thinkenergy.com/

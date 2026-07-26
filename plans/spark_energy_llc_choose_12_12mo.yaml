@@ -26,3 +26,4 @@ source_sha256: e8b56e2fdd9e96f2f587db2ceda66e9dfd87b9798f775fd901c0ead6981aaf3a
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC

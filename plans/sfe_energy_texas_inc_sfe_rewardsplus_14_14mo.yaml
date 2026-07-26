@@ -26,3 +26,4 @@ source_sha256: 04cf19e96bfaded3267bbc0c4bf534330ae7bbe34f6dc6537cc874bc8254a724
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://www.sfeenergy.com/texas/

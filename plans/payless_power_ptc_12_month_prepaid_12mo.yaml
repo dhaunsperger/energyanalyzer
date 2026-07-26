@@ -26,3 +26,4 @@ notes: term_months not found; defaulting to 12; base_charge_usd ($0.00/mo) deriv
   from a per-day customer fee (fee * 365 / 12, rounded to cents)
 needs_review: false
 excludes_solar: false
+enroll_url: https://account.paylesspower.com/enroll/487447

@@ -196,6 +196,13 @@ class Plan(BaseModel):
     # re-queues work that was already done (17 such drafts on 2026-07-26).
     source_sha256: Optional[str] = None
     efl_url: Optional[str] = None
+    # Where you actually sign up. Several plans are sold ONLY through a Power to
+    # Choose referral landing page and are unreachable from the retailer's own
+    # navigation -- Just Energy's family sells its six GoodBundle plans at
+    # /ptcsl/ (Just Energy's is even /affiliatepartner/ptcsl/), which is why
+    # they cannot be found by browsing the site. Taken from the PTC row's
+    # enroll_url column, never guessed from the PDF.
+    enroll_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False
     # The REP will not sell this plan to a home with rooftop solar (TXU's Free

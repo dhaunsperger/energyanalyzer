@@ -27,3 +27,4 @@ notes: energy rate derived from a generic '<label> Charge ... per kWh' table-lin
   scan
 needs_review: false
 excludes_solar: false
+enroll_url: https://texas.smartenergy.com/plans?msid=2001&utility=AEPC

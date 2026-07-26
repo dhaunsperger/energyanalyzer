@@ -28,3 +28,4 @@ notes: energy rate derived from a 'variable rate of X cents' statement; base_cha
   TDU delivery charges appear bundled into the Energy Charge (tdu_passthrough=False)
 needs_review: false
 excludes_solar: false
+enroll_url: https://pronto-enroll.smartgridcis.net/?aid=PowertoChoose&?lang=es

@@ -26,3 +26,4 @@ source_sha256: c846044d06d89214a5334a61d77ea41a85c886e9c2bf12999eefda84f9ab3eb3
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false
+enroll_url: https://www.txu.com/ptc

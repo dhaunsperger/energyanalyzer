@@ -26,3 +26,4 @@ source_sha256: ba0c4d218124b75189fd3416c03d024b8a3d87a0a9b932e3f7eefff237c4a7ec
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://join.abundanceenergy.com/?promoCode=PTC

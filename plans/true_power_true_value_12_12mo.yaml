@@ -26,3 +26,4 @@ source_sha256: 38ab46340d04496bf0cc7b9eb35478321d5244e049e0fdd98b3fbef8a7a7ab7a
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://portal.truepower.com/signup?ref=PTC

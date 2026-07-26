@@ -26,3 +26,4 @@ source_sha256: 94f0fded68079b8066448e9494f5dd092e3f9ccc782a5af3f2814a9b7c101f4e
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: http://www.southernfederal.com/

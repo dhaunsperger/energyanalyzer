@@ -26,3 +26,4 @@ source_sha256: 709c79e7821a7c47abe8af811d21754c4db5d5be33c01262b4aa4165d9c92b20
 notes: ''
 needs_review: false
 excludes_solar: false
+enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001

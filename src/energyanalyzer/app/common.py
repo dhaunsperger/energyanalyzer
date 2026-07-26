@@ -784,6 +784,31 @@ def draft_summary_row(path: Path) -> dict:
     }
 
 
+def known_efl_enroll_urls(ptc_dir: Path = PTC_DIR) -> dict:
+    """Map ``<efl filename> -> enroll_url`` from the newest PTC snapshot.
+
+    Sibling of :func:`known_efl_identities`, and for the same reason: the row
+    that listed the plan knows things the PDF does not. Where to sign up is one
+    of them, and it matters -- several plans are sold only through a Power to
+    Choose referral landing page that the retailer's own site never links.
+    """
+    out: dict[str, str] = {}
+    try:
+        from energyanalyzer.fetchers.ptc import _efl_filename, load_ptc
+
+        snaps = sorted(Path(ptc_dir).glob("*.csv")) if Path(ptc_dir).exists() else []
+        if not snaps:
+            return out
+        df = load_ptc(max(snaps, key=lambda p: p.stat().st_mtime))
+        for _, row in df.iterrows():
+            url = str(row.get("enroll_url") or "").strip()
+            if url.lower().startswith("http"):
+                out.setdefault(_efl_filename(row), url)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, like the identities
+        logger.info("Could not read PTC enrollment links: %r", exc)
+    return out
+
+
 def known_efl_identities(efl_dir: Path = EFL_DIR, ptc_dir: Path = PTC_DIR) -> dict:
     """Map ``<efl filename> -> (retailer, plan_name)`` from the sources that
     already know it.
@@ -873,6 +898,7 @@ def parse_downloaded_efls(
     total = len(pdf_paths)
     summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": [], "identified": []}
     identities = known_efl_identities(efl_dir=Path(pdf_paths[0]).parent if pdf_paths else EFL_DIR)
+    enroll_urls = known_efl_enroll_urls()
 
     # One availability probe for the whole batch rather than a per-file timeout.
     use_llm = bool(llm_assist) and _llm.available()
@@ -918,6 +944,12 @@ def parse_downloaded_efls(
                     summary["identified"].append(
                         {"file": pdf_path.name, "id": draft.plan_dict["id"]}
                     )
+            # Where to sign up is row data too, and for some plans it is the only
+            # way in: Just Energy's GoodBundle plans live at a /ptcsl/ referral
+            # landing page their own site never links.
+            enroll = enroll_urls.get(pdf_path.name)
+            if enroll and not draft.plan_dict.get("enroll_url"):
+                draft.plan_dict["enroll_url"] = enroll
             plan_id = draft.plan_dict.get("id")
             already = (drafts_dir / f"{plan_id}.yaml").exists() or (plans_dir / f"{plan_id}.yaml").exists()
             if already:
