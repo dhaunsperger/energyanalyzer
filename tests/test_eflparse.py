@@ -1626,3 +1626,42 @@ def test_charge_basis_is_the_first_unit_named_not_a_fixed_precedence():
 
     rows = _generic_charge_rows("Minimum Usage Charge: $0 per billing cycle < 0 kWh\n")
     assert rows and rows[0]["kind"] == "month", "must never be offered as an energy rate"
+
+
+def test_broken_font_bill_unit_is_a_monthly_basis():
+    """"per ill" is "per bill" with the b dropped by a subset font.
+
+    Atlantex prints "ae Charge $19.95 per ill". The month markers knew "illing"
+    but not "ill", so the row matched no unit at all and its $19.95 base charge
+    was never read -- the plan silently defaulted to $0.00, understating it by
+    $239/yr. This was the last wrong value in the ground-truth corpus.
+    """
+    from energyanalyzer.eflparse.parser import _classify_unit_kind, _generic_charge_rows
+
+    assert _classify_unit_kind("ill") == "month"
+    assert _classify_unit_kind("illing ccle") == "month"
+    rows = _generic_charge_rows("ae Charge $19.95 per ill\n")
+    assert rows and rows[0]["kind"] == "month" and rows[0]["value"] == 19.95
+
+
+def test_base_charge_amount_may_follow_the_unit():
+    """"a monthly Base Electricity Charge per ESI-ID of $0.00" (Constellation).
+
+    Every labelled reader expects "<label> ... $X per <unit>", so an amount that
+    trails the unit was never found and the charge defaulted to $0.00 -- right
+    by luck here, but unread, and wrong for any REP that charges one.
+    """
+    from energyanalyzer.eflparse.parser import _extract_base_charge_trailing_amount
+
+    got = _extract_base_charge_trailing_amount(
+        "calculated using: (i) a Fixed Energy Charge of 6.27¢ per kWh, (ii) the "
+        "applicable TDU tariff, (iii) a monthly Base Electricity Charge per ESI-ID "
+        "of $0.00 (NOTE: A Minimum Usage Fee of $ 0 will apply), and (iv) all "
+        "recurring charges."
+    )
+    assert got is not None and got[0] == 0.0 and got[1] >= 0.8
+
+    nonzero = _extract_base_charge_trailing_amount(
+        "a monthly Base Electricity Charge per ESI-ID of $9.95 applies."
+    )
+    assert nonzero is not None and nonzero[0] == 9.95

@@ -1089,7 +1089,11 @@ def _strip_pua(s: str) -> str:
 _UNIT_MARKERS = (
     ("kwh", ("kwh",)),
     ("day", ("day",)),
-    ("month", ("month", "cycle", "ccle", "illing")),
+    # "ill"/"illing"/"ccle" are broken-subset-font spellings of bill/billing/
+    # cycle. Atlantex prints "ae Charge $19.95 per ill" -- "Base Charge $19.95
+    # per bill" -- which matched no unit at all, so its $19.95 base charge went
+    # unread entirely and defaulted to $0.00.
+    ("month", ("month", "cycle", "ccle", "illing", "ill")),
 )
 
 
@@ -1294,6 +1298,24 @@ def _extract_base_charge_from_component_sentence(text: str) -> Optional[Extracti
         if has_energy and has_tdu:
             return 0.0, 0.85, _snippet(m)
     return None
+
+
+_BASE_CHARGE_TRAILING_AMOUNT = re.compile(
+    r"\b(?:monthly\s+)?Base\s+(?:\w+\s+){0,2}Charge\b[^.$]{0,40}?\bof\s*\$\s*(\d+(?:\.\d+)?)",
+    re.I,
+)
+
+
+def _extract_base_charge_trailing_amount(text: str) -> Optional[Extraction]:
+    """A base charge whose amount follows the unit rather than preceding it.
+
+    Constellation writes the components as a numbered prose clause: "(iii) a
+    monthly Base Electricity Charge per ESI-ID of $0.00". Every labelled reader
+    expects "<label> ... $X per <unit>", so the amount was never found and the
+    charge defaulted to $0.00 -- right by luck here, but unread.
+    """
+    m = _BASE_CHARGE_TRAILING_AMOUNT.search(text)
+    return (float(m.group(1)), 0.85, _snippet(m)) if m else None
 
 
 _BULLET_ITEM = re.compile(r"[•▪●]\s*([^•▪●\n]{3,160})")
@@ -2193,6 +2215,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
+    if base_charge is None:
+        trailing_ext = _extract_base_charge_trailing_amount(text)
+        if trailing_ext is not None:
+            base_charge = record("base_charge", trailing_ext)
     if base_charge is None and split_base_charge is not None:
         base_charge = record(
             "base_charge", (split_base_charge, split_base_conf, evidence.get("energy_charge", ""))
