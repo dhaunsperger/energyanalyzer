@@ -475,6 +475,30 @@ def _read_discovery_coverage(snapshot_dir: Path = REP_DISCOVERY_DIR) -> dict:
         return {}
 
 
+# Contract lengths a REP actually sells. A trailing number outside this set is
+# something else in the product name -- "Gexa 55+" is a seniors plan, "Smart
+# 2000 Select 12" counts kWh -- so only these are read as a term.
+_PLAUSIBLE_TERMS = frozenset({1, 3, 5, 6, 9, 10, 11, 12, 13, 14, 18, 24, 36, 48, 60})
+_TRAILING_TERM_RE = re.compile(r"(\d{1,2})\s*$")
+
+
+def _term_from_plan_name(name: str) -> Optional[int]:
+    """The contract term a listed plan name carries, if any.
+
+    Discovery coverage is plan names only -- no term column -- but REPs almost
+    always put the term in the name ("Solar All Nighter 12", "Champ Saver-24").
+    Reading it back is what lets a 24-month synthetic be told apart from the
+    12-month plan the retailer actually sells. Returns None when the name has no
+    term ("Pollution Free e-Plus", "Gexa Flex Plan"), where the caller stays
+    permissive rather than guessing.
+    """
+    match = _TRAILING_TERM_RE.search(str(name or ""))
+    if not match:
+        return None
+    term = int(match.group(1))
+    return term if term in _PLAUSIBLE_TERMS else None
+
+
 def prune_stale_meterplan_rows(
     directory: Path = DRAFTS_DIR, coverage: Optional[dict] = None
 ) -> list[tuple]:
@@ -526,9 +550,20 @@ def prune_stale_meterplan_rows(
             # with the same conservative token rule supersede uses, so a naming
             # variant ("Truly Free Nights" vs "Reliant Truly Free Nights 12")
             # counts as a match rather than a deletion.
+            #
+            # The candidate's term comes from the listed NAME where it carries
+            # one, and only falls back to the draft's term when it doesn't.
+            # Passing the draft's term unconditionally made the term a
+            # non-discriminator by construction, which is how a synthetic "All
+            # Nighter" 24mo counted as offered because Green Mountain sells
+            # "Solar All Nighter 12" -- the token comparison drops the trailing
+            # number, so the only thing separating them was the term.
             offered = any(
                 _plan_supersedes(
-                    draft, _CoverageCandidate("site", retailer, name, draft.term_months)
+                    draft,
+                    _CoverageCandidate(
+                        "site", retailer, name, _term_from_plan_name(name) or draft.term_months
+                    ),
                 )
                 for name in names
             )
@@ -1439,6 +1474,12 @@ def _run_rep_discovery(
                 "buyback": 0,
                 "detail": repr(exc),
             }, []
+        # Some hosts guard their document endpoint (Ambit). Mark those plans so
+        # the download stage asks from a browser rather than approaching the
+        # site a second time as an anonymous httpx client.
+        if getattr(config, "efl_via_browser", False):
+            for p in plans:
+                p.fetch_via_browser = True
         found = len(plans)
         buyback = sum(1 for p in plans if p.is_buyback)
         # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
@@ -1527,6 +1568,13 @@ def _run_rep_discovery(
         dest=efl_dir,
         headless=headless,
         buyback_only=False,
+        # The browser used for guarded endpoints needs the same evasions as the
+        # discovery that earned the link, or it is just a slower stranger.
+        browser_stealth=any(
+            getattr(rd.REP_CONFIGS.get(k), "stealth", False)
+            and getattr(rd.REP_CONFIGS.get(k), "efl_via_browser", False)
+            for k in keys
+        ),
         progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
     )
 

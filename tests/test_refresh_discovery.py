@@ -116,7 +116,7 @@ def test_dispatch_and_aggregation_happy_path(discovery_dirs, monkeypatch):
     download_calls = {}
 
     def _fake_download_discovered(
-        plans, dest, headless=True, buyback_only=True, progress_callback=None
+        plans, dest, headless=True, buyback_only=True, progress_callback=None, **kwargs
     ):
         download_calls["plans"] = list(plans)
         download_calls["dest"] = dest
@@ -184,7 +184,7 @@ def test_non_broaden_rep_keeps_only_buyback(discovery_dirs, monkeypatch):
 
     captured: dict = {}
 
-    def _fake_dl(plans, dest, headless=True, buyback_only=True, progress_callback=None):
+    def _fake_dl(plans, dest, headless=True, buyback_only=True, progress_callback=None, **kwargs):
         captured["plans"] = list(plans)
         return {"downloaded": [], "skipped": [], "failed": [], "deferred": [], "filtered_out": 0}
 
@@ -258,7 +258,7 @@ def test_per_rep_error_is_isolated(discovery_dirs, monkeypatch):
     monkeypatch.setattr(
         rd_module,
         "download_discovered",
-        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None: {
+        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None, **kw: {
             "downloaded": ["gexa.pdf"],
             "skipped": [],
             "failed": [],
@@ -659,7 +659,7 @@ def test_rep_whose_downloads_were_blocked_is_not_coverage(discovery_dirs, monkey
     monkeypatch.setattr(
         rd_module,
         "download_discovered",
-        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None: {
+        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None, **kw: {
             "downloaded": [],
             "skipped": [],
             "failed": [{"url": blocked.efl_url, "error": "blocked automated access (bot/WAF block)"}],

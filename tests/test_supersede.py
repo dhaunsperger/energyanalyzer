@@ -429,3 +429,47 @@ def test_prune_spares_a_rep_we_do_not_survey(tmp_path):
 
     assert app_common.prune_stale_meterplan_rows(plans, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert (plans / "mp_almika_60mo.yaml").exists()
+
+
+def test_prune_reads_the_term_out_of_the_listed_plan_name(tmp_path):
+    """Discovery coverage is plan names only -- no term column -- and the old
+    code handed the candidate the DRAFT's own term, making the term a
+    non-discriminator by construction.
+
+    So a synthetic "All Nighter" 24mo counted as offered because Green Mountain
+    sells "Solar All Nighter 12": the token comparison drops the trailing
+    number, and the term was the only thing left to tell them apart.
+    """
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Green Mountain", "All Nighter", 24, "meterplan", "mp_gm_all_nighter_24mo"), plans)
+    _save(_mk("Green Mountain", "All Nighter", 12, "meterplan", "mp_gm_all_nighter_12mo"), plans)
+
+    removed = app_common.prune_stale_meterplan_rows(
+        plans, {"Green Mountain Energy": ["Solar All Nighter 12"]}
+    )
+
+    assert [r for r, _ in removed] == ["mp_gm_all_nighter_24mo"]
+    assert (plans / "mp_gm_all_nighter_12mo.yaml").exists(), "the 12mo IS sold"
+
+
+def test_a_listing_without_a_term_stays_permissive(tmp_path):
+    """"Pollution Free e-Plus", "Gexa Flex Plan", "Octopus Flex" carry no term.
+    Guessing one there would prune real plans, so the draft's term is used and
+    the match falls back to names alone."""
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Octopus Energy", "Octopus Flex", 24, "meterplan", "mp_octopus_flex_24mo"), plans)
+
+    assert app_common.prune_stale_meterplan_rows(plans, {"Octopus Energy": ["Octopus Flex"]}) == []
+
+
+def test_a_trailing_number_that_is_not_a_term_is_ignored():
+    """"Gexa 55+" is a seniors plan and "Smart 2000 Select" counts kWh -- only
+    plausible contract lengths are read back as a term."""
+    assert app_common._term_from_plan_name("Solar All Nighter 12") == 12
+    assert app_common._term_from_plan_name("Champ Saver-24") == 24
+    assert app_common._term_from_plan_name("Gexa 55+") is None
+    assert app_common._term_from_plan_name("Smart 2000 Select") is None
+    assert app_common._term_from_plan_name("Pollution Free e-Plus") is None
+    assert app_common._term_from_plan_name("Free 3 Day Weekends 12") == 12

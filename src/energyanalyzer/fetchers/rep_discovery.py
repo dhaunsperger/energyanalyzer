@@ -113,6 +113,14 @@ class DiscoveredPlan:
     # downloader renders these in a headless browser and print-to-PDFs them
     # instead of a plain httpx GET (which would only save the SPA shell).
     efl_is_html_viewer: bool = False
+    # Fetch this EFL through a real browser rather than httpx. Set from
+    # RepConfig.efl_via_browser at discovery time. For hosts that guard their
+    # document endpoint: we already walked their funnel in a (possibly stealthed)
+    # browser to LEARN this URL, so asking for it from that same stack -- same
+    # TLS fingerprint, same cookie jar, same headers -- is both likelier to
+    # succeed and a smaller ask than approaching the host a second time as an
+    # anonymous client.
+    fetch_via_browser: bool = False
 
 
 @dataclass
@@ -175,6 +183,14 @@ class RepConfig:
     # renders all 14 plans through the same funnel. Not a blanket default -- it
     # injects init scripts into every page, and the other REPs need none of it.
     stealth: bool = False
+    # Download this REP's EFLs through a browser instead of httpx. Ambit only:
+    # its Azure Front Door WAF guards shopping.ambitenergy.com probabilistically,
+    # and on 2026-07-26 it refused the very first httpx EFL request of a run
+    # whose discovery had just walked the same site successfully in a stealthed
+    # browser. Asking the document endpoint from the browser that was handed the
+    # link is the honest shape of the request, not a workaround: same session,
+    # same cookies, same fingerprint as the page that offered it.
+    efl_via_browser: bool = False
 
     @property
     def link_base(self) -> str:
@@ -1326,6 +1342,75 @@ def _render_efl_pdf(
             browser.close()
 
 
+class _BrowserResponse:
+    """Just enough of an httpx response for the shared not-a-PDF diagnosis:
+    the content-type, read only when the body turns out not to be a PDF."""
+
+    def __init__(self, content_type: str) -> None:
+        self.headers = {"content-type": content_type}
+
+
+class _BrowserFetcher:
+    """A browser kept open for the run, used to GET EFLs that httpx can't have.
+
+    Playwright's `context.request` issues real requests from the browser stack:
+    its TLS fingerprint, its cookie jar, its header order. For a host that hands
+    out document links behind a WAF, that is simply the client the link was
+    given to -- where a bare httpx GET arrives as a stranger who happens to know
+    the URL.
+
+    One context, opened on first use and reused, because launching Chromium per
+    EFL would cost more than the downloads. Ambit is the only REP that needs it,
+    so in practice this is one browser for fourteen files.
+    """
+
+    def __init__(self, stealth: bool = False, headless: bool = True) -> None:
+        self.stealth, self.headless = stealth, headless
+        self._ctx = None
+        self._browser = None
+        self._pw = None
+        self._lock = threading.Lock()
+
+    def _ensure(self):
+        if self._ctx is not None:
+            return self._ctx
+        cfg = RepConfig(
+            key="_fetch", retailer="_fetch", homepage="", extractor=lambda h, c: [],
+            stealth=self.stealth,
+        )
+        self._pw = _playwright_ctx(cfg).__enter__()
+        self._browser = self._pw.chromium.launch(headless=self.headless)
+        self._ctx = self._browser.new_context(user_agent=_USER_AGENT)
+        logger.info("opened a browser for EFL downloads (stealth=%s)", self.stealth)
+        return self._ctx
+
+    def get(self, url: str, timeout_ms: int = 60_000) -> tuple[int, bytes, str]:
+        """(status, body, content-type). Rate-limited like any other request."""
+        _respect_rate_limit(urlparse(url).netloc)
+        with self._lock:
+            ctx = self._ensure()
+            resp = ctx.request.get(url, timeout=timeout_ms)
+            headers = resp.headers or {}
+            return resp.status, resp.body(), str(headers.get("content-type", "?"))
+
+    def close(self) -> None:
+        for closer in (
+            getattr(self._ctx, "close", None),
+            getattr(self._browser, "close", None),
+        ):
+            try:
+                if closer:
+                    closer()
+            except Exception:  # noqa: BLE001 -- teardown must not fail a refresh
+                pass
+        try:
+            if self._pw is not None:
+                self._pw.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self._ctx = self._browser = self._pw = None
+
+
 def _sanitize_filename_part(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", name.strip())
     return re.sub(r"_+", "_", cleaned).strip("_")
@@ -1355,6 +1440,16 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
 # already answered. Handful of requests for one household's own shopping.
 _RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
 _DOWNLOAD_ATTEMPTS = 3
+# Attempts to spend on a URL a WAF has explicitly refused. Fewer than the
+# ordinary retry budget -- a site that means it should not be argued with -- but
+# not one, because Ambit's WAF is a measured coin flip rather than a policy.
+_BOT_BLOCK_ATTEMPTS = 3
+# Distinct URLs a host may refuse before we stop asking it anything else this
+# run. The breaker exists because one blanket-blocking host once cost ~42
+# pointless requests; tripping it on the FIRST refusal cost 14 EFLs on
+# 2026-07-26, which is the opposite failure. Three is enough to tell a policy
+# ("everything is refused") from a coin flip ("that one was unlucky").
+_BOT_BLOCK_TOLERANCE = 3
 
 # A 403 whose body carries one of these is a WAF/bot-detection verdict, not a
 # transient hiccup. Retrying it is both useless and rude, so it is exempted from
@@ -1385,9 +1480,16 @@ def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEM
     """GET `url`, retrying a transient status with linear backoff.
 
     Honours the per-host rate limit before every attempt, so a retry can never
-    make us hit a site faster than the normal path does. An explicit bot block
-    (:func:`_is_bot_block`) is returned immediately rather than retried -- the
-    site has already answered, and asking twice more only makes us noisier.
+    make us hit a site faster than the normal path does.
+
+    A bot block IS retried, up to `_BOT_BLOCK_ATTEMPTS`. It used to return
+    immediately on the reasoning that the site had already answered -- true for
+    a host with a blanket policy, wrong for Ambit, whose Azure Front Door WAF is
+    measurably a coin flip (2026-07-24: plain httpx got through 3 times in 6;
+    2026-07-26: httpx, a cold browser context and a warm one all succeeded on
+    the same URL minutes after a refresh had been refused). Not retrying turned
+    one unlucky draw into a lost retailer: on 2026-07-26 the FIRST Ambit request
+    was blocked and all 14 of its EFLs were skipped without being attempted.
     """
     last_exc: Optional[Exception] = None
     resp = None
@@ -1401,8 +1503,16 @@ def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEM
             if getattr(resp, "status_code", None) not in _RETRY_STATUSES:
                 return resp
             if _is_bot_block(resp):
-                logger.info("download: %s returned an explicit bot block -- not retrying", host)
-                return resp
+                if attempt >= _BOT_BLOCK_ATTEMPTS:
+                    logger.info(
+                        "download: %s blocked %d attempt(s) -- giving up on this URL",
+                        host, attempt,
+                    )
+                    return resp
+                logger.info(
+                    "download: %s returned a bot block (attempt %d/%d), retrying",
+                    host, attempt, _BOT_BLOCK_ATTEMPTS,
+                )
             last_exc = None
         except Exception as exc:  # noqa: BLE001 -- transport hiccups are retryable too
             last_exc = exc
@@ -1430,6 +1540,7 @@ def download_discovered(
     headless: bool = True,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     max_workers: int = hostpool.DEFAULT_MAX_WORKERS,
+    browser_stealth: bool = False,
 ) -> dict:
     """Download discovered plans' EFL PDFs into ``dest`` and append a manifest
     entry per download so downstream dedup/refresh can tell REP-discovered
@@ -1490,16 +1601,42 @@ def download_discovered(
 
     logger.info("Downloading %d discovered EFL(s)", total)
     entries: list[dict] = []
-    # Hosts that have explicitly refused bots. Once a site says so we stop
-    # asking: the remaining URLs are recorded as failures without a request,
-    # which loses nothing (they would have failed anyway) and takes a refresh
-    # from ~42 requests against a blocking host down to one. Safe to share
-    # across the host queues below because only one queue ever touches a given
-    # host, and that queue is a single thread running in order.
+    # Opened only if some plan actually needs it, and closed at the end.
+    _fetcher: list = []
+    _fetcher_lock = threading.Lock()
+
+    def _browser_fetcher() -> "_BrowserFetcher":
+        with _fetcher_lock:
+            if not _fetcher:
+                _fetcher.append(
+                    _BrowserFetcher(stealth=browser_stealth, headless=headless)
+                )
+            return _fetcher[0]
+
+    # Hosts that have explicitly refused bots. Once a site has refused
+    # `_BOT_BLOCK_TOLERANCE` DIFFERENT URLs we stop asking: the rest are
+    # recorded as failures without a request, which loses nothing and takes a
+    # refresh from ~42 pointless requests against a blanket-blocking host down
+    # to three. Counting rather than tripping on the first refusal is the whole
+    # point -- Ambit's WAF is a coin flip, and a single unlucky draw used to
+    # cost all 14 of its EFLs. Safe to share across the host queues below
+    # because only one queue ever touches a given host, in order, on one thread.
     blocked_hosts: set[str] = set()
+    block_counts: dict[str, int] = {}
 
     def _host_of(plan: DiscoveredPlan) -> str:
         return urlparse(str(plan.efl_url or "")).netloc
+
+    def _note_block(host: str) -> None:
+        """Count a refusal; trip the breaker once a host has refused enough."""
+        seen = block_counts[host] = block_counts.get(host, 0) + 1
+        if seen >= _BOT_BLOCK_TOLERANCE:
+            blocked_hosts.add(host)
+            logger.warning(
+                "%s refused automated access %d time(s); skipping its remaining "
+                "EFL downloads this run",
+                host, seen,
+            )
 
     def _fetch_one(plan: DiscoveredPlan, client) -> dict:
         """One EFL. Returns the outcome as a record instead of mutating the
@@ -1525,15 +1662,42 @@ def download_discovered(
             # _render_efl_pdf handles its own rate limiting.
             content = _render_efl_pdf(plan.efl_url, headless=headless)
             resp = None
+        elif plan.fetch_via_browser:
+            # A guarded document endpoint (Ambit). httpx FIRST -- it is cheap and
+            # works whenever the WAF is in a normal mood -- then the browser as
+            # the recovery path, asking from the stack that was handed the link
+            # rather than as an anonymous second client.
+            #
+            # Measured 2026-07-26, and worth recording because it rules out the
+            # obvious theory: when Ambit's API is refusing, it refuses a cold
+            # browser context, a warm one (after loading /Path2Plans in the same
+            # session) and httpx alike -- all 14 bytes of "Blocked by WAF" --
+            # while the plans page on that same host renders normally. So the
+            # browser is not a way through a determined block; it is a second,
+            # better-credentialed attempt for the times the refusal is a coin
+            # flip.
+            resp = _get_with_retry(client, plan.efl_url, host)
+            if _is_bot_block(resp):
+                logger.info(
+                    "%s refused httpx for %r -- retrying through the browser",
+                    host, plan.plan_name,
+                )
+                status, content, ctype = _browser_fetcher().get(plan.efl_url)
+                if status >= 400:
+                    _note_block(host)
+                    return {
+                        "kind": "failed",
+                        "error": f"{host} blocked automated access "
+                        f"(httpx and the browser both refused; HTTP {status})",
+                    }
+                resp = _BrowserResponse(ctype)
+            else:
+                resp.raise_for_status()
+                content = resp.content
         else:
             resp = _get_with_retry(client, plan.efl_url, host)
             if _is_bot_block(resp):
-                blocked_hosts.add(host)
-                logger.warning(
-                    "%s refused automated access (bot/WAF block); skipping its "
-                    "remaining EFL downloads this run",
-                    host,
-                )
+                _note_block(host)
                 return {
                     "kind": "failed",
                     "error": f"{host} blocked automated access (bot/WAF block)",
@@ -1582,6 +1746,8 @@ def download_discovered(
             max_workers=max_workers,
             on_done=_on_done,
         )
+    if _fetcher:
+        _fetcher[0].close()
 
     for outcome in outcomes:
         plan = outcome.item
@@ -1860,6 +2026,10 @@ AMBIT = RepConfig(
     broaden=True,
     # Required: plain Playwright is served "Blocked by WAF" at /Path2Plans.
     stealth=True,
+    # Its EFL endpoint sits behind the same probabilistic WAF as the plans page,
+    # so fetch the documents from the browser that was handed the links rather
+    # than approaching shopping.ambitenergy.com again as an anonymous client.
+    efl_via_browser=True,
     # Headful for OBSERVATION, not (like Tesla) because the edge demands it:
     # this funnel is the flakiest of the thirteen and fails intermittently --
     # 2026-07-26 it rendered all 14 plans at 12:05 and timed out on the

@@ -1817,8 +1817,20 @@ def test_is_bot_block_only_fires_on_an_explicit_refusal():
     assert not rd._is_bot_block(_FakeResponse(b"%PDF-1.4 Blocked by WAF"))
 
 
-def test_explicit_block_is_not_retried():
-    """A block is an answer, not a hiccup: asking twice more is only noisier."""
+@pytest.fixture
+def no_waiting(monkeypatch):
+    """Strip the retry backoff and the per-host throttle: these tests assert
+    request COUNTS, and the real waits add ~30s to the suite."""
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(rd.time, "sleep", lambda _s: None)
+
+
+def test_a_bot_block_is_retried_but_only_a_few_times(no_waiting):
+    """A block used to end the request on the spot, on the reasoning that the
+    site had already answered. True of a blanket policy; wrong for Ambit, whose
+    Azure Front Door WAF is a measured coin flip (2026-07-24: httpx got through
+    3 times in 6). Retried a bounded number of times -- enough to survive an
+    unlucky draw, few enough not to argue with a site that means it."""
     calls = []
 
     class _Client:
@@ -1828,14 +1840,31 @@ def test_explicit_block_is_not_retried():
 
     resp = rd._get_with_retry(_Client(), "https://waf.example/efl.pdf", "waf.example")
     assert resp.status_code == 403
-    assert len(calls) == 1, "an explicit bot block must not be retried"
+    assert len(calls) == rd._BOT_BLOCK_ATTEMPTS
 
 
-def test_download_stops_asking_a_host_that_blocked_us(tmp_path, monkeypatch):
-    """One block ends the run for that host -- the other plans are never fetched.
+def test_a_block_that_clears_on_retry_still_yields_the_pdf(no_waiting):
+    """The case worth all of this: the first draw is refused, the second isn't."""
+    calls = []
 
-    Regression guard for the 2026-07-26 refresh, where 14 Ambit EFLs each got
-    retried 3x against a WAF that had already refused the first request.
+    class _FlakyWafClient:
+        def get(self, url, *args, **kwargs):
+            calls.append(url)
+            return _BlockedResponse() if len(calls) == 1 else _FakeResponse(b"%PDF-1.4 ok")
+
+    resp = rd._get_with_retry(_FlakyWafClient(), "https://waf.example/efl.pdf", "waf.example")
+    assert resp.content.startswith(b"%PDF")
+    assert len(calls) == 2
+
+
+def test_download_stops_asking_a_host_that_keeps_blocking_us(tmp_path, monkeypatch, no_waiting):
+    """A host that refuses everything costs a handful of requests, not dozens.
+
+    The breaker exists because one blanket-blocking host once drew ~42 pointless
+    requests. But tripping it on the FIRST refusal was the opposite failure: on
+    2026-07-26 Ambit's very first EFL was refused and the other 13 were skipped
+    without being tried, losing the whole retailer to one coin flip. So it now
+    counts distinct refusals before giving up on the host.
     """
     import httpx
 
@@ -1863,9 +1892,109 @@ def test_download_stops_asking_a_host_that_blocked_us(tmp_path, monkeypatch):
     ]
     summary = rd.download_discovered(plans, dest=tmp_path / "efl", buyback_only=True)
 
-    assert len(seen[0].calls) == 1, "only the first URL may be requested"
+    # Bounded: TOLERANCE distinct URLs, each retried at most ATTEMPTS times.
+    urls_tried = {u for u in seen[0].calls}
+    assert len(urls_tried) == rd._BOT_BLOCK_TOLERANCE, "stop after enough refusals"
+    assert len(seen[0].calls) <= rd._BOT_BLOCK_TOLERANCE * rd._BOT_BLOCK_ATTEMPTS
     assert not summary["downloaded"]
     # Every plan is still reported, so the retailer stays out of discovery
     # coverage and its meterplan drafts are not pruned as "not offered".
     assert len(summary["failed"]) == 6
     assert {f["url"] for f in summary["failed"]} == {p.efl_url for p in plans}
+
+
+def test_a_guarded_endpoint_falls_back_to_the_browser_when_httpx_is_refused(
+    tmp_path, monkeypatch, no_waiting
+):
+    """Ambit's EFL host guards its document endpoint. httpx goes first -- cheap,
+    and fine whenever the WAF is in a normal mood -- and a refusal is retried
+    from the browser stack that was handed the link, rather than giving up on a
+    plan because one anonymous request was unlucky.
+    """
+    import httpx
+
+    class _NoGetClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            self.calls.append(url)
+            return _BlockedResponse()
+
+    fetched: list = []
+
+    class _FakeFetcher:
+        def __init__(self, stealth=False, headless=True):
+            self.stealth = stealth
+            fetched.append(self)
+
+        def get(self, url, timeout_ms=60000):
+            fetched.append(url)
+            return 200, b"%PDF-1.4 through the browser", "application/pdf"
+
+        def close(self):
+            fetched.append("closed")
+
+    monkeypatch.setattr(httpx, "Client", _NoGetClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _FakeFetcher)
+    plan = rd.DiscoveredPlan(
+        retailer="Ambit Energy",
+        plan_name="Texas Solar Buyback 12",
+        efl_url="https://shopping.ambitenergy.com/api/getdocument?productid=X",
+        is_buyback=True,
+        fetch_via_browser=True,
+    )
+    dest = tmp_path / "efl"
+    summary = rd.download_discovered([plan], dest=dest, browser_stealth=True)
+
+    assert len(summary["downloaded"]) == 1
+    assert (dest / "Ambit_Energy_Texas_Solar_Buyback_12.pdf").read_bytes().startswith(b"%PDF")
+    assert fetched[0].stealth is True, "the fetch browser needs discovery's evasions"
+    assert "closed" in fetched, "the browser must not outlive the batch"
+
+
+def test_the_browser_is_only_opened_when_something_needs_it(tmp_path, monkeypatch):
+    """Ordinary EFLs stay on httpx -- launching Chromium for them would cost far
+    more than the downloads."""
+    import httpx
+
+    def _boom(*a, **k):
+        raise AssertionError("no browser should be launched")
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _boom)
+    summary = rd.download_discovered(_sample_plans(), dest=tmp_path / "efl", buyback_only=True)
+
+    assert len(summary["downloaded"]) == 1
+
+
+def test_a_browser_fetch_that_is_refused_is_reported_not_saved(tmp_path, monkeypatch, no_waiting):
+    """Both paths refused: reported as a failure, and nothing lands on disk as
+    a .pdf. Measured against the live site 2026-07-26 -- when Ambit's API is
+    refusing, httpx, a cold browser context and a warm one all get the same
+    14-byte "Blocked by WAF"."""
+    import httpx
+
+    class _FakeFetcher:
+        def __init__(self, stealth=False, headless=True):
+            pass
+
+        def get(self, url, timeout_ms=60000):
+            return 403, b"Blocked by WAF", "text/plain"
+
+        def close(self):
+            pass
+
+    class _BlockingClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            return _BlockedResponse()
+
+    monkeypatch.setattr(httpx, "Client", _BlockingClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _FakeFetcher)
+    plan = rd.DiscoveredPlan(
+        retailer="Ambit Energy", plan_name="P", is_buyback=True,
+        efl_url="https://shopping.ambitenergy.com/api/getdocument?productid=X",
+        fetch_via_browser=True,
+    )
+    summary = rd.download_discovered([plan], dest=tmp_path / "efl")
+
+    assert summary["downloaded"] == []
+    assert "403" in summary["failed"][0]["error"]
+    assert not list((tmp_path / "efl").glob("*.pdf"))

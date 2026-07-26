@@ -572,6 +572,36 @@ Three independent mechanisms now:
    is completed **without repeating the sweep**. Idempotent. Surfaced on the
    Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
 
+### 9b2. Guarded EFL endpoints and the bot-block breaker
+
+Ambit's `shopping.ambitenergy.com/api/getdocument` sits behind an Azure Front
+Door WAF. Two mechanisms, in order:
+
+1. **httpx first, browser second.** A refusal is retried through
+   `_BrowserFetcher` -- Playwright's `context.request`, so the browser's TLS
+   fingerprint, cookie jar and header order, i.e. the client that was handed the
+   link during discovery. Enabled per REP via `RepConfig.efl_via_browser`
+   (Ambit only), which stamps `DiscoveredPlan.fetch_via_browser`. The browser is
+   opened lazily and closed with the batch, so ordinary EFLs never pay for it.
+2. **A counting breaker.** `_BOT_BLOCK_TOLERANCE` distinct refusals per host
+   before we stop asking, and `_BOT_BLOCK_ATTEMPTS` retries per URL.
+
+Both numbers exist because of the same 2026-07-26 refresh, from opposite
+directions. The breaker was added when one blanket-blocking host drew ~42
+pointless requests; tripping it on the FIRST refusal then cost all 14 Ambit
+EFLs, because discovery had rendered Ambit's site perfectly and the very first
+document request drew a 403.
+
+Measured, and recorded because it rules out the obvious theory: when Ambit's
+API is refusing, it refuses a cold browser context, a warm one (after loading
+`/Path2Plans` in the same session) and httpx alike -- all 14 bytes of
+"Blocked by WAF" -- while the plans page on that same host renders normally in
+that same browser. An hour earlier all three had succeeded on the same URL. So
+the browser is **not** a way through a determined block; it is a second,
+better-credentialed attempt for when the refusal is a coin flip. When Ambit is
+in a refusing mood the right move is to leave it alone for a while -- the
+manual-capture fallback and the quarantine mean a refused run costs nothing.
+
 ### 9c. "Nothing new to review" (`Plan.source_sha256`)
 
 A refresh re-parses every EFL, so a plan the user hand-corrected is read again
