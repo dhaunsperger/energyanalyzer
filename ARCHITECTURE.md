@@ -625,6 +625,37 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
   for engine validation; live shopping requires refreshed EFLs.
 - Battery simulation: out of scope v1. Taxes: excluded by design.
+- **Usage tiers and seasonal TOU: WON'T BUILD (measured 2026-07-26).** The two
+  remaining schema gaps were costed against real interval data before deciding,
+  by modelling each plan's published tiers offline. The tier model reproduces
+  every one of these EFLs' own published average prices at 500/1000/2000 kWh
+  exactly, so the numbers are trustworthy:
+
+  | plan | shape | annual | rank |
+  |---|---|---|---|
+  | GM Boost Your Green 12 | 2 usage tiers | $1,965 | ~#200 |
+  | TXU Saver's Choice 12 | 3 tiers + $50 credit | $2,228 | — |
+  | Ambit Lone Star Plus 12 | 3 usage tiers | $2,243 | — |
+  | TXU e-Saver 12 | 2 usage tiers | $2,296 | — |
+  | Octopus Octo Green 12 | flat + RTW buyback | $1,432 | #46 |
+  | Octopus Flex | seasonal TOU, no buyback | $1,575 | #109 |
+
+  #10 is ~$1,292, so the best of them misses by $140 and the tiered ones by
+  $674–$1,004. The reason is structural rather than incidental: this premise
+  exports 9,803 kWh against 11,278 kWh imported, so **what a plan pays for
+  exports dominates any discount on imports**. Every usage-tiered plan above
+  offers no buyback at all, and Octopus Flex explicitly answers "No" to
+  purchasing excess generation. A cheap import tier cannot make up the gap.
+
+  Revisit only if the export/import ratio drops sharply (battery, EV load
+  shifting) or a tiered plan appears WITH competitive buyback -- not merely
+  because another tiered plan shows up.
+
+  Note Octo Green 12 is not actually tiered: it is a flat 8.0685c (8.0485c with
+  a smart thermostat or EV connected, both of which this premise has) that the
+  parser reads as ambiguous because the rate appears three times in adjacent
+  columns for the different device conditions. Cheap to fix if ever wanted, but
+  it lands #46, so it changes no decision.
 - **TODO — make home features a setting, not an assumption (not urgent).**
   Today "this premise has rooftop solar" is baked in everywhere: the whole app
   is built around export, and `Plan.excludes_solar` hides plans whose REP won't
