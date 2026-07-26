@@ -1,0 +1,63 @@
+id: just_energy_weekends_free_plan_12_for_service_area_oncor_12mo
+retailer: Just Energy - Weekends Free Plan - 12
+name: Weekends Free Plan - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays:
+    - 4
+    hours:
+    - 19
+    - 20
+    - 21
+    - 22
+    - 23
+  label: Weekend Hours (Fri 7PM start)
+  tdu_exempt: false
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays:
+    - 5
+    - 6
+    hours: []
+  label: Weekend Hours (all Sat/Sun)
+  tdu_exempt: false
+- rate_ckwh: 25.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: false
+etf_usd: 175.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:EFL_Just_Energy_Weekends_Free_12_English_Residential_20260726183541.pdf
+retrieved: '2026-07-26'
+source_sha256: 15526eeb5728976b247d499ef43ece217a9cbf161e2775c913cddb571f8519a1
+notes: 'NOT USABLE with rooftop solar. Just Energy ToS 10.1(a): for a time-of-use
+  plan (''Nights Free Plan, or similar'') Just Energy reserves the right to automatically
+  TRANSITION the ESI ID to the Variable Price Product if the premises has solar/distributed
+  generation or a battery, OR if the TDU load profile carries a PV/WD/DG designation
+  -- which this premises'' does. That is worse than being refused at signup: you enrol
+  at the modelled price and are then moved to a 31-day variable product whose price
+  changes at their discretion without notice, so none of the economics below hold.
+  Its own EFL carries no distributed-generation clause, but it is a time-of-use plan
+  and so falls under the ToS ''or similar''. Weekend Hours 7:00PM Friday - 11:59PM
+  Sunday credited at 100%. The 25c/kWh Energy Charge is BUNDLED -- the EFL says it
+  ''includes all supply and applicable TDSP delivery charges'' -- so tdu_passthrough
+  is false; billing TDU on top overstated this plan by ~6.5c/kWh. Confirmed: bundled
+  reproduces all three published average prices to 0.05c, passthrough misses by 6.3-6.9c.
+  No distributed-generation exclusion.'
+needs_review: true
+excludes_solar: true
