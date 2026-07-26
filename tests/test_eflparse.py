@@ -358,11 +358,50 @@ class TestCorpusAeTexasSmartSecure36:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        # corrupted-font PDF -> low-confidence fallback extraction path
-        assert draft.plan_dict["needs_review"] is True
+        """A corrupted font is not, by itself, a reason to distrust the numbers.
+
+        This used to assert True: the fallback scan scored 0.6 because the
+        LABEL was unreadable, even though the values ("$0.0649 per kWh",
+        "$0.00 per billing cycle") are perfectly legible and -- as the other
+        assertions here have always checked -- correct. That cost a review on
+        every broken-font EFL, and worse, sent them to the LLM, which under the
+        assist-only policy pinned them in the queue permanently.
+
+        The label is now matched as a subsequence, so "\\ue001nerg\\ue006 Charge"
+        is recognised as an Energy Charge and the read is scored on its merits.
+        Audited across all 232 EFLs on disk: the matcher accepts only genuine
+        Base/Energy/Monthly Base labels and the PUA-mangled "ae"/"nerg" forms --
+        no false matches.
+        """
+        assert draft.plan_dict["needs_review"] is False
+        assert draft.confidence["energy_charge"] >= 0.8
+        assert draft.confidence["base_charge"] >= 0.8
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
+
+
+def test_multiple_differing_energy_rows_never_look_confident():
+    """A weekday/weekend pair is a schedule, not a flat rate.
+
+    The generic scan takes the first row; if that were scored confidently the
+    plan would auto-promote as flat 17.6c with the free weekend silently
+    dropped. Must stay in review.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl_text
+
+    text = (
+        "Electricity Facts Label\nAcme Energy\nSome Plan 12\nOncor\n"
+        "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
+        "Base Charge $0.00 per billing cycle\n"
+        "Energy Charge 17.6000 ¢ per kWh – Weekdays\n"
+        "Energy Charge 0.0000 ¢ per kWh – Weekends\n"
+        "TDU Delivery Charge $4.06 per billing cycle\n"
+        "Contract Term 12 Month(s)\n"
+    )
+    d = parse_efl_text(text, "acme.pdf")
+    assert d.confidence["energy_charge"] < 0.8
+    assert d.plan_dict["needs_review"] is True
 
 
 class TestCorpusApGasTrueClassic11:

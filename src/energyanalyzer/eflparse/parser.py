@@ -1073,9 +1073,46 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
 
 _PRICE_COMPONENTS_ANCHOR = re.compile(
     r"(?:based\s*on\s*the\s*following|following\s*components?\s*of\s*the\s*price"
-    r"|includes\s*the\s*energy\s*charge\s*and\s*(?:tdu|tdsp)?\s*deliver\w*\s*charges?)\s*:?",
+    r"|includes\s*the\s*energy\s*charge\s*and\s*(?:tdu|tdsp)?\s*deliver\w*\s*charges?"
+    # "The price you pay each month will consist of the Energy Charge, and ONCOR
+    # (TDU) Delivery Charges." (Meter Energy) -- an exhaustive component list
+    # just like the others, phrased as "consist of" rather than "includes".
+    r"|(?:will\s*)?consists?\s*of\s*the\s*energy\s*charge[^.]{0,80}?deliver\w*\s*charges?"
+    r"|utilizing\s*the\s*follo\w*\s*price\s*component)\s*:?",
     re.I,
 )
+
+# Labels a REP's fixed monthly charge goes by. Matched as a SUBSEQUENCE against
+# the PUA-stripped prefix, because the EFLs that reach this point are usually the
+# broken-font ones: a subset font with no ToUnicode mapping drops letters, so
+# "Base Charge" arrives as "ae Charge" ("B" and "s" are Private-Use codepoints)
+# and "Energy" as "nerg". Exact label matching can't see those, which left the
+# value -- correctly read, right there in the row -- scored too low to promote.
+_BASE_LABEL_WORDS = ("base", "basemonthly", "monthlybase", "customer", "monthlyservice", "minimum")
+_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply")
+
+
+def _is_subsequence(needle: str, haystack: str) -> bool:
+    it = iter(haystack)
+    return all(ch in it for ch in needle)
+
+
+def _label_matches(prefix: str, words: tuple[str, ...]) -> bool:
+    """True if a charge row's label plausibly names one of `words`, tolerating
+    dropped glyphs. Requires >=2 surviving letters so a single stray character
+    can't match everything."""
+    p = re.sub(r"[^a-z]", "", _strip_pua(prefix or "").lower())
+    if len(p) < 2:
+        return False
+    return any(_is_subsequence(p, w) for w in words)
+
+
+def _looks_like_base_label(prefix: str) -> bool:
+    return _label_matches(prefix, _BASE_LABEL_WORDS)
+
+
+def _looks_like_energy_label(prefix: str) -> bool:
+    return _label_matches(prefix, _ENERGY_LABEL_WORDS)
 _CHARGE_LINE = re.compile(r"^.{0,80}\b(?:Charge|Fee)\b.{0,80}$", re.I | re.M)
 
 
@@ -1107,14 +1144,63 @@ def _extract_base_charge_absent_from_itemized_list(text: str) -> Optional[Extrac
     return None
 
 
+_COMPONENT_SENTENCE = re.compile(
+    r"(?:price\s*you\s*pay|total\s*price|price\s*for\s*electric\w*\s*service)"
+    r"[^.]{0,60}?(?:will\s*)?(?:consists?\s*of|includes?|is\s*made\s*up\s*of)\s*([^.]{0,220})\.",
+    re.I,
+)
+_BASE_COMPONENT_WORDS = re.compile(
+    r"\bbase\b|\bcustomer\s*charge|\bminimum\b|monthly\s*(?:service|fee)|\bmonthly\s*charge", re.I
+)
+
+
+def _extract_base_charge_from_component_sentence(text: str) -> Optional[Extraction]:
+    """A Texas EFL that states its price components in prose is making an
+    exhaustive disclosure, so a list that names only an energy charge and the
+    TDU's delivery charges means the REP levies no fixed monthly charge.
+
+    Meter Energy: "The price you pay each month will consist of the Energy
+    Charge, and ONCOR (TDU) Delivery Charges." Distinct from
+    :func:`_extract_base_charge_absent_from_itemized_list`, which scans the
+    itemized block FOLLOWING its anchor -- Meter prints the items above the
+    sentence and labels them "Energy Rate", so neither the direction nor the
+    label vocabulary lines up. The sentence alone is the sounder signal: a plan
+    that did have a base charge would have to name it here.
+    """
+    for m in _COMPONENT_SENTENCE.finditer(text):
+        clause = m.group(1)
+        if _BASE_COMPONENT_WORDS.search(clause):
+            return None  # a base/customer charge IS one of the components
+        has_energy = re.search(r"energy\s*(?:charge|rate)", clause, re.I)
+        has_tdu = re.search(r"deliver|\btdu\b|\btdsp\b", clause, re.I)
+        if has_energy and has_tdu:
+            return 0.0, 0.85, _snippet(m)
+    return None
+
+
 def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
     """Some EFLs (e.g. TXU) split the 'Energy Charge' header from its value
     across lines in a flattened table -- the header line has no inline
     number, and the rate instead appears on a following 'All kWh <rate>c'
-    row."""
-    m = re.search(r"\bAll\s*kWh\s*(\d+(?:\.\d+)?)\s*¢", text, re.I)
-    if m:
-        return float(m.group(1)), 0.75, _snippet(m)
+    row.
+
+    Confidence turns on whether an 'Energy Charge' header actually precedes the
+    row. Anchored, this is unambiguous -- the whole TXU/Vistra template prints
+    "Energy Charge: Per kWh (¢) Electricity All kWh 9.7000¢" -- and the old flat
+    0.75 (below the review bar) sent every such plan to the LLM, and from there
+    to the review queue under the assist-only policy, for a rate the parser had
+    read correctly all along. Measured across the EFL corpus: all 8 documents
+    using this row are header-anchored, and their rates check out against the
+    documents. Unanchored, keep the cautious score -- a bare "All kWh" elsewhere
+    could be anything.
+    """
+    for m in re.finditer(r"\bAll\s*kWh\s*(\d+(?:\.\d+)?)\s*¢", text, re.I):
+        anchored = re.search(
+            r"Energy\s*Charge[^\n]{0,120}$",
+            " ".join(text[max(0, m.start() - 160) : m.start()].split()),
+            re.I,
+        )
+        return float(m.group(1)), (0.85 if anchored else 0.75), _snippet(m)
     return None
 
 
@@ -1878,9 +1964,27 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                     "energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider row"
                 )
             elif generic_kwh_rows:
-                r = generic_kwh_rows[0]
+                # As with the base charge: a row whose label reads as an energy
+                # charge -- even through a broken subset font, where "Energy"
+                # survives as "nerg" -- is a real read, not a guess. Only fall
+                # back to the cautious score when nothing identifies the row.
+                labelled = [r for r in generic_kwh_rows if _looks_like_energy_label(r["prefix"])]
+                r = (labelled or generic_kwh_rows)[0]
                 flat_ckwh = r["value"]
-                confidence["energy_charge"] = 0.6
+                # Several DIFFERING energy rows are a schedule, not a flat rate
+                # ("Energy Charge 17.6000¢ per kWh - Weekdays" / "... 0.0000¢
+                # per kWh - Weekends"). Taking the first as a flat rate drops
+                # the free window entirely, so this must never look confident --
+                # the same rule the labelled-line reader applies above.
+                distinct = {row["value"] for row in (labelled or generic_kwh_rows)}
+                if len(distinct) > 1:
+                    confidence["energy_charge"] = 0.5
+                    notes.append(
+                        f"multiple differing Energy Charge rows found {sorted(distinct)}; used "
+                        f"{flat_ckwh} as a flat rate -- any time-of-use window is NOT modelled"
+                    )
+                else:
+                    confidence["energy_charge"] = 0.85 if labelled else 0.6
                 evidence["energy_charge"] = r["evidence"]
                 notes.append("energy rate derived from a generic '<label> Charge ... per kWh' table-line scan")
             elif avg_ext is not None:
@@ -1928,14 +2032,26 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 r for r in _generic_charge_rows(text) if r["kind"] == "month" and not r["is_tdu"]
             ]
             if generic_month_rows:
-                r = generic_month_rows[0]
-                base_charge = record("base_charge", (r["value"], 0.6, r["evidence"]))
+                # Prefer a row whose label actually reads as a base charge; that
+                # is what separates "the REP's fixed monthly charge" from some
+                # other per-month fee, and it earns a promotable score.
+                labelled = [r for r in generic_month_rows if _looks_like_base_label(r["prefix"])]
+                r = (labelled or generic_month_rows)[0]
+                base_charge = record(
+                    "base_charge", (r["value"], 0.85 if labelled else 0.6, r["evidence"])
+                )
                 notes.append("base charge derived from a generic '<label> Charge ... per month' table-line scan")
             elif absent_ext is not None:
                 base_charge = record("base_charge", absent_ext)
                 notes.append(
                     "base charge inferred as $0.00: itemized price-components list has no "
                     "REP base/customer charge line"
+                )
+            elif (sentence_ext := _extract_base_charge_from_component_sentence(text)) is not None:
+                base_charge = record("base_charge", sentence_ext)
+                notes.append(
+                    "base charge inferred as $0.00: the EFL states its price components in prose "
+                    "and names only an energy charge and TDU delivery charges"
                 )
             else:
                 notes.append("base charge not found; defaulting to 0.0")
