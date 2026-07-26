@@ -885,13 +885,19 @@ def reconcile_quarantine(
     plans_dir: Path = PLANS_DIR,
     efl_dir: Path = EFL_DIR,
     quarantine_dir: Path = QUARANTINE_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
 ) -> dict:
     """Restore whatever the run failed to re-derive, and flag what's truly gone.
 
     Three outcomes per quarantined plan:
 
-    * **re-derived** -- a plan with that id exists again, so the quarantine copy
-      is dropped. The normal path.
+    * **re-derived** -- that id exists again, as a promoted plan OR as a draft,
+      so the quarantine copy is dropped. The normal path. A draft counts: the
+      run DID rebuild the plan, it just landed in review instead of clearing the
+      confidence gate. Missing that produced two failures at once on 2026-07-26
+      -- a stale promoted copy restored alongside its own fresh draft (20 ids in
+      both places), and five Just Energy plans flagged as gone from a PTC
+      snapshot that still listed all five.
     * **still listed** -- no plan file, but a source that ran this run still
       advertises it. Its EFL simply didn't make it (a WAF block, a download
       failure, a funnel that drifted). Restored untouched: the plan is real and
@@ -924,9 +930,9 @@ def reconcile_quarantine(
     # uses: when comparing, err towards "still listed".
     listings = [(str(r), str(n), t) for r, n, t in (authority.get("listings") or [])]
 
+    drafts_dir = Path(drafts_dir)
     for path in sorted((q / "plans").glob("*.yaml")) if (q / "plans").exists() else []:
-        live = plans_dir / path.name
-        if live.exists():
+        if (plans_dir / path.name).exists() or (drafts_dir / path.name).exists():
             result["dropped"] += 1
             continue
         try:
@@ -1924,7 +1930,7 @@ def finish_refresh(
     # promotion so "was it re-derived?" is asked of the finished database, and
     # inside finish_refresh so the "Finish incomplete refresh" recovery path
     # un-quarantines too -- an interrupted run must not strand the old plans.
-    reconciled = reconcile_quarantine(plans_dir=plans_dir)
+    reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
     if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
         summary["quarantine"] = reconciled
     for plan_id in reconciled["restored"]:

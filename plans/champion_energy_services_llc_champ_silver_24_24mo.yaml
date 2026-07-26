@@ -29,3 +29,4 @@ retrieved: '2026-07-26'
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
+excludes_solar: false

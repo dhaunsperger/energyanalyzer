@@ -25,3 +25,4 @@ source: efl:Ambit_Energy_Texas_Solar_Buyback_12.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

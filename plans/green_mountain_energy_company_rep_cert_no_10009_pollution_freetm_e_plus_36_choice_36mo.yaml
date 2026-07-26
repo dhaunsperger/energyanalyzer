@@ -23,3 +23,4 @@ source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_36_Choice.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

@@ -25,3 +25,4 @@ source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

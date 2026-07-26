@@ -24,3 +24,4 @@ source: efl:CleanSky_Energy_Embrace_Green_36_-_New_Customer_Special.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

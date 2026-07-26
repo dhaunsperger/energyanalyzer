@@ -888,3 +888,34 @@ def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
 
     assert out["restored"] == ["champ_24"]
     assert out["delisted"] == []
+
+
+def test_a_draft_counts_as_rebuilt_so_nothing_is_restored_or_delisted(tmp_path):
+    """A plan re-parsed into a DRAFT was rebuilt -- it just didn't clear the gate.
+
+    Missing that caused two failures at once on 2026-07-26. `reconcile_quarantine`
+    looked only at plans/, so for every plan whose fresh parse landed in review it
+    (a) restored the stale promoted copy, leaving 20 ids in BOTH plans/ and
+    drafts/, and (b) declared it delisted -- flagging five Just Energy plans as
+    gone from a PTC snapshot that still listed all five. Their names could not
+    match the listing because the parser reads their EFL header as
+    retailer "Just Energy - Fixed Rate Product: Basics PTC - 24" and name
+    "For Service Area: Oncor", which carries no product identity at all.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _q_plan(q / "plans" / "je_24.yaml", "je_24", "Just Energy - Fixed Rate Product: Basics PTC - 24",
+            "For Service Area: Oncor", 24)
+    # The run rebuilt it, but the parse was uncertain so it stayed a draft.
+    _q_plan(drafts_dir / "je_24.yaml", "je_24", "Just Energy", "Basics PTC - 24", 24)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["dropped"] == 1
+    assert out["restored"] == [] and out["delisted"] == []
+    # The stale copy must NOT reappear beside its own draft.
+    assert not (plans_dir / "je_24.yaml").exists()
+    assert (drafts_dir / "je_24.yaml").exists()

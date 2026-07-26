@@ -25,3 +25,4 @@ source: efl:Frontier_Utilities_Frontier_Battery_Awards_12.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

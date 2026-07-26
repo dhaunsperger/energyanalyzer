@@ -24,3 +24,4 @@ source: efl:INFUSE_ENERGY_Essential_Infusion_24.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

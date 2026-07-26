@@ -24,3 +24,4 @@ source: efl:HERITAGE_POWER_LLC_Bright_Start_24_-_25_credit_on_your_first_bill.pd
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

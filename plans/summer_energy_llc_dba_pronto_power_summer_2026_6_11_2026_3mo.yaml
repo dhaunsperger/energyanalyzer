@@ -25,3 +25,4 @@ retrieved: '2026-07-26'
 notes: base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365
   / 12, rounded to cents)
 needs_review: false
+excludes_solar: false

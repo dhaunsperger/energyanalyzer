@@ -24,3 +24,4 @@ source: efl:Base_Power_Base_Energy_36.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

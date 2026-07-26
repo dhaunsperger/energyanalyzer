@@ -26,3 +26,4 @@ notes: 'term_months not found; defaulting to 12; base charge inferred as $0.00: 
   EFL states its price components in prose and names only an energy charge and TDU
   delivery charges'
 needs_review: false
+excludes_solar: false

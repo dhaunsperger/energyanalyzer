@@ -24,3 +24,4 @@ source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_24.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false

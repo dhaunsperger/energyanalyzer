@@ -26,3 +26,4 @@ source: efl:RHYTHM_Rhythm_Max_Saver_12.pdf
 retrieved: '2026-07-26'
 notes: ''
 needs_review: false
+excludes_solar: false
