@@ -763,6 +763,11 @@ if refresh_summary is not None:
             f"{_quar.get('efls_restored', 0)} EFL(s) this refresh could not rebuild -- their "
             "source still lists them, so the previous copies were put back."
         )
+    if _quar.get("kept_pending_review"):
+        st.caption(
+            f"{len(_quar['kept_pending_review'])} plan(s) were re-parsed into review, so their "
+            "previous verified copy still stands in the ranking until you accept the new reading."
+        )
     if _quar.get("delisted"):
         st.warning(
             f"{len(_quar['delisted'])} plan(s) are no longer listed by the source that "

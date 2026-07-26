@@ -890,32 +890,69 @@ def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
     assert out["delisted"] == []
 
 
-def test_a_draft_counts_as_rebuilt_so_nothing_is_restored_or_delisted(tmp_path):
-    """A plan re-parsed into a DRAFT was rebuilt -- it just didn't clear the gate.
+def test_precedence_confident_old_copy_outranks_an_unverified_new_draft(tmp_path):
+    """Precedence is confidence first, then freshness.
 
-    Missing that caused two failures at once on 2026-07-26. `reconcile_quarantine`
-    looked only at plans/, so for every plan whose fresh parse landed in review it
-    (a) restored the stale promoted copy, leaving 20 ids in BOTH plans/ and
-    drafts/, and (b) declared it delisted -- flagging five Just Energy plans as
-    gone from a PTC snapshot that still listed all five. Their names could not
-    match the listing because the parser reads their EFL header as
-    retailer "Just Energy - Fixed Rate Product: Basics PTC - 24" and name
-    "For Service Area: Oncor", which carries no product identity at all.
+    A verified reading must not be displaced by an unverified one: it stays
+    rankable while its replacement waits in review. The alternative -- dropping
+    it because a draft exists -- removes the plan from the ranking entirely and
+    loses the value for good, since the quarantine is wiped next run.
     """
     plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
     drafts_dir = tmp_path / "drafts"
     drafts_dir.mkdir()
-    _q_plan(q / "plans" / "je_24.yaml", "je_24", "Just Energy - Fixed Rate Product: Basics PTC - 24",
-            "For Service Area: Oncor", 24)
-    # The run rebuilt it, but the parse was uncertain so it stayed a draft.
-    _q_plan(drafts_dir / "je_24.yaml", "je_24", "Just Energy", "Basics PTC - 24", 24)
+    _q_plan(q / "plans" / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)  # verified
+    _q_plan(drafts_dir / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)   # new, in review
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["delisted"] == []
+    assert (plans_dir / "gexa_12.yaml").exists(), "the verified copy must stay rankable"
+    assert (drafts_dir / "gexa_12.yaml").exists(), "its replacement must stay in review"
+
+
+def test_precedence_unreviewed_old_copy_loses_to_the_fresher_draft(tmp_path):
+    """An old copy that was never verified is just an older guess -- drop it."""
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    stale = q / "plans" / "gexa_12.yaml"
+    _q_plan(stale, "gexa_12", "Gexa Energy", "Gexa 12", 12)
+    stale.write_text(stale.read_text() + "needs_review: true\n")
+    _q_plan(drafts_dir / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)
 
     out = app_common.reconcile_quarantine(
         plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
     )
 
     assert out["dropped"] == 1
-    assert out["restored"] == [] and out["delisted"] == []
-    # The stale copy must NOT reappear beside its own draft.
-    assert not (plans_dir / "je_24.yaml").exists()
+    assert out["kept_pending_review"] == [] and out["restored"] == []
+    assert not (plans_dir / "gexa_12.yaml").exists()
+
+
+def test_a_rebuilt_plan_is_never_flagged_delisted(tmp_path):
+    """Whatever the run rebuilt is still sold, however the name parses.
+
+    Five Just Energy plans were flagged as gone from a PTC snapshot that still
+    listed all five: the parser reads their EFL header as retailer "Just Energy
+    - Fixed Rate Product: Basics PTC - 24" and name "For Service Area: Oncor",
+    so the name carries no product identity to match a listing with.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    stale = q / "plans" / "je_24.yaml"
+    _q_plan(stale, "je_24", "Just Energy - Fixed Rate Product: Basics PTC - 24",
+            "For Service Area: Oncor", 24)
+    stale.write_text(stale.read_text() + "needs_review: true\n")
+    _q_plan(drafts_dir / "je_24.yaml", "je_24", "Just Energy", "Basics PTC - 24", 24)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["delisted"] == []
     assert (drafts_dir / "je_24.yaml").exists()

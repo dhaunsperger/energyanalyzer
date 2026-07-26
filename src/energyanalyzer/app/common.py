@@ -891,13 +891,24 @@ def reconcile_quarantine(
 
     Three outcomes per quarantined plan:
 
-    * **re-derived** -- that id exists again, as a promoted plan OR as a draft,
-      so the quarantine copy is dropped. The normal path. A draft counts: the
-      run DID rebuild the plan, it just landed in review instead of clearing the
-      confidence gate. Missing that produced two failures at once on 2026-07-26
-      -- a stale promoted copy restored alongside its own fresh draft (20 ids in
-      both places), and five Just Energy plans flagged as gone from a PTC
-      snapshot that still listed all five.
+    Precedence for a given id, best first -- confidence, then freshness:
+
+      1. this run's parse, promoted (confident AND new)
+      2. the previous copy, if it was verified (needs_review False)
+      3. this run's parse, sitting in review as a draft
+      4. the previous copy, if it too was unreviewed -- dropped
+
+    So a verified reading is never displaced by an unverified one: it stays
+    rankable while its replacement waits for review (`kept_pending_review`).
+    An old copy that was itself unreviewed loses to the fresher draft, since
+    keeping it would only preserve an older guess.
+
+    * **re-derived** -- the id exists again, so the quarantine copy is dropped.
+      The normal path. A draft counts as rebuilt: the run DID parse the plan, it
+      just did not clear the confidence gate. Missing that produced two failures
+      at once on 2026-07-26 -- a stale promoted copy restored alongside its own
+      fresh draft (20 ids in both places), and five Just Energy plans flagged as
+      gone from a PTC snapshot that still listed all five.
     * **still listed** -- no plan file, but a source that ran this run still
       advertises it. Its EFL simply didn't make it (a WAF block, a download
       failure, a funnel that drifted). Restored untouched: the plan is real and
@@ -914,7 +925,8 @@ def reconcile_quarantine(
     """
     plans_dir, efl_dir = Path(plans_dir), Path(efl_dir)
     q = Path(quarantine_dir)
-    result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0}
+    result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0,
+              "kept_pending_review": []}
     _restored_plans: list = []
     if not q.exists():
         return result
@@ -932,7 +944,9 @@ def reconcile_quarantine(
 
     drafts_dir = Path(drafts_dir)
     for path in sorted((q / "plans").glob("*.yaml")) if (q / "plans").exists() else []:
-        if (plans_dir / path.name).exists() or (drafts_dir / path.name).exists():
+        # A confident promotion this run always wins: it is both newer and
+        # verified, and it already overwrote plans/<id>.
+        if (plans_dir / path.name).exists():
             result["dropped"] += 1
             continue
         try:
@@ -941,6 +955,20 @@ def reconcile_quarantine(
         except Exception:  # noqa: BLE001 -- unreadable: restore it and move on
             shutil.move(str(path), str(plans_dir / path.name))
             result["restored"].append(path.stem)
+            continue
+        if (drafts_dir / path.name).exists():
+            # The run rebuilt this plan but the parse landed in review. Rank
+            # order between the two copies is by CONFIDENCE, then freshness:
+            # a previously verified reading outranks an unverified new one, so
+            # it stays rankable while its replacement waits for review. An old
+            # copy that was itself unreviewed loses to the fresher draft and is
+            # dropped -- keeping it would only preserve an older guess.
+            if not plan.needs_review:
+                shutil.move(str(path), str(plans_dir / path.name))
+                _restored_plans.append(plan)
+                result["kept_pending_review"].append(plan.id)
+            else:
+                result["dropped"] += 1
             continue
         _restored_plans.append(plan)
 
@@ -986,7 +1014,7 @@ def reconcile_quarantine(
         shutil.move(str(path), str(efl_dir / path.name))
         result["efls_restored"] += 1
 
-    if result["restored"] or result["delisted"]:
+    if result["restored"] or result["delisted"] or result["kept_pending_review"]:
         invalidate_plans_cache()
     return result
 
@@ -1933,6 +1961,11 @@ def finish_refresh(
     reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
     if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
         summary["quarantine"] = reconciled
+    for plan_id in reconciled.get("kept_pending_review", []):
+        notes.append(
+            f"Kept verified plan {plan_id} in the ranking: this refresh re-parsed it, but the "
+            "new reading needs review. The previous verified copy stands until you accept it."
+        )
     for plan_id in reconciled["restored"]:
         notes.append(
             f"Kept existing plan {plan_id}: this refresh did not rebuild it, but the "
