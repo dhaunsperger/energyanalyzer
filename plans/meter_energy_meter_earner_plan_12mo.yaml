@@ -1,0 +1,28 @@
+id: meter_energy_meter_earner_plan_12mo
+retailer: Meter Energy
+name: Meter Earner Plan
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 14.95
+energy_rates:
+- rate_ckwh: 13.79
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 8.0
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Meter_Energy_Earner_12.pdf
+retrieved: '2026-07-26'
+notes: ''
+needs_review: false
+excludes_solar: false

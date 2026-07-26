@@ -1,0 +1,27 @@
+id: energy_texas_no_bull_24_24_month_plan_24mo
+retailer: Energy Texas
+name: No Bull 24 - 24 month plan
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.124
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Energy_Texas_No_Bull_24.pdf
+retrieved: '2026-07-26'
+notes: ''
+needs_review: false
+excludes_solar: false
