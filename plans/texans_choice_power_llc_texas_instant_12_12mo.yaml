@@ -1,5 +1,5 @@
 id: texans_choice_power_llc_texas_instant_12_12mo
-retailer: Texans Choice Power, LLC
+retailer: Texans Choice Power LLC
 name: Texas Instant 12
 term_months: 12
 tdu: ONCOR
@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Texas_Instant_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 05b71787b75c8fc31f6447fe25ed60b9bff3f98987238a002aa069c7f214c6b9
+source_sha256: 8a1502bfc8aa263163a1a20b6e1c0cb31d88c163930c33aca4775588a7e799db
 notes: ''
 needs_review: false
 excludes_solar: false

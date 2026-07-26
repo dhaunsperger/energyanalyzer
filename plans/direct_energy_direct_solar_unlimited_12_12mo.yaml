@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Direct_Energy_Direct_Solar_Unlimited_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 35732414097a83353a076180cea62bd073365a70711041c94cdeb8649c358ff8
+source_sha256: 916e2cec2c8a2badeb6c341ff61374c7b25e43a8b945a3fd014f9847ab5a9406
 notes: ''
 needs_review: false
 excludes_solar: false

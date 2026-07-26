@@ -1,0 +1,30 @@
+id: discount_power_bill_credit_bundle_13_13mo
+retailer: Discount Power
+name: Bill Credit Bundle 13
+term_months: 13
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 14.3341
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:Discount_Power_Bill_Credit_Bundle_13.pdf
+retrieved: '2026-07-26'
+source_sha256: e510ca0519a6eb20f91278b6f368126f1785f6fb5a01d588531a8a1b180f1a1f
+notes: ''
+needs_review: false
+excludes_solar: false

@@ -41,7 +41,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Twelve_Hour_Power_18_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: 5661d0b2c31cfe0663d2bf3c75769368295d1939f24cd5094febc4dcfe0e4689
+source_sha256: 22942141db1c1b69c0221607cd2aabe67fc081fdb1abe0bfb4e81b8552e91375
 notes: free window (12h) read from prose; it is priced in a different column from
   its label, so no rate table carries it; TDU delivery charge waived during the free
   window (not be billed for any TDU delivery charges during the Designated Free)

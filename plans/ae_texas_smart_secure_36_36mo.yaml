@@ -1,5 +1,5 @@
 id: ae_texas_smart_secure_36_36mo
-retailer: AE TEXAS
+retailer: Ae Texas
 name: Smart Secure 36
 term_months: 36
 tdu: ONCOR
@@ -21,7 +21,7 @@ etf_per_month_remaining: true
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_36.pdf
 retrieved: '2026-07-26'
-source_sha256: eac49cc5c4e19436277591888c42d60b2fa898dfcbe32b30ceacb3b3eadd3bb0
+source_sha256: bff8d9ecb7c41ed1e2fd7ee0d4f90819afd1d611303cb4dc253f79bd2985a861
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

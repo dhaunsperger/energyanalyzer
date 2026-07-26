@@ -1,0 +1,28 @@
+id: reliant_reliant_power_on_flex_plan_1mo
+retailer: Reliant
+name: Reliant Power On Flex plan
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 5.0
+energy_rates:
+- rate_ckwh: 11.3701
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+rate_type: variable
+renewable_pct: 22.0
+source: efl:RELIANT_Reliant_Power_On_Flex_plan.pdf
+retrieved: '2026-07-26'
+source_sha256: e6e29c859e45e0b9e9faa6259d1be956521ad940b07abcbbe15399cc732e8c6a
+notes: ''
+needs_review: false
+excludes_solar: false

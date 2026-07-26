@@ -1,0 +1,28 @@
+id: energy_texas_no_bull_12_12mo
+retailer: Energy Texas
+name: No Bull 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.724
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Energy_Texas_No_Bull_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 1b27797f3840b1721f11795bacf6fbd0e98c2b2f359b189af91c601452f8bd28
+notes: ''
+needs_review: false
+excludes_solar: false

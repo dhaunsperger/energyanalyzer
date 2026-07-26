@@ -1,0 +1,29 @@
+id: pronto_power_pronto_flex_30_1mo
+retailer: Pronto Power
+name: Pronto Flex 30
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 11.86
+energy_rates:
+- rate_ckwh: 18.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 25.0
+etf_per_month_remaining: false
+rate_type: variable
+renewable_pct: 25.0
+source: efl:PRONTO_POWER_Pronto_Flex_30.pdf
+retrieved: '2026-07-26'
+source_sha256: 63457790da30db2f0e963aad4391166ad44d51357ded55511f99ff024d5cf633
+notes: could not find an Energy Charge rate; base_charge_usd ($11.86/mo) derived from
+  a per-day customer fee (fee * 365 / 12, rounded to cents)
+needs_review: false
+excludes_solar: false

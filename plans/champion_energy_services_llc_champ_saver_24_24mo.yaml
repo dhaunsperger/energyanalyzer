@@ -1,5 +1,5 @@
 id: champion_energy_services_llc_champ_saver_24_24mo
-retailer: Champion Energy Services, LLC
+retailer: Champion Energy Services LLC
 name: Champ Saver-24
 term_months: 24
 tdu: ONCOR
@@ -26,7 +26,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CHAMPION_ENERGY_SERVICES_LLC_Champ_Saver-24.pdf
 retrieved: '2026-07-26'
-source_sha256: 6ff17527f2794ae3faec5aea9bdd1b27ad119eaa211225c3512a5b20d038f4b3
+source_sha256: 261aacc66483ea37a71d57cb2ec0bb3e57e36060443922ea6b5a05237fc010f7
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

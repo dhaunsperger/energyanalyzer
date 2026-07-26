@@ -31,7 +31,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Free_Power_Weekends_24_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: d31cbffacf50c02d5665f9d4eb3b3f0797071a0827b4d4b1ea924935ff5c07a6
+source_sha256: b946429e4f602751ed8624fe8b8f03d819dc19cf4ec52066ce1ad03717031f2b
 notes: TDU delivery charge waived during the free window (not be billed for any TDU
   delivery charges during the Designated Free)
 needs_review: false

@@ -1,5 +1,5 @@
 id: texans_choice_power_llc_choose_6_6mo
-retailer: Texans Choice Power, LLC
+retailer: Texans Choice Power LLC
 name: Choose 6
 term_months: 6
 tdu: ONCOR
@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Choose_6.pdf
 retrieved: '2026-07-26'
-source_sha256: 47a20ac42789e104b96507e4a90748ec544aeff5d513ddfffced8830a6ff36b5
+source_sha256: 56981c9ba82af1dd5dedc624746ad3730eac7c0f353001754cd3fa0dcc5395f3
 notes: ''
 needs_review: false
 excludes_solar: false

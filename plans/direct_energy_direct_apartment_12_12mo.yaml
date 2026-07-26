@@ -1,0 +1,29 @@
+id: direct_energy_direct_apartment_12_12mo
+retailer: Direct Energy
+name: Direct Apartment 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 8.8798
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 10.0
+etf_per_month_remaining: true
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:Direct_Energy_Direct_Apartment_12.pdf
+retrieved: '2026-07-26'
+source_sha256: c6f978a87185120c019f104a31a1b9add4e6dec34e3a8513eb02d255d3b5b165
+notes: multiple differing flat Energy Charge values found [8.8798, 10.8798]; used
+  first (8.8798)
+needs_review: false
+excludes_solar: false

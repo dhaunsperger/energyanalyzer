@@ -22,7 +22,7 @@ rate_type: variable
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Freedom.pdf
 retrieved: '2026-07-26'
-source_sha256: e39ebeb6eeff9602929c564b471df5b8e02a9507073eac1e834fa2189590b71b
+source_sha256: b05ddab99a421f7a1df9bda8f6db2447024ed1d0b54059ed67d85d0feea440e3
 notes: ''
 needs_review: false
 excludes_solar: false

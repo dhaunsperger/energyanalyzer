@@ -1,0 +1,28 @@
+id: think_energy_think_clean_12_12mo
+retailer: Think Energy
+name: Think Clean 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 7.8
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 200.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Think_Energy_Think_Clean_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 066745bdd83089653bc795099caa278145968f086da9368fcda584c65c9be350
+notes: ''
+needs_review: false
+excludes_solar: false

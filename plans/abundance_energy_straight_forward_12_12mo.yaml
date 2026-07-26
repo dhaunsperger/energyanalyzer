@@ -1,0 +1,28 @@
+id: abundance_energy_straight_forward_12_12mo
+retailer: Abundance Energy
+name: Straight Forward 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 5.0
+energy_rates:
+- rate_ckwh: 5.82
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 200.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 25.5
+source: efl:Abundance_Energy_Straight_Forward_12.pdf
+retrieved: '2026-07-26'
+source_sha256: f16d6a850a8f11c7c2d082ea51c93b9e0295fb4079a01db8a587fdb5e0aa9a6c
+notes: ''
+needs_review: false
+excludes_solar: false

@@ -1,0 +1,29 @@
+id: tara_energy_sustainable_home_bundle_5_5mo
+retailer: Tara Energy
+name: Sustainable Home Bundle - 5
+term_months: 5
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.9
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:TARA_ENERGY_Sustainable_Home_Bundle_-_5.pdf
+retrieved: '2026-07-26'
+source_sha256: 5d3851113e62f22f439c1d98b7bb986f8bc9c1569003cbf43a2c10a3a9cf6f05
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

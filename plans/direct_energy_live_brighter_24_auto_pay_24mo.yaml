@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Live_Brighter_24_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: 62d68f704024106c58f36aae1c5035418b901cccf63d4ba722642db29479b011
+source_sha256: c346faa0ce472edd86db060f33fb598866106453df8d281b2643c1528f4bc6f3
 notes: ''
 needs_review: false
 excludes_solar: false

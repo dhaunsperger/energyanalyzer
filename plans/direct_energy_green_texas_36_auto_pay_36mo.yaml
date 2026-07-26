@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Direct_Energy_Green_Texas_36_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: 18d9b7df6d8d36d8084a84d69977ba4d60aacd6343ad1e2930fc7fccf3ba28b1
+source_sha256: 3875b2541bc4eb66f9425bdb13d646b7b917c07c115b8c29ab2b27c12d7b6eba
 notes: ''
 needs_review: false
 excludes_solar: false

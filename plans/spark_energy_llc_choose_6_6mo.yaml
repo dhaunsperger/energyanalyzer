@@ -1,5 +1,5 @@
 id: spark_energy_llc_choose_6_6mo
-retailer: Spark Energy, LLC
+retailer: Spark Energy LLC
 name: Choose 6
 term_months: 6
 tdu: ONCOR
@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_6.pdf
 retrieved: '2026-07-26'
-source_sha256: d755ada51e7e93d7d0573bc7aed87dff4f60ec082c6643be79b0b2c8f7aad583
+source_sha256: 630190b313ce87b1051db65d4a9a8ac73a917bbb32d96a33f24914f7346799a9
 notes: ''
 needs_review: false
 excludes_solar: false

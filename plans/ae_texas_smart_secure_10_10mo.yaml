@@ -1,5 +1,5 @@
 id: ae_texas_smart_secure_10_10mo
-retailer: AE TEXAS
+retailer: Ae Texas
 name: Smart Secure 10
 term_months: 10
 tdu: ONCOR
@@ -21,7 +21,7 @@ etf_per_month_remaining: true
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_10.pdf
 retrieved: '2026-07-26'
-source_sha256: 5f926cf01cda151cc486a66bf3962203e239a8ff65b8840aa0b1ce1a27a25620
+source_sha256: 2b7b9ceb4876edb117c64717d89ca955574396fe15fbe2f0af7bd5ac3f372eb9
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

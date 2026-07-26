@@ -22,7 +22,7 @@ rate_type: fixed
 renewable_pct: 24.0
 source: efl:Direct_Energy_Power_Balance_12.pdf
 retrieved: '2026-07-26'
-source_sha256: d938118790cccbd4252daa74d73b8b67a73c2a323ae7b39b4283781a607986ae
+source_sha256: ccd4baa18db5fbc4badfbc8f42e4ce75a8852115fdc417bed5bbd206b8d8e012
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

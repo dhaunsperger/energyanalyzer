@@ -1,0 +1,28 @@
+id: cirro_energy_smart_simple_24_24mo
+retailer: Cirro Energy
+name: Smart Simple 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.4201
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:CIRRO_ENERGY_Smart_Simple_24.pdf
+retrieved: '2026-07-26'
+source_sha256: 08ee59810aaac587db5297421671e5814313c52bc2268726f5baf1553d042f9c
+notes: ''
+needs_review: false
+excludes_solar: false

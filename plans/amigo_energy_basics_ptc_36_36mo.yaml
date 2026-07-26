@@ -1,0 +1,29 @@
+id: amigo_energy_basics_ptc_36_36mo
+retailer: Amigo Energy
+name: Basics PTC - 36
+term_months: 36
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 9.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:AMIGO_ENERGY_Basics_PTC_-_36.pdf
+retrieved: '2026-07-26'
+source_sha256: 9248f428e4383a57a9889fb653a80bf9fe5619b0ed8a04a96d7056e178d5d032
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

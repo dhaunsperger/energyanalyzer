@@ -1,0 +1,28 @@
+id: good_charlie_co_llc_goodenergy_12_12mo
+retailer: Good Charlie & Co LLC
+name: GoodEnergy 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 6.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+renewable_pct: 24.7
+source: efl:GOOD_CHARLIE_CO_LLC_GoodEnergy_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 30ebbc89cc475533956ca97a091d88afd4335cb8387a59045e2118dc35b6fe8c
+notes: ''
+needs_review: false
+excludes_solar: false

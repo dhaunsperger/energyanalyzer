@@ -1,0 +1,56 @@
+id: just_energy_free_nights_plan_12_12mo
+retailer: Just Energy
+name: Free Nights Plan - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays: []
+    hours:
+    - 21
+    - 22
+    - 23
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+  label: free
+  tdu_exempt: false
+- rate_ckwh: 17.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:EFL_Just_Energy_Free_Nights_12_English_Residential_20260726183612.pdf
+retrieved: '2026-07-26'
+source_sha256: fd2add1175da1764eded7ddc0b4f41af96366dd169595d54329b21db48e1bc9c
+notes: 'NOT USABLE with rooftop solar. Just Energy ToS 10.1(a): for a time-of-use
+  plan (''Nights Free Plan, or similar'') Just Energy reserves the right to automatically
+  TRANSITION the ESI ID to the Variable Price Product if the premises has solar/distributed
+  generation or a battery, OR if the TDU load profile carries a PV/WD/DG designation
+  -- which this premises'' does. That is worse than being refused at signup: you enrol
+  at the modelled price and are then moved to a 31-day variable product whose price
+  changes at their discretion without notice, so none of the economics below hold.
+  Night Hours 9:00PM-7:00AM credited at 100% of the Energy Charge; TDU delivery still
+  billed on night kWh (confirmed: the model reproduces all three published average
+  prices to 0.05c). $4.99 minimum-usage fee applies below 400 kWh/cycle -- not modelled.
+  EFL: ''Customers with distributed generation may not be eligible for this product''
+  -- this premise HAS rooftop solar, so CONFIRM ELIGIBILITY before enrolling.'
+needs_review: true
+excludes_solar: true

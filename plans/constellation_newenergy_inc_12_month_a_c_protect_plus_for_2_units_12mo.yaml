@@ -1,0 +1,32 @@
+id: constellation_newenergy_inc_12_month_a_c_protect_plus_for_2_units_12mo
+retailer: Constellation Newenergy INC
+name: 12 Month A/C Protect Plus for 2 Units
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 12.67
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 35.0
+- min_kwh: 2000.0
+  credit_usd: 15.0
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 24.7
+source: efl:CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.pdf
+retrieved: '2026-07-26'
+source_sha256: 1e20c6cb724061d3e0848de24c956d6e666cc8054a4e8ecaddf9d38b6b6bcab4
+notes: ''
+needs_review: false
+excludes_solar: false

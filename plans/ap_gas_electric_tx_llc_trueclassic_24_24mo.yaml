@@ -1,0 +1,28 @@
+id: ap_gas_electric_tx_llc_trueclassic_24_24mo
+retailer: Ap Gas & Electric (Tx) LLC
+name: TrueClassic 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 6.474
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 250.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 5.85
+source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_24.pdf
+retrieved: '2026-07-26'
+source_sha256: c21b389aaf39421d39bb63259dbfeb67122b5711f413b6f1ea4f7661434a2912
+notes: ''
+needs_review: false
+excludes_solar: false

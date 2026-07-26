@@ -1,0 +1,28 @@
+id: abundance_energy_confident_renter_12_12mo
+retailer: Abundance Energy
+name: Confident Renter 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 6.22
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 200.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 25.5
+source: efl:Abundance_Energy_Confident_Renter_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 2be14db7b2bf170aeac6db92b81c7e3004f64df725c3573a1d7a14acc7070eb2
+notes: ''
+needs_review: false
+excludes_solar: false

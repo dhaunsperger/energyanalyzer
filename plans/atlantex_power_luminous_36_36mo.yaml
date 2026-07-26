@@ -21,7 +21,7 @@ etf_per_month_remaining: true
 rate_type: fixed
 source: efl:Atlantex_Power_Luminous_36.pdf
 retrieved: '2026-07-26'
-source_sha256: 185c1da0eceff3944fc6aa90a3f579a945665eb6b3943953ae457d3d5e602eaf
+source_sha256: 71f472b203c2daf306d514bacacc8cbf805d033f2f5581fab1532026dc8df5e1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

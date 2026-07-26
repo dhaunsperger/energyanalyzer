@@ -1,0 +1,29 @@
+id: smartenergy_holdings_llc_smartgreen_24_200_bill_credit_24mo
+retailer: Smartenergy Holdings LLC
+name: SmartGreen 24 $200 Bill Credit
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 8.2
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:SMARTENERGY_HOLDINGS_LLC_SmartGreen_24_200_Bill_Credit.pdf
+retrieved: '2026-07-26'
+source_sha256: b2e7c04b1bbbb71b4bb89806b7516fd8c52c3754a6a7536120c30f604cda84d7
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan
+needs_review: false
+excludes_solar: false

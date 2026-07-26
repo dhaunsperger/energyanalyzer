@@ -1,0 +1,28 @@
+id: txu_energy_simple_value_24_24mo
+retailer: TXU Energy
+name: Simple Value 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 9.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_Simple_Value_24.pdf
+retrieved: '2026-07-26'
+source_sha256: 468a3ee3190bed1aad94ba9959297da61ac3d174cb88f334fe165576c3a41770
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: false
+excludes_solar: false
