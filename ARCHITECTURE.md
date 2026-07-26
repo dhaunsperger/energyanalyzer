@@ -625,6 +625,19 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
   for engine validation; live shopping requires refreshed EFLs.
 - Battery simulation: out of scope v1. Taxes: excluded by design.
+- **TODO — make home features a setting, not an assumption (not urgent).**
+  Today "this premise has rooftop solar" is baked in everywhere: the whole app
+  is built around export, and `Plan.excludes_solar` hides plans whose REP won't
+  sell to a solar home (TXU Free Nights & Cool Summer 12 is the only one in 243
+  EFLs). Doug wants to share this with a friend whose setup is unknown, which
+  breaks that assumption. Scope: checkboxes for **solar / EV / battery** (in
+  `data/config.yaml` alongside `load_zone`, surfaced on a settings or Usage
+  page), then use them for eligibility rather than hardcoding. Note the same
+  TXU footnote excludes EV and battery owners too, so the parser should record
+  *which* features disqualify a plan (`excludes_solar` generalises to an
+  `excludes: [solar, ev, battery]` list) rather than collapsing them to one
+  boolean. `Plan.ev_free_charging` is already an EV-only feature that is dead
+  weight for a household without one.
 
 ## 12. Running the app
 

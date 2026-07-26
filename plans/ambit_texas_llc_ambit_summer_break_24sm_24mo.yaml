@@ -1,16 +1,15 @@
-id: mp_ambit_energy_texas_solar_buyback_12mo
-retailer: Ambit Energy
-name: Texas Solar Buyback
-term_months: 12
+id: ambit_texas_llc_ambit_summer_break_24sm_24mo
+retailer: Ambit Texas, LLC
+name: Ambit Summer Break 24SM
+term_months: 24
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 12.6
+- rate_ckwh: 15.7
   label: ''
   tdu_exempt: false
 buyback:
-  kind: fixed
-  rate_ckwh: 3.5
+  kind: none
   rates: []
   offset_scope: all_charges
   rollover: true
@@ -20,7 +19,8 @@ tdu_passthrough: true
 etf_usd: 199.0
 etf_per_month_remaining: false
 rate_type: fixed
-source: meterplan
+renewable_pct: 3.0
+source: efl:Ambit_Energy_Summer_Break_24.pdf
 retrieved: '2026-07-26'
-notes: ''
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false

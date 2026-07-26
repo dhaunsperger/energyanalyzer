@@ -1692,3 +1692,74 @@ def test_credited_window_is_read_even_though_the_efl_never_says_free():
 
     # No credit sentence -> nothing to infer, even with an hours definition.
     assert _extract_credited_window("Day Hours = 9:00 AM - 4:00 PM.\n") is None
+
+
+def test_unmodelled_bonus_credit_is_flagged_but_plain_free_nights_is_not():
+    """A bonus the schema can't express must not be promoted silently.
+
+    TXU's Free Nights & Cool Summer 12 pays "an additional 25% credit on all
+    Energy Charges" in Jul-Aug-Sep on top of the free-nights window. Nothing
+    misparses, so nothing scores low -- the plan just quietly under-ranks,
+    because we model it as costing more than it does. That is the one failure
+    shape a confidence gate cannot see.
+
+    The discrimination matters: an ordinary free-nights plan says "100% credit
+    on all Energy Charges", which IS modelled (a 0.0 rate over the window) and
+    must stay unflagged, or every free-nights plan lands in review.
+    """
+    from energyanalyzer.eflparse.parser import _BONUS_CREDIT_RE
+
+    txu = (
+        "Free Nights Savings: From 9:00 p.m. through 4:59 a.m. each day, you will receive "
+        "a 100% credit on all Energy Charges. Cool Summer Bonus: You will receive an "
+        "additional 25% credit on all Energy Charges during the Free Nights Savings period "
+        "during July, August, and September."
+    )
+    ambit = (
+        "Free Nights: You can receive a 100% Discount on all Energy Charges during the "
+        "nighttime hours from 9:00 p.m. through 5:59 a.m. each day."
+    )
+    assert _BONUS_CREDIT_RE.search(txu)
+    assert not _BONUS_CREDIT_RE.search(ambit)
+
+
+def test_solar_exclusion_needs_both_an_exclusion_word_and_a_solar_subject():
+    """`excludes_solar` gates eligibility, so a false positive silently hides a
+    buyable plan from ranking. Requires BOTH signals in one sentence: "solar"
+    alone is everywhere in these documents (renewable content, buyback terms,
+    brand names) and would flag much of the corpus.
+
+    Audited over all 243 EFLs on disk: exactly one match, TXU's Free Nights &
+    Cool Summer 12.
+    """
+    from energyanalyzer.eflparse.parser import _SOLAR_EXCLUSION_RE, _SOLAR_SUBJECT_RE
+
+    def flagged(text: str) -> bool:
+        return any(
+            _SOLAR_SUBJECT_RE.search(m.group(0)) for m in _SOLAR_EXCLUSION_RE.finditer(text)
+        )
+
+    assert flagged(
+        "Customers with electric vehicles, batteries, and/or solar panels are ineligible "
+        "for this plan."
+    )
+    # Buyback terms mention solar constantly -- never an exclusion.
+    assert not flagged(
+        "Solar Buyback: excess generation from your rooftop solar panels is credited at "
+        "9.7 cents per kWh."
+    )
+    # An exclusion about something else entirely.
+    assert not flagged("Prepaid customers are ineligible for this product.")
+    # 100% renewable content is not an eligibility statement.
+    assert not flagged("This product is 100% renewable, sourced from Texas wind and solar.")
+
+
+def test_excludes_solar_defaults_false_and_round_trips():
+    from energyanalyzer.core.models import EnergyRate, Plan
+
+    base = dict(
+        id="x", retailer="R", name="N", term_months=12,
+        energy_rates=[EnergyRate(label="", rate_ckwh=12.0, window=None)],
+    )
+    assert Plan(**base).excludes_solar is False
+    assert Plan(**base, excludes_solar=True).excludes_solar is True
