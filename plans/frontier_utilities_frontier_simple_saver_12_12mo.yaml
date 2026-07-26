@@ -23,7 +23,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Simple_Saver_12.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

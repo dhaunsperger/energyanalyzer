@@ -288,8 +288,16 @@ _WEEKDAY_WORDS = {
 #   "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, ..."
 #   "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, ..."
 # so Friday is a weekend day here. Parse that definition instead of assuming.
+# The gap before "defined as" must not swallow the OTHER keyword. These EFLs
+# print the rate rows immediately above the definitions, so the text runs
+# "...0.0000 ¢ per kWh - Weekends Weekdays is defined as 12:01 AM Monday to
+# 11:59 PM Friday": a permissive gap let a match start at the rate row's
+# "Weekends", skip " Weekdays is " as filler, and return the WEEKDAY range as
+# the weekend definition. Frontier's weekend came back as Mon-Fri and Gexa's
+# ("Free 3 Day Weekends", genuinely Fri-Sun) as Mon-Thu -- which would have
+# applied the free rate to weekdays and the full rate to the weekend.
 _DAY_DEFN_RE = re.compile(
-    r"\b(weekend|weekday)s?\b[^.\n]{0,20}?defined\s+as\s+"
+    r"\b(weekend|weekday)s?\b(?:(?!week)[^.\n]){0,20}?defined\s+as\s+"
     r"(\d{1,2}:\d{2}\s*[ap]\.?\s*m\.?)\s+"
     r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+"
     r"(?:to|through|until|-)\s+"
@@ -931,6 +939,43 @@ def _extract_free_window(text: str) -> Optional[dict]:
     return None
 
 
+_CREDITED_WINDOW_RE = re.compile(
+    r"credit\s+for\s+Energy\s+Charges?\s+resulting\s+from\s+energy\s+consumed\s+"
+    r"during\s+(?:the\s+)?([A-Za-z][A-Za-z ]{1,20}?\bHours)",
+    re.I,
+)
+
+
+def _extract_credited_window(text: str) -> Optional[dict]:
+    """A window whose energy charge is credited back rather than called "free".
+
+    The Amigo/Just Energy/Tara "Days Bundle" plans say "Your bill will contain a
+    credit for Energy Charges resulting from energy consumed during Day Hours",
+    and define the window separately as "Day Hours = 9:00 AM - 4:00 PM". Nothing
+    on the document says "free", so :func:`_extract_free_window` -- which keys
+    off that word -- never saw it, and the plans were modelled as billing the
+    full rate for seven hours a day that cost nothing.
+
+    Returns the same shape as `_extract_free_window`, or None.
+    """
+    # Match against whitespace-normalised text: both the credit sentence and the
+    # window definition wrap mid-phrase in these PDFs ("Day Hours = 9:00 AM -"
+    # with "4:00 PM" on the next line), so anything newline-sensitive sees only
+    # half of each and silently finds nothing.
+    flat = " ".join((text or "").split())
+    m = _CREDITED_WINDOW_RE.search(flat)
+    if not m:
+        return None
+    label = m.group(1).strip()
+    defn = re.search(rf"{re.escape(label)}\s*(?:=|:|are|is)\s*([^.]{{4,50}})", flat, re.I)
+    if not defn:
+        return None
+    hours = parse_time_range(defn.group(0))
+    if not hours:
+        return None
+    return {"hours": hours, "weekdays": [], "evidence": defn.group(0).strip()[:120]}
+
+
 def _extract_tou_table(text: str) -> Optional[list[dict]]:
     """Detect a labeled Peak/Mid-Peak/Off-Peak energy-charge table where each
     line also carries its time window in parentheses, e.g.:
@@ -966,6 +1011,52 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
         )
     labels = {r["label"] for r in rows}
     if len(labels) < 2:
+        return None
+    return rows
+
+
+_SUFFIXED_TIER_RE = re.compile(
+    r"Energy\s*Charge\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*per\s*kWh\s*"
+    r"[–—-]\s*([A-Za-z][A-Za-z ]{2,20}?)(?=[\s.,]|$)",
+    re.I,
+)
+
+
+def _extract_suffixed_energy_tiers(text: str) -> Optional[list[dict]]:
+    """Rate rows whose qualifier TRAILS the rate rather than leading it:
+
+        Energy Charge 17.6000 ¢ per kWh – Weekdays
+        Energy Charge 0.0000 ¢ per kWh – Weekends
+
+    (Frontier Free Weekends, Gexa Free 3 Day Weekends.) The brand-tier reader
+    only recognises a leading label, so these fell through to the flat-rate
+    reader, which took the first row and modelled the WEEKDAY rate every day of
+    the week -- the free weekend silently dropped.
+
+    Returns rows as ``{"qualifier", "rate_ckwh", "weekdays", "evidence"}`` only
+    when exactly two rows resolve to non-empty, non-overlapping day sets --
+    anything less clear-cut is left to the callers' other readers.
+    """
+    rows = []
+    for m in _SUFFIXED_TIER_RE.finditer(text):
+        qualifier = m.group(2).strip()
+        days = _weekdays_from_snippet(qualifier, text)
+        rows.append(
+            {
+                "qualifier": qualifier,
+                "rate_ckwh": float(m.group(1)),
+                "weekdays": days,
+                "evidence": _snippet(m),
+            }
+        )
+    if len(rows) != 2:
+        return None
+    a, b = rows
+    if not a["weekdays"] or not b["weekdays"]:
+        return None
+    if set(a["weekdays"]) & set(b["weekdays"]):
+        return None  # overlapping definitions -- don't guess which wins
+    if a["rate_ckwh"] == b["rate_ckwh"]:
         return None
     return rows
 
@@ -1030,15 +1121,39 @@ def _strip_pua(s: str) -> str:
     return "".join(ch for ch in s if not (0xE000 <= ord(ch) <= 0xF8FF))
 
 
+# Unit markers per charge basis. "ccle"/"illing" are the broken-subset-font
+# spellings of cycle/billing (see _strip_pua).
+_UNIT_MARKERS = (
+    ("kwh", ("kwh",)),
+    ("day", ("day",)),
+    # "ill"/"illing"/"ccle" are broken-subset-font spellings of bill/billing/
+    # cycle. Atlantex prints "ae Charge $19.95 per ill" -- "Base Charge $19.95
+    # per bill" -- which matched no unit at all, so its $19.95 base charge went
+    # unread entirely and defaulted to $0.00.
+    ("month", ("month", "cycle", "ccle", "illing", "ill")),
+)
+
+
 def _classify_unit_kind(unit_word: str) -> str:
+    """Charge basis of a '... per <unit>' phrase, decided by which unit is named
+    FIRST rather than by a fixed precedence.
+
+    The captured phrase can name more than one unit, because a trailing
+    qualifier gets swallowed: "Minimum Usage Charge: $0 per billing cycle < 0
+    kWh" is a per-billing-cycle charge, but testing for "kwh" first classified
+    it per-kWh -- a $0.00 ENERGY RATE, i.e. free electricity around the clock.
+    It was latent (those EFLs resolve their rate by an earlier path) but became
+    reachable once the generic scan's reads started scoring high enough to
+    auto-promote. The unit immediately after "per" is the real basis.
+    """
     u = _strip_pua(unit_word).lower()
-    if "kwh" in u:
-        return "kwh"
-    if "day" in u:
-        return "day"
-    if "month" in u or "cycle" in u or "ccle" in u or "illing" in u:
-        return "month"
-    return "other"
+    best, best_pos = "other", len(u) + 1
+    for kind, markers in _UNIT_MARKERS:
+        for marker in markers:
+            i = u.find(marker)
+            if i != -1 and i < best_pos:
+                best, best_pos = kind, i
+    return best
 
 
 def _generic_charge_rows(text: str) -> list[dict]:
@@ -1085,6 +1200,21 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
     daily = float(m.group(1))
     monthly = round(daily * 365 / 12, 2)
     conf = 0.9 if daily == 0 else 0.65
+    # Some EFLs state the period equivalent alongside the daily rate -- Pronto
+    # Power: "$0.39 cents per day ($11.70 per 30 days)". That doubles as a
+    # check on our reading of an ambiguously-written figure ("$0.39 cents"):
+    # if daily x N days matches their own total, the daily rate is confirmed and
+    # only the day-count convention is left, which is a modelling choice rather
+    # than a doubt about the document. We keep fee x 365/12 (a calendar-average
+    # month) instead of their 30-day figure, so the difference is pennies.
+    if daily:
+        stated = re.search(
+            r"\(\s*\$\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*(\d{2,3})\s*days?\s*\)",
+            text[m.start() : m.end() + 80],
+            re.I,
+        )
+        if stated and abs(daily * float(stated.group(2)) - float(stated.group(1))) < 0.02:
+            conf = 0.85
     return monthly, conf, _snippet(m)
 
 
@@ -1106,7 +1236,7 @@ _PRICE_COMPONENTS_ANCHOR = re.compile(
 # and "Energy" as "nerg". Exact label matching can't see those, which left the
 # value -- correctly read, right there in the row -- scored too low to promote.
 _BASE_LABEL_WORDS = ("base", "basemonthly", "monthlybase", "customer", "monthlyservice", "minimum")
-_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply")
+_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply", "usage")
 
 
 def _is_subsequence(needle: str, haystack: str) -> bool:
@@ -1115,13 +1245,25 @@ def _is_subsequence(needle: str, haystack: str) -> bool:
 
 
 def _label_matches(prefix: str, words: tuple[str, ...]) -> bool:
-    """True if a charge row's label plausibly names one of `words`, tolerating
-    dropped glyphs. Requires >=2 surviving letters so a single stray character
-    can't match everything."""
+    """True if a charge row's label plausibly names one of `words`.
+
+    Two directions, because labels go wrong in two opposite ways:
+
+    * SHORTER than the word -- a broken subset font drops letters, so "Base"
+      arrives as "ae" and "Energy" as "nerg". Matched as a subsequence.
+    * LONGER than the word -- the label is brand-prefixed or compound:
+      "SmartEnergy Fixed Charge", "Base Usage Charge", "Chariot Energy Daytime".
+      Matched as a substring.
+
+    Requires >=2 surviving letters so a single stray character can't match
+    everything. Which bucket a row lands in is decided by its UNIT before this
+    is consulted (per-kWh rows are energy candidates, per-month rows base
+    candidates), so this only has to identify the row, not classify it.
+    """
     p = re.sub(r"[^a-z]", "", _strip_pua(prefix or "").lower())
     if len(p) < 2:
         return False
-    return any(_is_subsequence(p, w) for w in words)
+    return any(_is_subsequence(p, w) or w in p for w in words)
 
 
 def _looks_like_base_label(prefix: str) -> bool:
@@ -1193,6 +1335,59 @@ def _extract_base_charge_from_component_sentence(text: str) -> Optional[Extracti
         if has_energy and has_tdu:
             return 0.0, 0.85, _snippet(m)
     return None
+
+
+_BASE_CHARGE_TRAILING_AMOUNT = re.compile(
+    r"\b(?:monthly\s+)?Base\s+(?:\w+\s+){0,2}Charge\b[^.$]{0,40}?\bof\s*\$\s*(\d+(?:\.\d+)?)",
+    re.I,
+)
+
+
+def _extract_base_charge_trailing_amount(text: str) -> Optional[Extraction]:
+    """A base charge whose amount follows the unit rather than preceding it.
+
+    Constellation writes the components as a numbered prose clause: "(iii) a
+    monthly Base Electricity Charge per ESI-ID of $0.00". Every labelled reader
+    expects "<label> ... $X per <unit>", so the amount was never found and the
+    charge defaulted to $0.00 -- right by luck here, but unread.
+    """
+    m = _BASE_CHARGE_TRAILING_AMOUNT.search(text)
+    return (float(m.group(1)), 0.85, _snippet(m)) if m else None
+
+
+_BULLET_ITEM = re.compile(r"[•▪●]\s*([^•▪●\n]{3,160})")
+
+
+def _extract_base_charge_absent_from_bullet_list(text: str) -> Optional[Extraction]:
+    """A BULLETED price-component list with no REP monthly charge in it.
+
+    Amigo/Tara/Just Energy bundle plans itemize as bullets:
+        • Energy Charge: 7.3¢/kWh.
+        • One-time GoodBundle set up and carbon offset purchase: $49.99.
+        • Pass-Through TDSP Distribution Charge: 6.1196¢/kWh.
+        • Pass-Through TDSP Customer Charge: $4.06 per month.
+    Every recurring component is listed, and the only per-month charge is the
+    TDSP's -- so the REP levies no base charge. Same reasoning as
+    :func:`_extract_base_charge_absent_from_itemized_list`, but these EFLs open
+    with "This price disclosure is based on the average usage levels above",
+    which is not a components anchor; the bullet list itself is the structure.
+
+    Note the TDSP line says "Customer Charge": it is excluded because it is
+    TDU-marked, not because of its label.
+    """
+    items = [m.group(1).strip() for m in _BULLET_ITEM.finditer(text)]
+    if len(items) < 2:
+        return None
+    if not any(re.search(r"energy\s*(?:charge|rate)", i, re.I) for i in items):
+        return None
+    if not any(_TDU_MARK_WORDS.search(i) for i in items):
+        return None
+    rep_items = [i for i in items if not _TDU_MARK_WORDS.search(i)]
+    # A one-time/setup fee is not a recurring monthly charge.
+    recurring = [i for i in rep_items if not re.search(r"one[\s-]*time|set\s*up|enrollment", i, re.I)]
+    if any(_BASE_COMPONENT_WORDS.search(i) for i in recurring):
+        return None  # the REP DOES levy a base charge; let a labelled reader find it
+    return 0.0, 0.85, "; ".join(items[:4])[:200]
 
 
 def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
@@ -1818,7 +2013,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- energy charge / free windows / TOU -------------------------------
     tou_rows = _extract_tou_table(text)
-    free_win = _extract_free_window(text)
+    free_win = _extract_free_window(text) or _extract_credited_window(text)
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
     split_base_charge: Optional[float] = None
@@ -1843,11 +2038,29 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # more reliable read than the generic scanners -- the columns are positional
     # and the TDU's pair is always last. Checked before them so the discounted
     # column can't be mistaken for the flat rate.
-    multi_row = None if tou_rows else _extract_multi_rate_charge_row(text)
+    suffixed_rows = None if tou_rows else _extract_suffixed_energy_tiers(text)
+    multi_row = None if (tou_rows or suffixed_rows) else _extract_multi_rate_charge_row(text)
     if multi_row is not None and multi_row["restricted_index"] is None:
         multi_row = None  # can't tell which column is restricted; don't guess
 
-    if multi_row is not None:
+    if suffixed_rows is not None:
+        # The cheaper row carries the window; the dearer one is the catch-all,
+        # so any interval the window misses still bills at the full rate.
+        cheap, dear = sorted(suffixed_rows, key=lambda r: r["rate_ckwh"])
+        energy_rates.append(
+            {
+                "label": cheap["qualifier"],
+                "rate_ckwh": cheap["rate_ckwh"],
+                "window": {"weekdays": cheap["weekdays"]},
+            }
+        )
+        energy_rates.append({"label": dear["qualifier"], "rate_ckwh": dear["rate_ckwh"], "window": None})
+        flat_ckwh = dear["rate_ckwh"]
+        confidence["energy_charge"] = 0.85
+        confidence["free_window"] = 0.85
+        evidence["energy_charge"] = " | ".join(r["evidence"] for r in suffixed_rows)
+        evidence["free_window"] = cheap["evidence"]
+    elif multi_row is not None:
         ri = multi_row["restricted_index"]
         restricted_rate = multi_row["rates"][ri]
         general_rate = multi_row["rates"][1 - ri]
@@ -2039,6 +2252,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
+    if base_charge is None:
+        trailing_ext = _extract_base_charge_trailing_amount(text)
+        if trailing_ext is not None:
+            base_charge = record("base_charge", trailing_ext)
     if base_charge is None and split_base_charge is not None:
         base_charge = record(
             "base_charge", (split_base_charge, split_base_conf, evidence.get("energy_charge", ""))
@@ -2078,6 +2295,12 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 notes.append(
                     "base charge inferred as $0.00: the EFL states its price components in prose "
                     "and names only an energy charge and TDU delivery charges"
+                )
+            elif (bullet_ext := _extract_base_charge_absent_from_bullet_list(text)) is not None:
+                base_charge = record("base_charge", bullet_ext)
+                notes.append(
+                    "base charge inferred as $0.00: the EFL's bulleted price-component list has "
+                    "no recurring REP monthly charge (only the TDSP's)"
                 )
             else:
                 notes.append("base charge not found; defaulting to 0.0")

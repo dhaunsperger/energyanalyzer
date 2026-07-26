@@ -20,7 +20,7 @@ etf_usd: 49.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: efl:PAYLESS_POWER_PTC_6_Month_-_Prepaid.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: term_months not found; defaulting to 12; base_charge_usd ($0.00/mo) derived
   from a per-day customer fee (fee * 365 / 12, rounded to cents)
 needs_review: false

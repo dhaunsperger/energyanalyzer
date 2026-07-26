@@ -381,12 +381,13 @@ class TestCorpusAeTexasSmartSecure36:
         Plan.model_validate(draft.plan_dict)
 
 
-def test_multiple_differing_energy_rows_never_look_confident():
-    """A weekday/weekend pair is a schedule, not a flat rate.
+def test_unresolvable_differing_energy_rows_never_look_confident():
+    """Differing energy rows are a schedule; if it can't be resolved, flag it.
 
-    The generic scan takes the first row; if that were scored confidently the
-    plan would auto-promote as flat 17.6c with the free weekend silently
-    dropped. Must stay in review.
+    When the qualifiers DO map to day sets the schedule is read properly (see
+    test_suffixed_qualifier_rows_become_a_weekend_schedule). When they don't,
+    the generic scan takes the first row -- and scoring that confidently would
+    auto-promote a flat rate with the other tier silently dropped.
     """
     from energyanalyzer.eflparse.parser import parse_efl_text
 
@@ -394,14 +395,74 @@ def test_multiple_differing_energy_rows_never_look_confident():
         "Electricity Facts Label\nAcme Energy\nSome Plan 12\nOncor\n"
         "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
         "Base Charge $0.00 per billing cycle\n"
-        "Energy Charge 17.6000 ¢ per kWh – Weekdays\n"
-        "Energy Charge 0.0000 ¢ per kWh – Weekends\n"
+        "Energy Charge 17.6000 ¢ per kWh – Tier One\n"
+        "Energy Charge 8.0000 ¢ per kWh – Tier Two\n"
         "TDU Delivery Charge $4.06 per billing cycle\n"
         "Contract Term 12 Month(s)\n"
     )
     d = parse_efl_text(text, "acme.pdf")
     assert d.confidence["energy_charge"] < 0.8
     assert d.plan_dict["needs_review"] is True
+
+
+def test_suffixed_qualifier_rows_become_a_weekend_schedule():
+    """A qualifier can TRAIL the rate instead of leading it.
+
+    "Energy Charge 17.6000 ¢ per kWh – Weekdays" / "... 0.0000 ¢ per kWh –
+    Weekends" (Frontier, Gexa). The brand-tier reader only sees leading labels,
+    so these fell through to the flat-rate reader, which took the first row and
+    billed the WEEKDAY rate every day -- the free weekend silently dropped.
+
+    The weekend definition comes from the EFL, not a Sat/Sun assumption: Gexa's
+    "Free 3 Day Weekends" defines weekends as Friday to Monday.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl_text
+
+    def _efl(weekend_defn: str) -> str:
+        return (
+            "Electricity Facts Label\nAcme Energy\nFree Weekends 12\nOncor\n"
+            "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
+            "Base Charge $0.00 per billing cycle\n"
+            "Energy Charge 22.9000 ¢ per kWh - Weekdays\n"
+            "Energy Charge 0.0000 ¢ per kWh - Weekends\n"
+            f"{weekend_defn}\n"
+            "TDU Delivery Charge $4.06 per billing cycle\n"
+            "Contract Term 12 Month(s)\n"
+        )
+
+    d = parse_efl_text(_efl("Weekends is defined as 12:00 AM Saturday to 12:00 AM Monday."), "a.pdf")
+    assert d.plan_dict["energy_rates"] == [
+        {"label": "Weekends", "rate_ckwh": 0.0, "window": {"weekdays": [5, 6]}},
+        {"label": "Weekdays", "rate_ckwh": 22.9, "window": None},
+    ]
+    assert d.plan_dict["needs_review"] is False
+
+    # A three-day weekend, and the catch-all must remain the PAID rate.
+    d3 = parse_efl_text(_efl("Weekends is defined as 12:00 AM Friday to 12:00 AM Monday."), "b.pdf")
+    assert d3.plan_dict["energy_rates"][0]["window"] == {"weekdays": [4, 5, 6]}
+    assert d3.plan_dict["energy_rates"][-1]["rate_ckwh"] == 22.9
+
+
+def test_day_definition_does_not_swallow_the_other_keyword():
+    """"Weekends" from a rate row must not bind to "Weekdays is defined as".
+
+    These EFLs print the rate rows immediately above the definitions, so the
+    text runs "...0.0000 ¢ per kWh - Weekends Weekdays is defined as 12:01 AM
+    Monday to 11:59 PM Friday". A permissive gap let the match start at the rate
+    row's "Weekends" and return the WEEKDAY range as the weekend definition --
+    Frontier's weekend came back as Mon-Fri, Gexa's as Mon-Thu, which would have
+    applied the free rate to weekdays and the full rate to the weekend.
+    """
+    from energyanalyzer.eflparse.parser import _defined_weekdays
+
+    text = (
+        "Energy Charge 22.9000 ¢ per kWh - Weekdays "
+        "Energy Charge 0.0000 ¢ per kWh - Weekends "
+        "Weekdays is defined as 12:01 AM Monday to 11:59 PM Thursday, including holidays. "
+        "Weekends is defined as 12:00 AM Friday to 12:00 AM Monday, including holidays."
+    )
+    assert _defined_weekdays(text, "weekend") == [4, 5, 6]
+    assert _defined_weekdays(text, "weekday") == [0, 1, 2, 3]
 
 
 class TestCorpusApGasTrueClassic11:
@@ -1545,3 +1606,89 @@ def test_multi_rate_split_row_needs_a_delivery_header_and_a_known_restricted_col
         "Delivery Charges from Oncor Electric Delivery\nCharge per month\n" + row
     )
     assert got is not None and got["restricted_index"] is None
+
+
+def test_charge_basis_is_the_first_unit_named_not_a_fixed_precedence():
+    """A '... per <unit>' phrase can name more than one unit.
+
+    Heritage Power prints "Minimum Usage Charge: $0 per billing cycle < 0 kWh".
+    Testing for "kwh" before "cycle" classified that as a per-kWh charge -- a
+    $0.00 ENERGY RATE, i.e. free electricity around the clock. Harmless while
+    the generic scan's reads scored too low to promote; a live trap once they
+    didn't. The unit immediately after "per" is the real basis.
+    """
+    from energyanalyzer.eflparse.parser import _classify_unit_kind, _generic_charge_rows
+
+    assert _classify_unit_kind("billing cycle < 0 kWh") == "month"
+    assert _classify_unit_kind("kWh") == "kwh"
+    assert _classify_unit_kind("day") == "day"
+    assert _classify_unit_kind("illing ccle") == "month"  # broken-font spelling
+
+    rows = _generic_charge_rows("Minimum Usage Charge: $0 per billing cycle < 0 kWh\n")
+    assert rows and rows[0]["kind"] == "month", "must never be offered as an energy rate"
+
+
+def test_broken_font_bill_unit_is_a_monthly_basis():
+    """"per ill" is "per bill" with the b dropped by a subset font.
+
+    Atlantex prints "ae Charge $19.95 per ill". The month markers knew "illing"
+    but not "ill", so the row matched no unit at all and its $19.95 base charge
+    was never read -- the plan silently defaulted to $0.00, understating it by
+    $239/yr. This was the last wrong value in the ground-truth corpus.
+    """
+    from energyanalyzer.eflparse.parser import _classify_unit_kind, _generic_charge_rows
+
+    assert _classify_unit_kind("ill") == "month"
+    assert _classify_unit_kind("illing ccle") == "month"
+    rows = _generic_charge_rows("ae Charge $19.95 per ill\n")
+    assert rows and rows[0]["kind"] == "month" and rows[0]["value"] == 19.95
+
+
+def test_base_charge_amount_may_follow_the_unit():
+    """"a monthly Base Electricity Charge per ESI-ID of $0.00" (Constellation).
+
+    Every labelled reader expects "<label> ... $X per <unit>", so an amount that
+    trails the unit was never found and the charge defaulted to $0.00 -- right
+    by luck here, but unread, and wrong for any REP that charges one.
+    """
+    from energyanalyzer.eflparse.parser import _extract_base_charge_trailing_amount
+
+    got = _extract_base_charge_trailing_amount(
+        "calculated using: (i) a Fixed Energy Charge of 6.27¢ per kWh, (ii) the "
+        "applicable TDU tariff, (iii) a monthly Base Electricity Charge per ESI-ID "
+        "of $0.00 (NOTE: A Minimum Usage Fee of $ 0 will apply), and (iv) all "
+        "recurring charges."
+    )
+    assert got is not None and got[0] == 0.0 and got[1] >= 0.8
+
+    nonzero = _extract_base_charge_trailing_amount(
+        "a monthly Base Electricity Charge per ESI-ID of $9.95 applies."
+    )
+    assert nonzero is not None and nonzero[0] == 9.95
+
+
+def test_credited_window_is_read_even_though_the_efl_never_says_free():
+    """A window whose energy charge is credited back, not called "free".
+
+    Amigo/Just Energy/Tara "Days Bundle" plans say "Your bill will contain a
+    credit for Energy Charges resulting from energy consumed during Day Hours"
+    and define it separately as "Day Hours = 9:00 AM - 4:00 PM". The free-window
+    reader keys off the word "free", which appears nowhere, so all three billed
+    the full rate for seven hours a day that cost nothing.
+
+    Both phrases wrap mid-sentence in the real PDFs, so the match runs against
+    whitespace-normalised text; a newline-sensitive pattern saw half of each and
+    found nothing on two of the three documents.
+    """
+    from energyanalyzer.eflparse.parser import _extract_credited_window
+
+    wrapped = (
+        "Day Hours = 9:00 AM –\n4:00 PM. Your bill will contain a credit for Energy\n"
+        "Charges resulting from energy consumed during Day Hours.\n"
+    )
+    got = _extract_credited_window(wrapped)
+    assert got is not None
+    assert got["hours"] == [9, 10, 11, 12, 13, 14, 15]
+
+    # No credit sentence -> nothing to infer, even with an hours definition.
+    assert _extract_credited_window("Day Hours = 9:00 AM - 4:00 PM.\n") is None

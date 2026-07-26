@@ -5,9 +5,10 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- label: EV Charging Hours (10pm-4am)
-  rate_ckwh: 6.0
+- rate_ckwh: 6.0
   window:
+    months: []
+    weekdays: []
     hours:
     - 22
     - 23
@@ -15,15 +16,18 @@ energy_rates:
     - 1
     - 2
     - 3
-- label: Daytime Hours
-  rate_ckwh: 7.4
-  window: null
+  label: EV Charging
+  tdu_exempt: false
+- rate_ckwh: 7.4
+  label: ''
+  tdu_exempt: false
 buyback:
   kind: rtw
   rtw:
     multiplier: 1.0
     adder_ckwh: 0.0
     floor_ckwh: 0.0
+  rates: []
   offset_scope: all_charges
   rollover: true
   cash_out: false
@@ -34,9 +38,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_EV_Saver-12.pdf
-retrieved: '2026-07-25'
-notes: 'TOU rates read from the EFL''s split table (daytime 7.4c / EV hours 6.0c,
-  10pm-4am); the 6.1196c previously here was Oncor''s delivery rate. Solar buyback
-  from Champion''s addendum (not the EFL): ERCOT real-time settlement point price
-  for the meter''s load zone, no modifiers.'
-needs_review: true
+retrieved: '2026-07-26'
+notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
+needs_review: false

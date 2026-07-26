@@ -756,6 +756,20 @@ if refresh_summary is not None:
         f"{mp_refresh.get('skipped_own', 0)} Meter-own superseded by real EFLs, "
         f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
+    _quar = refresh_summary.get("quarantine") or {}
+    if _quar.get("restored") or _quar.get("efls_restored"):
+        st.caption(
+            f"Kept {len(_quar.get('restored', []))} plan(s) and "
+            f"{_quar.get('efls_restored', 0)} EFL(s) this refresh could not rebuild -- their "
+            "source still lists them, so the previous copies were put back."
+        )
+    if _quar.get("delisted"):
+        st.warning(
+            f"{len(_quar['delisted'])} plan(s) are no longer listed by the source that "
+            "offers them, so they may have left the market. They were kept and flagged for "
+            f"review rather than deleted: {', '.join(_quar['delisted'][:8])}"
+            + (" …" if len(_quar["delisted"]) > 8 else "")
+        )
     _superseded = refresh_summary.get("meterplan_superseded") or []
     if _superseded:
         st.caption(
@@ -774,6 +788,16 @@ if refresh_summary is not None:
             f"downloaded {len(disc_dl.get('downloaded', []))} EFL(s), "
             f"parsed {len(disc_parsed.get('parsed', []))} into draft(s)."
         )
+        # An empty scrape is the quiet failure mode: the retailer's plans simply
+        # vanish from this run, and any real plans it used to supply were already
+        # deleted before discovery ran. Worth a warning, not just a table row.
+        _empty = [r.get("retailer", k) for k, r in disc_reps.items() if r.get("status") == "empty"]
+        if _empty:
+            st.warning(
+                f"Scraped but found no plans: {', '.join(_empty)}. Their site was reachable "
+                "yet returned nothing -- a maintenance page or a funnel that changed. Any plans "
+                "they normally supply are missing from this refresh; re-run discovery to recover them."
+            )
         if disc_reps:
             st.dataframe(
                 [

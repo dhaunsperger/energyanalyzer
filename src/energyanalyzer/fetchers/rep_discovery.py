@@ -1222,22 +1222,55 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
 
 
 # Statuses worth a second try. 403 is here for a specific, measured reason: Ambit
-# (and TXU) sit behind an Azure Front Door WAF that answers a plain-text
-# "Blocked by WAF" 403 *probabilistically* -- sampled 2026-07-24, plain httpx got
-# through 3 times in 6 on the very same URL, and the EFL endpoint 403s on one
-# refresh and serves a valid PDF on the next. A single attempt therefore says
-# nothing about whether the document is reachable. Kept deliberately small and
-# backed off: this is a handful of requests for one household's own shopping,
-# not a way to grind past a site that means "no" (a persistent 403 still fails).
+# (and TXU) sit behind an Azure Front Door WAF that can answer a plain-text
+# "Blocked by WAF" 403. Do not read that as a verdict about automation: on
+# 2026-07-26 it was the edge answering for a backend that was simply DOWN.
+# Within the hour, and with no change on our side, the same EFL endpoint went
+# from that 403 to a 500 for plain httpx, while a browser reached the app and
+# was redirected to shopping.ambitenergy.com/maintenance ("temporarily down for
+# maintenance"). TXU -- the other Vistra shopping site -- served a maintenance
+# notice the same morning, so this is one platform outage, not a policy.
+#
+# The honest summary of three days' sampling: this endpoint fails in bursts and
+# recovers on its own, so the right response to a bad day is to come back later,
+# not to escalate. Retries are kept for transient statuses; an explicit block is
+# not retried (see _BOT_BLOCK_RE) purely so we stop shouting at an edge that has
+# already answered. Handful of requests for one household's own shopping.
 _RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
 _DOWNLOAD_ATTEMPTS = 3
+
+# A 403 whose body carries one of these is a WAF/bot-detection verdict, not a
+# transient hiccup. Retrying it is both useless and rude, so it is exempted from
+# _RETRY_STATUSES and it trips the per-host breaker below. Bodies are tiny
+# ("Blocked by WAF" is 14 bytes), so matching on content is cheap and specific --
+# far better than treating every 403 as a block, which would abandon a whole
+# retailer over one stale product ID.
+_BOT_BLOCK_RE = re.compile(
+    r"blocked by waf|access denied|attention required|request unsuccessful|"
+    r"you (?:have been|are) blocked|bot detection",
+    re.I,
+)
+
+
+def _is_bot_block(resp) -> bool:
+    """True if `resp` is an explicit "we don't serve bots" verdict."""
+    if getattr(resp, "status_code", None) != 403:
+        return False
+    try:
+        # Only the first bytes: a block page is short, and a real PDF that
+        # somehow 403s should not be decoded in full just to classify it.
+        return bool(_BOT_BLOCK_RE.search(resp.content[:2048].decode("utf-8", "replace")))
+    except Exception:  # noqa: BLE001 -- unreadable body -> not a recognised block
+        return False
 
 
 def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEMPTS):
     """GET `url`, retrying a transient status with linear backoff.
 
     Honours the per-host rate limit before every attempt, so a retry can never
-    make us hit a site faster than the normal path does.
+    make us hit a site faster than the normal path does. An explicit bot block
+    (:func:`_is_bot_block`) is returned immediately rather than retried -- the
+    site has already answered, and asking twice more only makes us noisier.
     """
     last_exc: Optional[Exception] = None
     resp = None
@@ -1249,6 +1282,9 @@ def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEM
             # status_code, and "no status" must mean "not retryable", never a
             # crash that turns a working download into a failure.
             if getattr(resp, "status_code", None) not in _RETRY_STATUSES:
+                return resp
+            if _is_bot_block(resp):
+                logger.info("download: %s returned an explicit bot block -- not retrying", host)
                 return resp
             last_exc = None
         except Exception as exc:  # noqa: BLE001 -- transport hiccups are retryable too
@@ -1329,6 +1365,11 @@ def download_discovered(
 
     logger.info("Downloading %d discovered EFL(s)", total)
     entries: list[dict] = []
+    # Hosts that have explicitly refused bots. Once a site says so we stop
+    # asking: the remaining URLs are recorded as failures without a request,
+    # which loses nothing (they would have failed anyway) and takes a refresh
+    # from ~42 requests against a blocking host down to one.
+    blocked_hosts: set[str] = set()
     with httpx.Client(
         timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
     ) as client:
@@ -1346,6 +1387,17 @@ def download_discovered(
                     progress_callback(i, total, plan.plan_name)
                 continue
             host = urlparse(plan.efl_url).netloc
+            if host in blocked_hosts:
+                summary["failed"].append(
+                    {
+                        "url": plan.efl_url,
+                        "error": f"not requested -- {host} blocked automated access "
+                        "earlier in this run (bot/WAF block)",
+                    }
+                )
+                if progress_callback:
+                    progress_callback(i, total, plan.plan_name)
+                continue
             file_path = dest / _efl_filename(plan)
             if file_path.exists():
                 summary["skipped"].append(str(file_path))
@@ -1361,6 +1413,22 @@ def download_discovered(
                     content = _render_efl_pdf(plan.efl_url, headless=headless)
                 else:
                     resp = _get_with_retry(client, plan.efl_url, host)
+                    if _is_bot_block(resp):
+                        blocked_hosts.add(host)
+                        logger.warning(
+                            "%s refused automated access (bot/WAF block); skipping its "
+                            "remaining EFL downloads this run",
+                            host,
+                        )
+                        summary["failed"].append(
+                            {
+                                "url": plan.efl_url,
+                                "error": f"{host} blocked automated access (bot/WAF block)",
+                            }
+                        )
+                        if progress_callback:
+                            progress_callback(i, total, plan.plan_name)
+                        continue
                     resp.raise_for_status()
                     content = resp.content
                 # A direct-GET EFL URL can still resolve to an HTML viewer/SPA

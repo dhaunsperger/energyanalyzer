@@ -241,6 +241,22 @@ prices, EFL URL, renewable %, prepaid/TOU flags), download EFL PDFs to
 Network egress here is restricted; code defensively and make snapshots
 loadable offline.
 
+A refresh does not delete the plans and EFLs it is about to replace: step 1
+moves them to `data/refresh_quarantine/`, and step 8
+(`reconcile_quarantine`) decides each one's fate once the run is done. A plan
+that was re-derived drops its copy; one a completed source still lists is
+restored untouched; one a completed source no longer lists is restored *and*
+flagged for review. When no source completed, nothing is delisted -- a run
+that cannot reach its sources costs no data. Authority is recorded on disk
+(`data/refresh_quarantine/authority.json`) because `finish_refresh` is
+re-runnable on its own and has no summary in hand then.
+
+`data/efl/manual/` holds EFLs supplied by hand for REPs no fetcher can reach
+(Ambit, whose WAF refuses httpx and a real Chromium alike). A refresh wipes
+`data/efl/` and re-downloads, which is only safe for files a fetcher can
+restore, so the wipe's non-recursive `glob("*.pdf")` deliberately cannot see
+this subdirectory; `manual_efl_paths()` adds it back at the parse stage.
+
 `fetchers/meterplan.py`: meterplan.com Texas solar buyback plan index
 (`https://meterplan.com/data/texas-solar-buyback-plans.md`), an
 hourly-regenerated public markdown page published by Meter Energy Inc. (a

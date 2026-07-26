@@ -9,6 +9,7 @@ fetch/download/parse internals -- no live network, deterministic outcomes.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import time
 from pathlib import Path
@@ -158,18 +159,25 @@ def test_refresh_market_data_full_pipeline(refresh_dirs, monkeypatch):
         progress_callback=lambda d, t, n: calls.append((d, t, n)),
     )
 
-    # --- deletion: only ptc/efl:-sourced plans go, manual/report/id-protected stay ---
+    # --- quarantine: only ptc/efl:-sourced plans move, manual/report/id-protected stay ---
     remaining_ids = {p.stem for p in plans_dir.glob("*.yaml")}
     assert "manual_plan" in remaining_ids
     assert "report_plan" in remaining_ids
     assert "pulse_current" in remaining_ids
-    assert "ptc_plan" not in remaining_ids
-    assert "efl_plan" not in remaining_ids
     assert set(summary["deleted_plans"]) == {"ptc_plan", "efl_plan"}
+    # ...and both come BACK, because the live PTC fetch failed in this test.
+    # Nothing spoke for the market, so nothing may be declared gone: a refresh
+    # that cannot reach its sources must cost no data at all.
+    assert "ptc_plan" in remaining_ids
+    assert "efl_plan" in remaining_ids
+    assert set(summary["quarantine"]["restored"]) == {"ptc_plan", "efl_plan"}
+    assert summary["quarantine"]["delisted"] == []
     assert summary["deleted_drafts"] == 1
     assert summary["deleted_efls"] == 1
     assert summary["deleted_snapshots"] == 1  # older csv pruned, newest kept as fallback
     assert not (drafts_dir / "stale_draft.yaml").exists()
+    # old.pdf is an orphan -- no surviving plan was parsed from it, so it is not
+    # resurrected (that would regenerate a draft from it on every future run).
     assert not (efl_dir / "old.pdf").exists()
     assert not older_csv.exists()
     assert newer_csv.exists()
@@ -573,7 +581,10 @@ def test_discovery_falls_back_to_manual_capture_when_a_live_render_fails(tmp_pat
         snapshot_dir=snapshot_dir,
     )
     rep = out["reps"]["ambit"]
-    assert rep["status"] == "ok", rep
+    # "empty": the capture was read but yielded no plans (the fake discover
+    # returns []). What this test pins is the fallback itself -- the saved
+    # capture was used instead of the failed live render.
+    assert rep["status"] == "empty", rep
     assert "ambit_20260101T000000Z.html" in rep["detail"]
     assert seen["html"] == "<html>saved capture</html>"
 
@@ -720,3 +731,160 @@ def test_parse_does_not_override_an_identity_the_parser_read(refresh_dirs, monke
     assert out["identified"] == []
     saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
     assert saved["retailer"] == "Test Retailer"
+
+
+def test_manual_efls_survive_the_refresh_wipe(tmp_path):
+    """Hand-supplied EFLs must outlive a refresh, which deletes what it refetches.
+
+    Regression guard: the wipe's glob("*.pdf") deleted Ambit's hand-saved EFLs
+    (added after its WAF began refusing every client), leaving only their
+    Zone.Identifier stubs. Nothing could restore them -- that is precisely why
+    they were manual.
+    """
+    efl_dir = tmp_path / "efl"
+    manual = efl_dir / "manual"
+    manual.mkdir(parents=True)
+    fetched = efl_dir / "Fetched_Plan.pdf"
+    fetched.write_bytes(b"%PDF-1.4 refetchable")
+    by_hand = manual / "Ambit_Texas_Solar_Buyback_12.pdf"
+    by_hand.write_bytes(b"%PDF-1.4 saved by hand")
+
+    # What the wipe sees, and what the parse stage sees.
+    wiped = sorted(efl_dir.glob("*.pdf"))
+    assert wiped == [fetched], "the wipe must not reach data/efl/manual/"
+    assert app_common.manual_efl_paths(efl_dir) == [by_hand]
+
+    for p in wiped:
+        p.unlink()
+    assert by_hand.exists()
+    assert app_common.manual_efl_paths(efl_dir) == [by_hand]
+
+
+# --------------------------------------------------------------------------- #
+# Quarantine / reconcile
+# --------------------------------------------------------------------------- #
+def _q_plan(path, plan_id, retailer, name, term, source="ptc"):
+    path.write_text(
+        "id: {id}\nretailer: {r}\nname: {n}\nterm_months: {t}\n"
+        "base_charge_usd: 0.0\nenergy_rates:\n- label: ''\n  rate_ckwh: 12.0\n  window: null\n"
+        "tdu_passthrough: true\nrate_type: fixed\nsource: {s}\n".format(
+            id=plan_id, r=retailer, n=name, t=term, s=source
+        )
+    )
+
+
+def _setup_quarantine(tmp_path, listings, ptc_ok=True, meterplan_ok=True):
+    plans_dir = tmp_path / "plans"
+    q = tmp_path / "q"
+    plans_dir.mkdir()
+    (q / "plans").mkdir(parents=True)
+    (q / "efl").mkdir(parents=True)
+    (q / app_common.QUARANTINE_AUTHORITY_FILE).write_text(
+        json.dumps({"ptc_ok": ptc_ok, "meterplan_ok": meterplan_ok,
+                    "coverage_retailers": [], "listings": listings})
+    )
+    return plans_dir, q
+
+
+def test_quarantined_plan_still_listed_is_restored_unflagged(tmp_path):
+    """The download failed, not the plan. Our copy is the last good one."""
+    plans_dir, q = _setup_quarantine(tmp_path, [["Gexa Energy", "Gexa 12", 12]])
+    _q_plan(q / "plans" / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["restored"] == ["gexa_12"]
+    assert out["delisted"] == []
+    restored = yaml.safe_load((plans_dir / "gexa_12.yaml").read_text())
+    assert not restored.get("needs_review")
+
+
+def test_quarantined_plan_a_live_source_no_longer_lists_is_flagged(tmp_path):
+    """PTC was reached and does not carry it -- kept, but marked, not deleted."""
+    plans_dir, q = _setup_quarantine(tmp_path, [["Gexa Energy", "Gexa 12", 12]])
+    _q_plan(q / "plans" / "gone_24.yaml", "gone_24", "Defunct Power", "Vanished 24", 24)
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["delisted"] == ["gone_24"]
+    kept = yaml.safe_load((plans_dir / "gone_24.yaml").read_text())
+    assert kept["needs_review"] is True
+    assert "no longer" in kept["notes"].lower() or "not listed" in kept["notes"].lower()
+
+
+def test_nothing_is_delisted_when_no_source_completed(tmp_path):
+    """The whole point: a broken run must cost nothing.
+
+    This is what made the 2026-07-26 refresh expensive -- Direct Energy's
+    harvester returned empty and its two real plans had already been deleted.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=False, meterplan_ok=False)
+    _q_plan(q / "plans" / "solar_12.yaml", "solar_12", "Direct Energy", "Direct Solar Unlimited 12", 12)
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["restored"] == ["solar_12"]
+    assert out["delisted"] == []
+    assert not yaml.safe_load((plans_dir / "solar_12.yaml").read_text()).get("needs_review")
+
+
+def test_rederived_plan_drops_its_quarantine_copy(tmp_path):
+    plans_dir, q = _setup_quarantine(tmp_path, [["Gexa Energy", "Gexa 12", 12]])
+    _q_plan(q / "plans" / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)
+    _q_plan(plans_dir / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12, source="efl:new.pdf")
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["dropped"] == 1
+    assert out["restored"] == [] and out["delisted"] == []
+    # The freshly-parsed plan wins; the old copy does not overwrite it.
+    assert yaml.safe_load((plans_dir / "gexa_12.yaml").read_text())["source"] == "efl:new.pdf"
+
+
+def test_restored_plans_bring_back_only_their_own_efls(tmp_path):
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=False, meterplan_ok=False)
+    _q_plan(q / "plans" / "s12.yaml", "s12", "Direct Energy", "Direct Solar Unlimited 12", 12,
+            source="efl:Direct_Solar_12.pdf")
+    (q / "efl" / "Direct_Solar_12.pdf").write_bytes(b"%PDF-1.4 wanted")
+    (q / "efl" / "Orphan.pdf").write_bytes(b"%PDF-1.4 nothing points here")
+    efl_dir = tmp_path / "efl"
+    efl_dir.mkdir()
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=efl_dir, quarantine_dir=q)
+
+    assert out["efls_restored"] == 1
+    assert (efl_dir / "Direct_Solar_12.pdf").exists()
+    assert not (efl_dir / "Orphan.pdf").exists()
+
+
+def test_brand_plus_term_names_do_not_cover_a_different_term(tmp_path):
+    """The fallback for name-less plans must not make every term interchangeable.
+
+    "Gexa 12" has no distinctive tokens once brand and term are stripped, so
+    the strict rule can never match it and the reconciler falls back to
+    retailer + term. That fallback has to keep the term strict, or a listing
+    for Gexa 12 would vouch for a Gexa 24 that PTC actually dropped.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [["Gexa Energy", "Gexa 12", 12]])
+    _q_plan(q / "plans" / "gexa_24.yaml", "gexa_24", "Gexa Energy", "Gexa 24", 24)
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["delisted"] == ["gexa_24"]
+    assert out["restored"] == []
+
+
+def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
+    """Discovery coverage publishes plan names only -- no term column.
+
+    A term of None must be read as "this source didn't say", not as a mismatch
+    against every plan (which would flag a fully-scraped REP's whole catalogue
+    as delisted).
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [["Champion Energy", "Champ Saver-24", None]])
+    _q_plan(q / "plans" / "champ_24.yaml", "champ_24", "Champion Energy", "Champ Saver 24", 24)
+
+    out = app_common.reconcile_quarantine(plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q)
+
+    assert out["restored"] == ["champ_24"]
+    assert out["delisted"] == []

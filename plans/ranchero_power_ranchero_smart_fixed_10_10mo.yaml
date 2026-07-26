@@ -20,6 +20,6 @@ etf_usd: 179.0
 etf_per_month_remaining: false
 rate_type: fixed
 source: efl:Ranchero_Power_Ranchero_Smart_Fixed_-_10.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

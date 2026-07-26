@@ -24,8 +24,8 @@ etf_usd: 20.0
 etf_per_month_remaining: true
 rate_type: fixed
 source: efl:Atlantex_Power_Solar_Buy_Back_Plan.pdf
-retrieved: '2026-07-25'
-notes: 'energy rate derived from a generic ''<label> Charge ... per kWh'' table-line
-  scan; base charge not found; defaulting to 0.0 LLM suggested: base_charge (needs
-  human confirmation).'
-needs_review: true
+retrieved: '2026-07-26'
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan; base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
+needs_review: false
