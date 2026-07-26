@@ -1222,14 +1222,20 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
 
 
 # Statuses worth a second try. 403 is here for a specific, measured reason: Ambit
-# (and TXU) sit behind an Azure Front Door WAF that answers a plain-text
-# "Blocked by WAF" 403. Sampled 2026-07-24 that block looked *probabilistic*
-# (plain httpx got through 3 times in 6 on the same URL), which is why retrying
-# was worth it. Re-measured 2026-07-26 it is not: shopping.ambitenergy.com now
-# blocks every client we have, httpx and Playwright alike, cold and first-try.
-# Retries are kept for genuinely transient statuses, but an explicit block is no
-# longer one of them -- see _BOT_BLOCK_RE. This is a handful of requests for one
-# household's own shopping, never a way to grind past a site that means "no".
+# (and TXU) sit behind an Azure Front Door WAF that can answer a plain-text
+# "Blocked by WAF" 403. Do not read that as a verdict about automation: on
+# 2026-07-26 it was the edge answering for a backend that was simply DOWN.
+# Within the hour, and with no change on our side, the same EFL endpoint went
+# from that 403 to a 500 for plain httpx, while a browser reached the app and
+# was redirected to shopping.ambitenergy.com/maintenance ("temporarily down for
+# maintenance"). TXU -- the other Vistra shopping site -- served a maintenance
+# notice the same morning, so this is one platform outage, not a policy.
+#
+# The honest summary of three days' sampling: this endpoint fails in bursts and
+# recovers on its own, so the right response to a bad day is to come back later,
+# not to escalate. Retries are kept for transient statuses; an explicit block is
+# not retried (see _BOT_BLOCK_RE) purely so we stop shouting at an edge that has
+# already answered. Handful of requests for one household's own shopping.
 _RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
 _DOWNLOAD_ATTEMPTS = 3
 
