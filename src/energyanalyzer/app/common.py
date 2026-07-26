@@ -397,6 +397,93 @@ def supersede_meterplan_plans(
     return removed
 
 
+DISCOVERY_COVERAGE_FILE = "discovery_coverage.json"
+
+
+def _write_discovery_coverage(snapshot_dir: Path, coverage: dict) -> None:
+    """Persist {retailer: [plan names]} for REPs whose site we scraped in full.
+
+    Written so :func:`prune_stale_meterplan_drafts` still works when
+    `finish_refresh` is re-run on its own (the "Finish incomplete refresh"
+    path), which has no discovery result in hand. Best-effort.
+    """
+    try:
+        Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+        (Path(snapshot_dir) / DISCOVERY_COVERAGE_FILE).write_text(
+            json.dumps(
+                {"written_at": dt.datetime.now(dt.timezone.utc).isoformat(), "coverage": coverage},
+                indent=2,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 -- never break a refresh over telemetry
+        logger.info("Could not write discovery coverage: %r", exc)
+
+
+def _read_discovery_coverage(snapshot_dir: Path = REP_DISCOVERY_DIR) -> dict:
+    try:
+        raw = json.loads((Path(snapshot_dir) / DISCOVERY_COVERAGE_FILE).read_text())
+        return dict(raw.get("coverage") or {})
+    except Exception:  # noqa: BLE001 -- absent/corrupt -> prune nothing
+        return {}
+
+
+def prune_stale_meterplan_drafts(
+    drafts_dir: Path = DRAFTS_DIR, coverage: Optional[dict] = None
+) -> list[tuple]:
+    """Drop synthetic meterplan drafts for plans a fully-scraped REP doesn't sell.
+
+    meterplan.com is a third-party index published by a competing REP, and its
+    rows go stale: it lists plans the retailer no longer offers. When we have
+    driven that retailer's own site to completion -- a LIVE render (not a stale
+    manual capture) in which every EFL it offered downloaded -- and the plan is
+    not among what the site returned, the row is either out of date or not
+    something Doug could actually enrol in. Either way it is not worth a review,
+    and it can never be verified: the index publishes no EFL.
+
+    Deliberately narrow, because a REP's site legitimately shows different
+    subsets through different funnels (Champion's website-only plans versus its
+    PTC listing are precedent). So this fires ONLY where the scrape was live and
+    complete, and only against that same retailer's rows -- never as a general
+    "not seen lately" sweep. Returns ``(removed_draft_id, retailer)`` tuples.
+    """
+    coverage = _read_discovery_coverage() if coverage is None else coverage
+    if not coverage:
+        return []
+    removed: list[tuple] = []
+    for path in sorted(Path(drafts_dir).glob("*.yaml")):
+        try:
+            raw = yaml.safe_load(path.read_text()) or {}
+            if str(raw.get("source") or "") != "meterplan":
+                continue
+            draft = Plan.model_validate(raw)
+        except Exception:  # noqa: BLE001 -- an unreadable draft is left alone
+            continue
+        if draft.id == CURRENT_PLAN_ID:
+            continue
+        r_draft = _significant_tokens(draft.retailer)
+        for retailer, names in coverage.items():
+            r_cov = _significant_tokens(retailer)
+            if not r_draft or not r_cov:
+                continue
+            if not (r_draft <= r_cov or r_cov <= r_draft):
+                continue
+            # Same retailer. Is this plan among what its site returned? Compare
+            # with the same conservative token rule supersede uses, so a naming
+            # variant ("Truly Free Nights" vs "Reliant Truly Free Nights 12")
+            # counts as a match rather than a deletion.
+            offered = any(
+                _plan_supersedes(
+                    draft, _CoverageCandidate("site", retailer, name, draft.term_months)
+                )
+                for name in names
+            )
+            if not offered:
+                path.unlink(missing_ok=True)
+                removed.append((draft.id, retailer))
+            break
+    return removed
+
+
 def _flag_plan_needs_review(path: Path, note: str) -> None:
     """Set needs_review on a saved plan and append a note. Best-effort."""
     try:
@@ -932,6 +1019,12 @@ def _run_rep_discovery(
             "plans_found": found,
             "buyback": buyback,
             "detail": detail,
+            # Every plan name the REP's own site offered, BEFORE the PTC dedup
+            # below drops the ones PTC already lists -- a deduped plan is still
+            # one the REP sells, so it must count as "seen" for coverage.
+            "plan_names": [p.plan_name for p in plans],
+            "live": not str(detail).startswith("from manual capture")
+            and "used capture" not in str(detail),
         }
         all_plans.extend(plans)
 
@@ -959,10 +1052,25 @@ def _run_rep_discovery(
         progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
     )
 
+    # Per-REP coverage: a retailer counts as fully scraped only when its render
+    # was LIVE (not a stale manual capture) and every EFL it offered is in hand.
+    # Attribution is by URL, since download failures are reported globally.
+    dl = result["downloaded"]
+    failed_urls = {str(f.get("url") or "") for f in dl.get("failed", [])}
+    incomplete = {p.retailer for p in all_plans if p.efl_url in failed_urls}
+    result["coverage"] = {
+        rep["retailer"]: rep["plan_names"]
+        for rep in result["reps"].values()
+        if rep.get("status") == "ok"
+        and rep.get("live")
+        and rep.get("plan_names")
+        and rep["retailer"] not in incomplete
+    }
+    _write_discovery_coverage(snapshot_dir, result["coverage"])
+
     # Parse ONLY the newly discovered PDFs (downloaded now, or already on disk
     # from a prior run) into drafts -- the caller's stage-5 EFL parse already ran
     # before this, so this avoids re-parsing the whole efl_dir.
-    dl = result["downloaded"]
     discovered_pdfs = sorted({Path(p) for p in (dl["downloaded"] + dl["skipped"])})
     if discovered_pdfs:
         result["parsed"] = parse_downloaded_efls(
@@ -1514,6 +1622,14 @@ def finish_refresh(
     for mp_id, match_id in supersede_meterplan_plans(plans_dir, drafts_dir):
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
+    # Rows for plans a fully-scraped REP doesn't actually sell (stale index).
+    for draft_id, retailer in prune_stale_meterplan_drafts(drafts_dir):
+        summary.setdefault("meterplan_pruned", []).append(draft_id)
+        notes.append(
+            f"Dropped synthetic meterplan draft {draft_id}: {retailer}'s own site was "
+            "scraped in full and does not offer this plan."
+        )
+
     if summary["meterplan_superseded"]:
         invalidate_plans_cache()
 

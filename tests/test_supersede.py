@@ -296,3 +296,60 @@ def test_supersede_removes_synthetic_drafts_covered_by_a_promoted_plan(tmp_path)
     assert not synthetic.exists()
     assert uncovered.exists()
     assert only_draft_cover.exists()
+
+
+# --------------------------------------------------------------------------- #
+# prune_stale_meterplan_drafts: the index lists plans the REP no longer sells
+# --------------------------------------------------------------------------- #
+def test_prune_drops_rows_a_fully_scraped_rep_does_not_offer(tmp_path):
+    """meterplan.com is a competitor's index and its rows go stale.
+
+    When we have driven the retailer's own site to completion and the plan is
+    not among what it returned, the row is out of date or not something we could
+    enrol in -- and it can never be verified, because the index publishes no EFL.
+    """
+    drafts = tmp_path / "drafts"
+    stale = _save(
+        _mk("TXU Energy", "Free Nights & Solar Days", 12, "meterplan", "mp_txu_free_nights_solar_days_12mo"),
+        drafts,
+    )
+    offered = _save(
+        _mk("TXU Energy", "Free Nights & Cool Summer", 12, "meterplan", "mp_txu_free_nights_cool_summer_12mo"),
+        drafts,
+    )
+    coverage = {"TXU Energy": ["Free Nights & Cool Summer 12", "Simple Rate 12", "e-Saver 12"]}
+
+    removed = prune = app_common.prune_stale_meterplan_drafts(drafts, coverage)
+
+    assert [d for d, _ in removed] == ["mp_txu_free_nights_solar_days_12mo"]
+    assert not stale.exists()
+    assert offered.exists(), "a naming variant of an offered plan must not be pruned"
+    assert prune is removed
+
+
+def test_prune_never_touches_a_rep_we_did_not_fully_scrape(tmp_path):
+    """The safety property that makes this rule usable.
+
+    Ambit genuinely sells Free & Clear Nights 12 -- discovery found it -- but its
+    12 conventional EFLs 403'd, so Ambit is absent from coverage entirely and its
+    rows must survive. Without this, a rate-limited REP would look like a REP
+    that had discontinued its whole lineup.
+    """
+    drafts = tmp_path / "drafts"
+    ambit = _save(
+        _mk("Ambit Energy", "Free & Clear Nights", 12, "meterplan", "mp_ambit_free_clear_nights_12mo"),
+        drafts,
+    )
+    # Coverage names a DIFFERENT retailer; Ambit isn't in it at all.
+    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert ambit.exists()
+    # Empty coverage (no discovery run, or none completed) prunes nothing.
+    assert app_common.prune_stale_meterplan_drafts(drafts, {}) == []
+    assert ambit.exists()
+
+
+def test_prune_leaves_real_drafts_alone(tmp_path):
+    drafts = tmp_path / "drafts"
+    real = _save(_mk("TXU Energy", "Something Discontinued", 12, "efl:txu.pdf", "txu_real_12"), drafts)
+    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert real.exists(), "only meterplan-sourced drafts are ever pruned"
