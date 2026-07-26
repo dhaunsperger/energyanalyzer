@@ -621,3 +621,39 @@ def test_rank_still_simulates_an_rtw_indexed_import_rate():
     prices = pd.Series(0.05, index=intervals.index)
     results = rank([plan], intervals, flat_tdu(), prices)
     assert [r.plan_id for r in results] == ["rtw_import"]
+
+
+def test_a_mandatory_signup_fee_lands_in_the_first_year_total_once():
+    """Just Energy's family sells six 5-month "Sustainable/Bundle" plans whose
+    EFL requires a one-time $49.99 GoodBundle carbon-offset purchase to enroll.
+    They price energy at 4.9c/kWh and ranked #7 and #8 on that alone, so leaving
+    a mandatory fee out flattered them against plans that have none.
+
+    It belongs in the first-year total exactly once, and never in a monthly
+    bill -- the monthly frame has to stay a faithful picture of the recurring
+    charge.
+    """
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    base = dict(
+        id="p", retailer="R", name="N", term_months=5,
+        energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False,
+    )
+    free = simulate(Plan(**base), intervals, tdu)
+    paid = simulate(Plan(**base, signup_fee_usd=49.99), intervals, tdu)
+
+    assert paid.first_year_net == pytest.approx(free.first_year_net + 49.99)
+    assert paid.monthly["bill"].sum() == pytest.approx(free.monthly["bill"].sum()), (
+        "a one-off must not be smeared across the monthly bills"
+    )
+
+
+def test_no_signup_fee_changes_nothing():
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    plan = Plan(id="p", retailer="R", name="N", term_months=12,
+                energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False)
+    assert plan.signup_fee_usd == 0.0
+    assert simulate(plan, intervals, tdu).first_year_net == pytest.approx(
+        float(simulate(plan, intervals, tdu).monthly["bill"].sum())
+    )

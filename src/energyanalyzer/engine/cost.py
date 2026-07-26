@@ -255,7 +255,10 @@ def simulate(
         ],
     )
 
-    first_year_net = float(monthly["bill"].sum())
+    # A mandatory one-off (e.g. a required carbon-offset/setup purchase) is part
+    # of what year one costs, so it lands in the total but never in a monthly
+    # bill -- the monthly frame stays a faithful picture of the recurring bill.
+    first_year_net = float(monthly["bill"].sum()) + float(plan.signup_fee_usd or 0.0)
     total_import = float(monthly["import_kwh"].sum())
     avg_import_price_ckwh = (first_year_net / total_import * 100.0) if total_import else 0.0
 

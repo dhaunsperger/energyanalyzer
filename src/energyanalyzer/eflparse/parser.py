@@ -921,6 +921,46 @@ _ETF_LABEL_RE = re.compile(
 )
 
 
+# A one-off charge that is a CONDITION of taking the plan, not a usage charge.
+# Just Energy's family (Amigo, Tara, Just Energy) sells six 5-month "Sustainable
+# / Bundle" plans whose EFL reads "One-time GoodBundle set up and carbon offset
+# purchase: $49.99 ... required to enroll on this product". Those plans price
+# their energy at 4.9c/kWh and rank near the top on that alone, so leaving a
+# mandatory $49.99 out of the comparison flatters them against plans with no
+# such fee.
+#
+# Deliberately narrow. It must say one-time AND name a setup/enrollment/purchase
+# AND carry an amount, so it cannot swallow a conditional fee (a disconnection
+# charge, a late fee) or the EFL's own note that 1/12 of the cost is baked into
+# the average-price table.
+_SIGNUP_FEE_RE = re.compile(
+    r"one[-\s]?time[^.\n]{0,80}?"
+    r"(?:set[-\s]?up|setup|enroll(?:ment)?|activation|sign[-\s]?up|purchase)"
+    r"[^.\n]{0,80}?\$\s?(\d[\d,]*(?:\.\d{1,2})?)",
+    re.I,
+)
+_SIGNUP_REQUIRED_RE = re.compile(r"required to enroll|must be purchased|is required", re.I)
+
+
+def _extract_signup_fee(text: str) -> Extraction:
+    """A mandatory one-off enrollment cost, e.g. a required carbon-offset purchase."""
+    match = _SIGNUP_FEE_RE.search(text or "")
+    if not match:
+        return (None, 0.0, "")
+    try:
+        amount = float(match.group(1).replace(",", ""))
+    except ValueError:
+        return (None, 0.0, "")
+    if amount <= 0:
+        return (None, 0.0, "")
+    evidence = " ".join(match.group(0).split())[:160]
+    # "required to enroll" nearby makes it unambiguous; without it the charge is
+    # real but might be optional, so flag it for a human rather than assume.
+    window = (text or "")[max(0, match.start() - 300) : match.end() + 300]
+    confident = bool(_SIGNUP_REQUIRED_RE.search(window))
+    return (amount, 0.9 if confident else 0.6, evidence)
+
+
 def _extract_etf(text: str) -> Extraction:
     # "termination fee ... $X" on the same line - the common case.
     m = re.search(
@@ -2479,7 +2519,13 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- ETF -------------------------------------------------------------#
     (etf_usd, etf_per_month), etf_conf, etf_ev = _extract_etf(text)
+    signup_fee, signup_conf, signup_ev = _extract_signup_fee(text)
     confidence["etf"] = etf_conf
+    if signup_fee:
+        # Recorded only when one was FOUND: scoring every fee-less EFL 0.0
+        # would fill the review table with a field most plans do not have.
+        confidence["signup_fee"] = signup_conf
+        evidence["signup_fee"] = signup_ev
     if etf_ev:
         evidence["etf"] = etf_ev
 
@@ -2561,6 +2607,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         "bill_credits": bill_credits,
         "tdu_passthrough": tdu_passthrough,
         "etf_usd": etf_usd,
+        "signup_fee_usd": signup_fee or 0.0,
         "etf_per_month_remaining": etf_per_month,
         "rate_type": rate_type if rate_type in ("fixed", "variable", "indexed") else "fixed",
         "source": f"efl:{source_name}" if source_name else "efl:unknown",

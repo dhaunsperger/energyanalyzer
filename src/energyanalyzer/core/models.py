@@ -174,6 +174,15 @@ class Plan(BaseModel):
     tdu_passthrough: bool = True
     etf_usd: float = 0.0
     etf_per_month_remaining: bool = False
+    # A one-off charge you cannot avoid if you want the plan -- Just Energy's
+    # "One-time GoodBundle set up and carbon offset purchase: $49.99", which its
+    # own EFL calls "required to enroll on this product". Counted ONCE in
+    # first_year_net, which is what that number means: money out the door in
+    # year one. Deliberately not folded into base_charge_usd at 1/12 (the way
+    # the EFL amortizes it for its average-price table) -- these are 5-month
+    # contracts, so spreading a one-off over twelve months understates it for
+    # the term actually signed, and it would quietly distort every monthly view.
+    signup_fee_usd: float = 0.0
     rate_type: Literal["fixed", "variable", "indexed"] = "fixed"
     renewable_pct: Optional[float] = None
     source: str = "manual"  # manual | efl:<file> | ptc | report-2026-07

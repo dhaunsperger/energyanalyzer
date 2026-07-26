@@ -572,6 +572,33 @@ Three independent mechanisms now:
    is completed **without repeating the sweep**. Idempotent. Surfaced on the
    Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
 
+### 8d. Mandatory one-off charges (`Plan.signup_fee_usd`)
+
+Six 5-month "Sustainable / Bundle" plans -- Just Energy's family, sold under
+Amigo, Tara and Just Energy -- require a **one-time $49.99 GoodBundle setup and
+carbon-offset purchase** to enroll. They price energy at 4.9c/kWh and ranked #7
+and #8 on that alone; the fee was invisible to the comparison.
+
+`signup_fee_usd` is added to `first_year_net` exactly once and never touches the
+monthly frame, so a monthly bill stays a faithful picture of the recurring
+charge. Deliberately NOT folded into `base_charge_usd` at 1/12 (the way the EFL
+itself amortizes it for its average-price table): the contracts are five months
+long, so spreading a one-off over twelve understates it for the term actually
+signed, and it would quietly distort every monthly view.
+
+`_extract_signup_fee` is narrow on purpose -- it needs "one-time", a
+setup/enrollment/purchase word, AND an amount, so a conditional fee (late,
+disconnection) cannot masquerade as one. Audited across all 263 EFLs on disk: 6
+hits, all the same $49.99 GoodBundle line, no false positives.
+
+Effect: the three 4.9c variants moved #7/#8-ish to **#18-20** ($1,291.51 ->
+$1,341.50).
+
+**Open caveat, not fixed here:** the engine prices a full twelve months at the
+contracted rate regardless of `term_months`, so any short-term plan's first-year
+figure is optimistic beyond this fee -- a 5-month rate is only held for five
+months. That affects every short plan in the table, not just these.
+
 ### 9b2. Guarded EFL endpoints and the bot-block breaker
 
 Ambit's `shopping.ambitenergy.com/api/getdocument` sits behind an Azure Front
