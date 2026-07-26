@@ -632,6 +632,26 @@ def draft_energy_rate_summary(plan_dict: dict) -> str:
     return f"{label} ({len(rates)} rate{'s' if len(rates) != 1 else ''})"
 
 
+def draft_summary_rows(paths: list) -> tuple[list[dict], list[Path]]:
+    """Summary rows for `paths`, skipping drafts that vanished mid-render.
+
+    A refresh runs in a BACKGROUND THREAD (see refresh_state.RefreshRunner) and
+    its first act is to clear the draft queue, so the page can list a draft and
+    then have it deleted before the row is read -- which crashed the Plans page
+    on the very first render after a refresh was kicked off. Returns the rows
+    and the surviving paths together, because the caller zips the two to build
+    its selector and they must stay aligned.
+    """
+    rows, kept = [], []
+    for path in paths:
+        try:
+            rows.append(draft_summary_row(path))
+        except (FileNotFoundError, OSError):
+            continue  # promoted or cleared by a refresh since we listed it
+        kept.append(path)
+    return rows, kept
+
+
 def draft_summary_row(path: Path) -> dict:
     """One flattened row for the Draft plans overview table (ARCHITECTURE.md §9)."""
     raw = load_draft_raw(path)

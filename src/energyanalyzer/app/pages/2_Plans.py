@@ -22,7 +22,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     PTC_DIR,
     commit_and_push_plan_db,
     default_plan_db_commit_message,
-    draft_summary_row,
+    draft_summary_rows,
     efl_pdf_health,
     finish_refresh,
     get_draft_plans,
@@ -1138,8 +1138,10 @@ st.caption(
 )
 
 current_draft_paths = get_draft_plans()
+# A refresh clears the draft queue from a background thread, so a draft listed
+# a moment ago may already be gone; drop those rather than crash the page.
+draft_rows, current_draft_paths = draft_summary_rows(current_draft_paths)
 if current_draft_paths:
-    draft_rows = [draft_summary_row(p) for p in current_draft_paths]
     draft_table = pd.DataFrame(draft_rows)
     st.dataframe(draft_table.drop(columns=["file"]), width="stretch", hide_index=True)
 
@@ -1188,6 +1190,9 @@ if current_draft_paths:
     }
     draft_label = st.selectbox("Select a draft", list(draft_labels.keys()), key="draft_select")
     selected_draft_path = draft_labels[draft_label]
+    if not selected_draft_path.exists():
+        st.info("That draft was just promoted or cleared by a refresh. Rerun to see the current queue.")
+        st.stop()
     raw_draft = load_draft_raw(selected_draft_path)
     parse_meta = raw_draft.get("_parse") or {}
     draft_confidence = parse_meta.get("confidence") or {}
