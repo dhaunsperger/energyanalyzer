@@ -261,7 +261,7 @@ def _write_cache(series: pd.Series, cache_path: Path) -> None:
     frame.to_parquet(cache_path)
 
 
-def load_prices(zone: str = "LZ_NORTH", data_dir: Path = Path("data/ercot")) -> pd.Series:
+def load_prices(zone: str = "LZ_SOUTH", data_dir: Path = Path("data/ercot")) -> pd.Series:
     """Load ERCOT RTM settlement point prices for `zone` as a $/kWh Series.
 
     Scans `data_dir` for user-downloaded price files (see module docstring
@@ -312,7 +312,7 @@ def load_prices(zone: str = "LZ_NORTH", data_dir: Path = Path("data/ercot")) -> 
 
 
 def download_prices(
-    zone: str = "LZ_NORTH",
+    zone: str = "LZ_SOUTH",
     dest_dir: Path = Path("data/ercot"),
     report_type_id: int = ERCOT_REPORT_TYPE_ID,
     timeout: float = 30.0,

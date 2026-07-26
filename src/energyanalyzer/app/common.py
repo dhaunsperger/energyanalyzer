@@ -46,7 +46,14 @@ METERPLAN_DIR = DATA_DIR / "meterplan"
 REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
-DEFAULT_LOAD_ZONE = "LZ_NORTH"
+# The premise's real zone, confirmed 2026-07-25 via the ESID lookup at
+# electricityplans.com and Tesla's plan page (both report "south"); the ERCOT
+# map splits Williamson County across SOUTH / NORTH / AEN / LCRA, so the county
+# alone does not settle it. data/config.yaml overrides this and says the same,
+# but data/ is gitignored -- so a fresh checkout falls back to this constant,
+# and a wrong value here silently misprices every RTW-indexed plan rather than
+# failing. That is exactly what happened while this read LZ_NORTH.
+DEFAULT_LOAD_ZONE = "LZ_SOUTH"
 CURRENT_PLAN_ID = "pulse_current"
 
 DAY_HOURS = list(range(6, 18))  # 6a-6p
