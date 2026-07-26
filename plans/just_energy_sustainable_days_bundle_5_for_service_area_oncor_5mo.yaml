@@ -3,7 +3,7 @@ retailer: Just Energy
 name: Sustainable Days Bundle - 5
 term_months: 5
 tdu: ONCOR
-base_charge_usd: 4.1
+base_charge_usd: 0.0
 energy_rates:
 - rate_ckwh: 0.0
   window:
@@ -37,7 +37,13 @@ renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Days_Bundle_-_5.pdf
 retrieved: '2026-07-26'
 source_sha256: 9527c55d8f21ca8f6fba14d7828bf86e610ac36dd75c045207d8dd132633daa5
-notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
+notes: 'Enrolling REQUIRES a one-time $49.99 GoodBundle setup and carbon-offset purchase
+  (2000 lbs of carbon credits); the EFL folds 1/12 of it into its average-price table.
+  Modeled as signup_fee_usd, counted once in the first-year total. NOTE the 5-month
+  term: the 4.9c/kWh energy rate is only held for five months, but the ranking prices
+  a full twelve at it, so this plan''s first-year figure is optimistic beyond the
+  fee. base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'
 needs_review: false
 excludes_solar: false
+signup_fee_usd: 49.99
