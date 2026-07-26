@@ -1105,6 +1105,21 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
     daily = float(m.group(1))
     monthly = round(daily * 365 / 12, 2)
     conf = 0.9 if daily == 0 else 0.65
+    # Some EFLs state the period equivalent alongside the daily rate -- Pronto
+    # Power: "$0.39 cents per day ($11.70 per 30 days)". That doubles as a
+    # check on our reading of an ambiguously-written figure ("$0.39 cents"):
+    # if daily x N days matches their own total, the daily rate is confirmed and
+    # only the day-count convention is left, which is a modelling choice rather
+    # than a doubt about the document. We keep fee x 365/12 (a calendar-average
+    # month) instead of their 30-day figure, so the difference is pennies.
+    if daily:
+        stated = re.search(
+            r"\(\s*\$\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*(\d{2,3})\s*days?\s*\)",
+            text[m.start() : m.end() + 80],
+            re.I,
+        )
+        if stated and abs(daily * float(stated.group(2)) - float(stated.group(1))) < 0.02:
+            conf = 0.85
     return monthly, conf, _snippet(m)
 
 
@@ -1225,6 +1240,41 @@ def _extract_base_charge_from_component_sentence(text: str) -> Optional[Extracti
         if has_energy and has_tdu:
             return 0.0, 0.85, _snippet(m)
     return None
+
+
+_BULLET_ITEM = re.compile(r"[•▪●]\s*([^•▪●\n]{3,160})")
+
+
+def _extract_base_charge_absent_from_bullet_list(text: str) -> Optional[Extraction]:
+    """A BULLETED price-component list with no REP monthly charge in it.
+
+    Amigo/Tara/Just Energy bundle plans itemize as bullets:
+        • Energy Charge: 7.3¢/kWh.
+        • One-time GoodBundle set up and carbon offset purchase: $49.99.
+        • Pass-Through TDSP Distribution Charge: 6.1196¢/kWh.
+        • Pass-Through TDSP Customer Charge: $4.06 per month.
+    Every recurring component is listed, and the only per-month charge is the
+    TDSP's -- so the REP levies no base charge. Same reasoning as
+    :func:`_extract_base_charge_absent_from_itemized_list`, but these EFLs open
+    with "This price disclosure is based on the average usage levels above",
+    which is not a components anchor; the bullet list itself is the structure.
+
+    Note the TDSP line says "Customer Charge": it is excluded because it is
+    TDU-marked, not because of its label.
+    """
+    items = [m.group(1).strip() for m in _BULLET_ITEM.finditer(text)]
+    if len(items) < 2:
+        return None
+    if not any(re.search(r"energy\s*(?:charge|rate)", i, re.I) for i in items):
+        return None
+    if not any(_TDU_MARK_WORDS.search(i) for i in items):
+        return None
+    rep_items = [i for i in items if not _TDU_MARK_WORDS.search(i)]
+    # A one-time/setup fee is not a recurring monthly charge.
+    recurring = [i for i in rep_items if not re.search(r"one[\s-]*time|set\s*up|enrollment", i, re.I)]
+    if any(_BASE_COMPONENT_WORDS.search(i) for i in recurring):
+        return None  # the REP DOES levy a base charge; let a labelled reader find it
+    return 0.0, 0.85, "; ".join(items[:4])[:200]
 
 
 def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
@@ -2110,6 +2160,12 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 notes.append(
                     "base charge inferred as $0.00: the EFL states its price components in prose "
                     "and names only an energy charge and TDU delivery charges"
+                )
+            elif (bullet_ext := _extract_base_charge_absent_from_bullet_list(text)) is not None:
+                base_charge = record("base_charge", bullet_ext)
+                notes.append(
+                    "base charge inferred as $0.00: the EFL's bulleted price-component list has "
+                    "no recurring REP monthly charge (only the TDSP's)"
                 )
             else:
                 notes.append("base charge not found; defaulting to 0.0")
