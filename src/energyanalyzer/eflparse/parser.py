@@ -252,11 +252,23 @@ def _find_night_hours(text: str) -> list[int]:
     """Scan the whole document for a clock-time range whose immediate context
     mentions "night" (e.g. "Bright Nights hours are 11:00 PM to 06:00 AM.",
     a separate sentence from the rate table itself for brand-prefixed
-    multi-tier plans like Chariot). Returns [] if none is found."""
-    for m in re.finditer(r"[^\n.]{0,40}\bnight[^\n.]{0,80}", text, re.I):
-        hours = parse_time_range(m.group(0))
-        if hours:
-            return hours
+    multi-tier plans like Chariot), or which states a free/no-charge period
+    outright. Returns [] if none is found.
+
+    The second phrasing matters because the footnote defining the window need
+    not use the word "night" at all: Green Mountain's Pollution Free Nights
+    marks its 0.00 tier with an asterisk and explains it as "*There is no charge
+    applied to usage from 9:00 PM to 6:00 AM."
+    """
+    patterns = (
+        r"[^\n.]{0,40}\bnight[^\n.]{0,80}",
+        r"[^\n.]{0,40}\b(?:no|free)\s+charge[^\n.]{0,30}(?:applied\s+)?to\s+usage[^\n.]{0,60}",
+    )
+    for pat in patterns:
+        for m in re.finditer(pat, text, re.I):
+            hours = parse_time_range(m.group(0))
+            if hours:
+                return hours
     return []
 
 
@@ -966,16 +978,21 @@ def _extract_brand_energy_tiers(text: str) -> list[dict]:
     'Chariot Energy Bright Nights Energy Charge       0c       per kWh'
     Returns a list of {"prefix", "rate_ckwh", "evidence"} (possibly empty).
     """
+    # The rate may be given in cents ("0¢ per kWh") or dollars ("$0.00 per
+    # kWh") -- Green Mountain's Pollution Free Nights prints its daytime tier in
+    # cents and its night tier in dollars on the very same list. Only matching
+    # cents found one tier, which is not a schedule, so the whole plan fell
+    # through to the flat-rate reader and modelled the DAY rate around the clock.
     pat = re.compile(
         r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\s*[:\-]?\s*"
-        r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*per\s*kWh",
+        r"(?:\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:¢|cents?)?)\s*per\s*kWh",
         re.I,
     )
     rows = []
     for m in pat.finditer(text):
-        rows.append(
-            {"prefix": m.group(1).strip(), "rate_ckwh": float(m.group(2)), "evidence": _snippet(m)}
-        )
+        usd, cents = m.group(2), m.group(3)
+        rate = float(usd) * 100 if usd is not None else float(cents)
+        rows.append({"prefix": m.group(1).strip(), "rate_ckwh": rate, "evidence": _snippet(m)})
     return rows
 
 
@@ -1805,11 +1822,13 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
     split_base_charge: Optional[float] = None
-    # Confidence for a base charge read out of a split charge row. The generic
-    # 4-column reader gets the cautious default; the multi-rate reader earns
-    # more because its $base is pinned on BOTH sides -- the rate columns before
-    # it and the TDU's (¢/kWh, $/month) pair after it.
-    split_base_conf: float = 0.75
+    # Confidence for a base charge read out of a split charge row. Both readers
+    # pin $base on BOTH sides -- rate column(s) before it, the TDU's (¢/kWh,
+    # $/month) pair after it -- and the 4-column reader additionally requires
+    # "Energy Charge" and "Base Charge" labels above the row, so neither is a
+    # guess. The old 0.75 kept every Champion plan permanently in review over a
+    # $0.00 base charge the document states plainly.
+    split_base_conf: float = 0.85
 
     brand_rows: Optional[list[dict]] = None
     if not tou_rows:
@@ -1889,7 +1908,11 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         day_rate = other_rows[0]["rate_ckwh"]
         hours = _find_night_hours(text)
         if hours:
-            conf = 0.75
+            # Both the two rates and the window come from the document -- there
+            # is nothing left to guess, so this is a full read, not a partial
+            # one. At 0.75 every free-nights plan sat one notch below the bar
+            # and went to review with nothing for a human to actually resolve.
+            conf = 0.85
         else:
             hours = [21, 22, 23, 0, 1, 2, 3, 4, 5]  # assumed 9 p.m.-6 a.m.
             conf = 0.5
@@ -1953,7 +1976,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 notes.append("energy rate derived from a split header/value table ('All kWh <rate>' row)")
             elif split_row is not None:
                 flat_ckwh, split_base_charge, ev = split_row
-                confidence["energy_charge"] = 0.75
+                # Same reasoning as split_base_conf: the row is positionally
+                # unambiguous (rate, base, then the TDU's pair) and only matches
+                # when "Energy Charge" and "Base Charge" head the columns.
+                confidence["energy_charge"] = 0.85
                 evidence["energy_charge"] = ev
                 notes.append("energy rate derived from a split 4-column Energy/Base/TDU charge row")
             elif base_kwh_row is not None:

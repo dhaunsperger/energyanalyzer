@@ -665,8 +665,29 @@ class TestCorpusChariotBrightNights12:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        # heuristic brand-prefixed multi-tier reconstruction -> flagged
-        assert draft.plan_dict["needs_review"] is True
+        """Both rates AND the window come from the document, so nothing is
+        assumed and there is nothing for a human to resolve.
+
+        This used to assert True at 0.75. The distinction that matters is not
+        "was the label brand-prefixed" but "did the EFL state its hours": when
+        `_find_night_hours` comes up empty the parser falls back to an ASSUMED
+        9pm-6am window and scores 0.5, which still lands in review. Here the EFL
+        says "Bright Nights hours are 11:00 PM to 06:00 AM", and the window
+        below is exactly that.
+        """
+        assert draft.plan_dict["needs_review"] is False
+        assert draft.confidence["free_window"] >= 0.8
+
+    def test_assumed_window_still_lands_in_review(self, draft):
+        """The safety valve: strip the hours sentence and the plan must flag."""
+        import re as _re
+
+        text = _re.sub(
+            r"Bright Nights hours are[^\n.]*", "", (REAL_FIXTURES / "CHARIOT_ENERGY_Bright_Nights_12_34727.txt").read_text()
+        )
+        d = parse_efl_text(text, "chariot.txt")
+        assert d.confidence["free_window"] < 0.8
+        assert d.plan_dict["needs_review"] is True
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
