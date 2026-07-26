@@ -1,0 +1,37 @@
+id: direct_energy_free_power_weekends_24_auto_pay_24mo
+retailer: Direct Energy
+name: Free Power Weekends 24 Auto Pay
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays:
+    - 5
+    - 6
+    hours: []
+  label: free
+  tdu_exempt: true
+- rate_ckwh: 16.8693
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:Direct_Energy_Free_Power_Weekends_24_Auto_Pay.pdf
+retrieved: '2026-07-26'
+notes: TDU delivery charge waived during the free window (not be billed for any TDU
+  delivery charges during the Designated Free)
+needs_review: false
+excludes_solar: false
