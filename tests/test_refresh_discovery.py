@@ -497,3 +497,82 @@ def test_refresh_market_data_discovery_failure_is_caught_into_notes(refresh_dirs
     assert summary["discovery"]["reps"] == {}
     assert any("rep discovery stage failed" in n.lower() for n in summary["notes"])
     assert any("discovery exploded" in n for n in summary["notes"])
+
+
+# --------------------------------------------------------------------------- #
+# Coverage safety: an empty live render must never authorise pruning
+# --------------------------------------------------------------------------- #
+def test_live_render_with_zero_plans_is_not_coverage(discovery_dirs, monkeypatch):
+    """A REP whose site rendered but yielded no plans must stay OUT of coverage.
+
+    Real case, 2026-07-26: TXU served "Website Maintenance Notice" instead of
+    its plan list. The render was live and errorless, so without the empty-list
+    guard TXU would have been recorded as fully scraped and every `mp_txu_*`
+    meterplan draft deleted as "TXU doesn't sell this" -- data loss caused by a
+    maintenance window. Coverage means "we saw what they sell", and seeing
+    nothing is not that.
+    """
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", {"txu": _render_config("txu", "TXU Energy")})
+    monkeypatch.setattr(
+        rd_module,
+        "fetch_rendered_html",
+        lambda c, z, headless=True, snapshot_dir=None, check_robots=True: (
+            "<html><title>Website Maintenance Notice</title></html>",
+            snapshot_dir / "txu.html",
+        ),
+    )
+    monkeypatch.setattr(rd_module, "discover", lambda html, c: [])
+    monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _fail_if_called)
+
+    result = app_common._run_rep_discovery(
+        "78665", efl_dir=efl_dir, drafts_dir=drafts_dir, plans_dir=plans_dir, snapshot_dir=snapshot_dir
+    )
+
+    assert result["reps"]["txu"]["live"] is True
+    assert result["reps"]["txu"]["plans_found"] == 0
+    assert result.get("coverage", {}) == {}
+
+
+def test_rep_whose_downloads_were_blocked_is_not_coverage(discovery_dirs, monkeypatch):
+    """A WAF-blocked retailer is not "fully scraped", so its rows survive.
+
+    Ambit, 2026-07-26: the plan list came from a stale capture but every EFL
+    download was refused by the WAF. Its meterplan drafts must not be pruned on
+    the strength of a scrape that never completed.
+    """
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", {"ambit": _render_config("ambit", "Ambit Energy")})
+    monkeypatch.setattr(
+        rd_module,
+        "fetch_rendered_html",
+        lambda c, z, headless=True, snapshot_dir=None, check_robots=True: ("<html></html>", snapshot_dir / "a.html"),
+    )
+    blocked = _plan("Ambit Energy", "Texas Solar Buyback 12")
+    monkeypatch.setattr(rd_module, "discover", lambda html, c: [blocked])
+    monkeypatch.setattr(
+        rd_module,
+        "download_discovered",
+        lambda plans, dest, headless=True, buyback_only=True, progress_callback=None: {
+            "downloaded": [],
+            "skipped": [],
+            "failed": [{"url": blocked.efl_url, "error": "blocked automated access (bot/WAF block)"}],
+            "deferred": [],
+            "filtered_out": 0,
+        },
+    )
+    monkeypatch.setattr(
+        app_common,
+        "parse_downloaded_efls",
+        lambda p, drafts_dir=None, plans_dir=None, progress_callback=None, **kw: {
+            "parsed": [], "skipped": [], "failed": []
+        },
+    )
+
+    result = app_common._run_rep_discovery(
+        "78665", efl_dir=efl_dir, drafts_dir=drafts_dir, plans_dir=plans_dir, snapshot_dir=snapshot_dir
+    )
+
+    assert result["reps"]["ambit"]["plans_found"] == 1
+    assert "Ambit Energy" not in result.get("coverage", {})

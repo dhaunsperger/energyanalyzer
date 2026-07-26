@@ -1412,3 +1412,82 @@ def test_meter_plan_names_carry_the_term():
     # "Solar + battery" must stay out: battery-required plans are excluded
     # everywhere else in this app.
     assert "Solar + battery" not in rd._METER_PROFILES
+
+
+# --------------------------------------------------------------------------- #
+# Bot/WAF block handling
+# --------------------------------------------------------------------------- #
+class _BlockedResponse:
+    """What Ambit's Azure Front Door WAF actually returns: a 14-byte 403."""
+
+    status_code = 403
+    content = b"Blocked by WAF"
+    headers = {"content-type": "text/plain"}
+
+    def raise_for_status(self):
+        raise RuntimeError("403 Forbidden")
+
+
+def test_is_bot_block_only_fires_on_an_explicit_refusal():
+    assert rd._is_bot_block(_BlockedResponse())
+    # A 403 without a block signature is just a 403 -- it may be a stale product
+    # id, and abandoning the whole retailer over it would be wrong.
+    plain = _BlockedResponse()
+    plain.content = b"Forbidden"
+    assert not rd._is_bot_block(plain)
+    # Never on a success, however odd the body.
+    assert not rd._is_bot_block(_FakeResponse(b"%PDF-1.4 Blocked by WAF"))
+
+
+def test_explicit_block_is_not_retried():
+    """A block is an answer, not a hiccup: asking twice more is only noisier."""
+    calls = []
+
+    class _Client:
+        def get(self, url, *args, **kwargs):
+            calls.append(url)
+            return _BlockedResponse()
+
+    resp = rd._get_with_retry(_Client(), "https://waf.example/efl.pdf", "waf.example")
+    assert resp.status_code == 403
+    assert len(calls) == 1, "an explicit bot block must not be retried"
+
+
+def test_download_stops_asking_a_host_that_blocked_us(tmp_path, monkeypatch):
+    """One block ends the run for that host -- the other plans are never fetched.
+
+    Regression guard for the 2026-07-26 refresh, where 14 Ambit EFLs each got
+    retried 3x against a WAF that had already refused the first request.
+    """
+    import httpx
+
+    class _BlockingClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            self.calls.append(url)
+            return _BlockedResponse()
+
+    seen: list = []
+
+    def _factory(*args, **kwargs):
+        client = _BlockingClient()
+        seen.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "Client", _factory)
+    plans = [
+        rd.DiscoveredPlan(
+            retailer="Ambit Energy",
+            plan_name=f"Plan {i}",
+            efl_url=f"https://shopping.ambitenergy.com/api/getdocument?productid=P{i}",
+            is_buyback=True,
+        )
+        for i in range(6)
+    ]
+    summary = rd.download_discovered(plans, dest=tmp_path / "efl", buyback_only=True)
+
+    assert len(seen[0].calls) == 1, "only the first URL may be requested"
+    assert not summary["downloaded"]
+    # Every plan is still reported, so the retailer stays out of discovery
+    # coverage and its meterplan drafts are not pruned as "not offered".
+    assert len(summary["failed"]) == 6
+    assert {f["url"] for f in summary["failed"]} == {p.efl_url for p in plans}
