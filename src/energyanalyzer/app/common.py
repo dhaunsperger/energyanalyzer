@@ -15,6 +15,7 @@ import json
 from dataclasses import dataclass
 import logging
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, Optional
@@ -43,6 +44,9 @@ EFL_DIR = DATA_DIR / "efl"
 # parse stage adds it back explicitly.
 EFL_MANUAL_DIR = EFL_DIR / "manual"
 METERPLAN_DIR = DATA_DIR / "meterplan"
+# Where a refresh parks the plans and EFLs it is about to replace, so a
+# fetcher that breaks mid-run cannot destroy what it failed to rebuild.
+QUARANTINE_DIR = DATA_DIR / "refresh_quarantine"
 REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
@@ -772,6 +776,192 @@ def parse_downloaded_efls(
     return summary
 
 
+QUARANTINE_AUTHORITY_FILE = "authority.json"
+
+
+def _reset_quarantine(quarantine_dir: Path = QUARANTINE_DIR) -> dict:
+    """Empty the quarantine and return its {plans, efl} subdirectories.
+
+    One run's quarantine at a time: holding several would make "was this plan
+    re-derived?" ambiguous, and the answer only matters for the run that just
+    moved the files.
+    """
+    quarantine_dir = Path(quarantine_dir)
+    if quarantine_dir.exists():
+        shutil.rmtree(quarantine_dir, ignore_errors=True)
+    dirs = {"plans": quarantine_dir / "plans", "efl": quarantine_dir / "efl"}
+    for d in dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+    return dirs
+
+
+def _write_refresh_authority(
+    quarantine_dir: Path,
+    ptc_ok: bool,
+    meterplan_ok: bool,
+    listings: list[tuple],
+    coverage: Optional[dict] = None,
+) -> None:
+    """Record which sources spoke for the market this run, and what they listed.
+
+    `reconcile_quarantine` runs inside `finish_refresh`, which is re-runnable on
+    its own (the "Finish incomplete refresh" path) and has no summary in hand
+    then -- so this has to survive on disk, like the discovery coverage file.
+    """
+    try:
+        Path(quarantine_dir).mkdir(parents=True, exist_ok=True)
+        (Path(quarantine_dir) / QUARANTINE_AUTHORITY_FILE).write_text(
+            json.dumps(
+                {
+                    "written_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "ptc_ok": bool(ptc_ok),
+                    "meterplan_ok": bool(meterplan_ok),
+                    "coverage_retailers": sorted((coverage or {}).keys()),
+                    "listings": [list(x) for x in listings],
+                },
+                indent=2,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 -- never break a refresh over telemetry
+        logger.info("Could not write refresh authority: %r", exc)
+
+
+def _read_refresh_authority(quarantine_dir: Path = QUARANTINE_DIR) -> dict:
+    try:
+        return json.loads((Path(quarantine_dir) / QUARANTINE_AUTHORITY_FILE).read_text())
+    except Exception:  # noqa: BLE001 -- absent/corrupt -> claim no authority
+        return {}
+
+
+def _listing_covers(plan: Plan, retailer: str, name: str, term: Optional[int]) -> bool:
+    """True if the market listing (retailer, name, term) still offers `plan`.
+
+    `_plan_supersedes` is the strict rule, but it answers False for two
+    different reasons: "different plan", and "this name carries no distinctive
+    tokens to compare". Plenty of real plans are just brand + term -- "Gexa 12",
+    "Frontier 24" -- and for those it can never return True. That is safe where
+    it is used to *supersede*, but here a False means a plan gets flagged as
+    gone from the market, so an inconclusive comparison must fall back to
+    retailer + term rather than count as evidence of absence.
+    """
+    if _plan_supersedes(plan, _CoverageCandidate("listing", retailer, name, term)):
+        return True
+    r_plan = _significant_tokens(plan.retailer)
+    r_list = _significant_tokens(retailer)
+    if not r_plan or not r_list or not (r_plan <= r_list or r_list <= r_plan):
+        return False
+    if plan.term_months != term:
+        return False
+    # Same retailer and term. Only treat that as a match when the names were
+    # too generic to compare -- otherwise "Gexa 12" would cover "Gexa 24".
+    distinctive = _significant_tokens(plan.name, extra_drop=frozenset(r_plan | {"plan"}))
+    return not distinctive
+
+
+def reconcile_quarantine(
+    plans_dir: Path = PLANS_DIR,
+    efl_dir: Path = EFL_DIR,
+    quarantine_dir: Path = QUARANTINE_DIR,
+) -> dict:
+    """Restore whatever the run failed to re-derive, and flag what's truly gone.
+
+    Three outcomes per quarantined plan:
+
+    * **re-derived** -- a plan with that id exists again, so the quarantine copy
+      is dropped. The normal path.
+    * **still listed** -- no plan file, but a source that ran this run still
+      advertises it. Its EFL simply didn't make it (a WAF block, a download
+      failure, a funnel that drifted). Restored untouched: the plan is real and
+      our copy is the last good one.
+    * **delisted** -- no plan file, and a source with authority over it ran to
+      completion without listing it. Restored and flagged for review rather than
+      deleted, because a plan leaving the market is a fact worth seeing --
+      especially if it is the one you are currently on.
+
+    Authority is deliberately narrow, mirroring `prune_stale_meterplan_drafts`:
+    absence only means something when the source that would have listed it
+    actually completed. If PTC never downloaded, nothing is delisted, and a
+    broken run costs nothing.
+    """
+    plans_dir, efl_dir = Path(plans_dir), Path(efl_dir)
+    q = Path(quarantine_dir)
+    result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0}
+    _restored_plans: list = []
+    if not q.exists():
+        return result
+
+    authority = _read_refresh_authority(q)
+    ptc_ok = bool(authority.get("ptc_ok"))
+    meterplan_ok = bool(authority.get("meterplan_ok"))
+    coverage_retailers = {str(r) for r in (authority.get("coverage_retailers") or [])}
+    # (retailer, name, term). A term of None means the source published no term
+    # -- discovery coverage is plan names only -- so it is filled in from the
+    # plan under test, making the term a non-discriminator rather than an
+    # automatic mismatch. Same conservative rule prune_stale_meterplan_drafts
+    # uses: when comparing, err towards "still listed".
+    listings = [(str(r), str(n), t) for r, n, t in (authority.get("listings") or [])]
+
+    for path in sorted((q / "plans").glob("*.yaml")) if (q / "plans").exists() else []:
+        live = plans_dir / path.name
+        if live.exists():
+            result["dropped"] += 1
+            continue
+        try:
+            raw = yaml.safe_load(path.read_text()) or {}
+            plan = Plan.model_validate(raw)
+        except Exception:  # noqa: BLE001 -- unreadable: restore it and move on
+            shutil.move(str(path), str(plans_dir / path.name))
+            result["restored"].append(path.stem)
+            continue
+        _restored_plans.append(plan)
+
+        still_listed = any(
+            _listing_covers(plan, r, n, plan.term_months if t is None else t)
+            for r, n, t in listings
+        )
+        src = str(plan.source or "")
+        # Who could have testified that this plan is gone?
+        if src == "meterplan":
+            spoke = meterplan_ok
+        else:
+            spoke = ptc_ok or any(
+                _significant_tokens(plan.retailer) <= _significant_tokens(r)
+                or _significant_tokens(r) <= _significant_tokens(plan.retailer)
+                for r in coverage_retailers
+            )
+
+        shutil.move(str(path), str(plans_dir / path.name))
+        if not still_listed and spoke:
+            _flag_plan_needs_review(
+                plans_dir / path.name,
+                f"Not listed by its source on {dt.date.today().isoformat()} -- the source was "
+                "reached and did not offer this plan. It may have left the market.",
+            )
+            result["delisted"].append(plan.id)
+        else:
+            result["restored"].append(plan.id)
+
+    # EFLs: restore only the documents the surviving plans were parsed from
+    # (Plan.source is "efl:<filename>"). Restoring every leftover instead would
+    # resurrect orphans permanently -- each is re-parsed into a draft, then
+    # quarantined and restored again on the next run, so a PDF nothing points at
+    # would generate a review item forever.
+    wanted = {
+        str(src)[4:]
+        for src in (getattr(p, "source", "") for p in _restored_plans)
+        if str(src).startswith("efl:")
+    }
+    for path in sorted((q / "efl").glob("*.pdf")) if (q / "efl").exists() else []:
+        if path.name not in wanted or (efl_dir / path.name).exists():
+            continue
+        shutil.move(str(path), str(efl_dir / path.name))
+        result["efls_restored"] += 1
+
+    if result["restored"] or result["delisted"]:
+        invalidate_plans_cache()
+    return result
+
+
 def manual_efl_paths(efl_dir: Path = EFL_DIR) -> list[Path]:
     """Hand-supplied EFL PDFs, which survive the refresh wipe.
 
@@ -1124,6 +1314,7 @@ def refresh_market_data(
     efl_dir: Path = EFL_DIR,
     ptc_dir: Path = PTC_DIR,
     meterplan_dir: Path = METERPLAN_DIR,
+    quarantine_dir: Path = QUARANTINE_DIR,
     tdu: str = "ONCOR",
     language: Optional[str] = "English",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -1138,11 +1329,16 @@ def refresh_market_data(
 
     Orchestrates, in order:
 
-    1. **Delete** stale auto-imported data: plans in `plans_dir` whose
-       `source` starts with `"ptc"`, `"efl:"`, or is exactly `"meterplan"`
-       (never `"manual"`, never a `"report-*"` seed, never
-       `CURRENT_PLAN_ID`); every draft in `drafts_dir`; every PDF in
-       `efl_dir`; every PTC snapshot in `ptc_dir` except the newest (kept as
+    1. **Quarantine** stale auto-imported data into `quarantine_dir`: plans in
+       `plans_dir` whose `source` starts with `"ptc"`, `"efl:"`, or is exactly
+       `"meterplan"` (never `"manual"`, never a `"report-*"` seed, never
+       `CURRENT_PLAN_ID`), and every PDF in `efl_dir` (except
+       `efl_dir/manual/`, which is never touched). Clearing these is what
+       forces fresh documents -- `download_efls` skips anything already on
+       disk -- but they are MOVED, not deleted, so `reconcile_quarantine` in
+       step 8 can restore whatever the run failed to rebuild. Drafts in
+       `drafts_dir` are still deleted outright (they are regenerated every
+       run), as is every PTC snapshot in `ptc_dir` except the newest (kept as
        a fallback).
     2. **Fetch** a fresh PTC snapshot (`fetchers.ptc.fetch_ptc_csv`) unless
        `fetch=False`. If the live fetch raises `RuntimeError` (network
@@ -1226,6 +1422,7 @@ def refresh_market_data(
     efl_dir = Path(efl_dir)
     ptc_dir = Path(ptc_dir)
     meterplan_dir = Path(meterplan_dir)
+    quarantine_dir = Path(quarantine_dir)
 
     notes: list[str] = []
     summary: dict = {
@@ -1268,7 +1465,14 @@ def refresh_market_data(
         if progress_callback is not None:
             progress_callback(done, total, f"{stage}: {item}")
 
-    # --- 1. delete stale auto-imported data -------------------------------#
+    # --- 1. quarantine stale auto-imported data ---------------------------#
+    # Plans and EFLs are MOVED aside, not deleted. Clearing them is what forces
+    # fresh documents (download_efls skips anything already on disk), but doing
+    # it destructively means any fetcher that breaks mid-run silently costs data
+    # that nothing can rebuild -- on 2026-07-26 that was Direct Energy's two
+    # solar plans and Ambit's hand-saved EFLs. Whatever the run fails to
+    # re-derive is restored from here by reconcile_quarantine().
+    quarantine = _reset_quarantine(quarantine_dir)
     plan_paths_to_delete = []
     if plans_dir.exists():
         for p in sorted(plans_dir.glob("*.yaml")):
@@ -1291,17 +1495,20 @@ def refresh_market_data(
     delete_total = len(plan_paths_to_delete) + len(draft_paths) + len(efl_paths) + len(old_snapshots)
     delete_done = 0
     for p in plan_paths_to_delete:
-        p.unlink(missing_ok=True)
+        shutil.move(str(p), str(quarantine["plans"] / p.name))
         summary["deleted_plans"].append(p.stem)
         delete_done += 1
         _report("delete", delete_done, delete_total, f"plan {p.name}")
     for p in draft_paths:
+        # Drafts alone are still deleted outright: they are the review queue,
+        # regenerated from EFLs every run, and a draft nothing re-derived is
+        # noise rather than a loss.
         p.unlink(missing_ok=True)
         summary["deleted_drafts"] += 1
         delete_done += 1
         _report("delete", delete_done, delete_total, f"draft {p.name}")
     for p in efl_paths:
-        p.unlink(missing_ok=True)
+        shutil.move(str(p), str(quarantine["efl"] / p.name))
         summary["deleted_efls"] += 1
         delete_done += 1
         _report("delete", delete_done, delete_total, f"efl {p.name}")
@@ -1490,6 +1697,30 @@ def refresh_market_data(
             notes.append(f"REP discovery stage failed: {exc!r}")
             _report("discovery", 1, 1, "discovery stage failed")
 
+    # Record what the market actually offered this run, so reconcile_quarantine
+    # can tell "we failed to fetch it" from "nobody sells it any more". Built
+    # from the sources that completed: the PTC index, plus every plan name a
+    # fully-scraped REP returned.
+    _listings: list[tuple] = []
+    if ptc_df_for_dedup is not None:
+        for _, _row in ptc_df_for_dedup.iterrows():
+            _term = _row.get("term_months")
+            try:
+                _term = int(_term) if pd.notna(_term) else None
+            except (TypeError, ValueError):
+                _term = None
+            _listings.append((str(_row.get("retailer") or ""), str(_row.get("plan_name") or ""), _term))
+    _coverage = (summary.get("discovery") or {}).get("coverage") or {}
+    for _retailer, _names in _coverage.items():
+        _listings.extend((str(_retailer), str(_n), None) for _n in _names)
+    _write_refresh_authority(
+        quarantine_dir,
+        ptc_ok=bool(summary.get("fetched")),
+        meterplan_ok=bool((summary.get("meterplan") or {}).get("fetched")),
+        listings=_listings,
+        coverage=_coverage,
+    )
+
     # --- 7 + 8. auto-promote confident drafts, then supersede ---------------#
     finish_refresh(
         plans_dir=plans_dir,
@@ -1664,6 +1895,28 @@ def finish_refresh(
         notes.append(
             f"Dropped synthetic meterplan draft {draft_id}: {retailer}'s own site was "
             "scraped in full and does not offer this plan."
+        )
+
+    # Last: restore anything this run quarantined but never rebuilt. Runs after
+    # promotion so "was it re-derived?" is asked of the finished database, and
+    # inside finish_refresh so the "Finish incomplete refresh" recovery path
+    # un-quarantines too -- an interrupted run must not strand the old plans.
+    reconciled = reconcile_quarantine(plans_dir=plans_dir)
+    if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
+        summary["quarantine"] = reconciled
+    for plan_id in reconciled["restored"]:
+        notes.append(
+            f"Kept existing plan {plan_id}: this refresh did not rebuild it, but the "
+            "source still lists it."
+        )
+    for plan_id in reconciled["delisted"]:
+        notes.append(
+            f"Flagged {plan_id} for review: its source was reached and no longer lists it."
+        )
+    if reconciled["efls_restored"]:
+        notes.append(
+            f"Restored {reconciled['efls_restored']} EFL PDF(s) this refresh failed to "
+            "re-download."
         )
 
     if summary["meterplan_superseded"]:

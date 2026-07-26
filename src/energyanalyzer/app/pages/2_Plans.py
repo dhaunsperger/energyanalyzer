@@ -756,6 +756,20 @@ if refresh_summary is not None:
         f"{mp_refresh.get('skipped_own', 0)} Meter-own superseded by real EFLs, "
         f"{mp_refresh.get('flagged_for_review', 0)} flagged for review)."
     )
+    _quar = refresh_summary.get("quarantine") or {}
+    if _quar.get("restored") or _quar.get("efls_restored"):
+        st.caption(
+            f"Kept {len(_quar.get('restored', []))} plan(s) and "
+            f"{_quar.get('efls_restored', 0)} EFL(s) this refresh could not rebuild -- their "
+            "source still lists them, so the previous copies were put back."
+        )
+    if _quar.get("delisted"):
+        st.warning(
+            f"{len(_quar['delisted'])} plan(s) are no longer listed by the source that "
+            "offers them, so they may have left the market. They were kept and flagged for "
+            f"review rather than deleted: {', '.join(_quar['delisted'][:8])}"
+            + (" …" if len(_quar["delisted"]) > 8 else "")
+        )
     _superseded = refresh_summary.get("meterplan_superseded") or []
     if _superseded:
         st.caption(
