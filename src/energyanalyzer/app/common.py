@@ -451,7 +451,7 @@ DISCOVERY_COVERAGE_FILE = "discovery_coverage.json"
 def _write_discovery_coverage(snapshot_dir: Path, coverage: dict) -> None:
     """Persist {retailer: [plan names]} for REPs whose site we scraped in full.
 
-    Written so :func:`prune_stale_meterplan_drafts` still works when
+    Written so :func:`prune_stale_meterplan_rows` still works when
     `finish_refresh` is re-run on its own (the "Finish incomplete refresh"
     path), which has no discovery result in hand. Best-effort.
     """
@@ -475,10 +475,17 @@ def _read_discovery_coverage(snapshot_dir: Path = REP_DISCOVERY_DIR) -> dict:
         return {}
 
 
-def prune_stale_meterplan_drafts(
-    drafts_dir: Path = DRAFTS_DIR, coverage: Optional[dict] = None
+def prune_stale_meterplan_rows(
+    directory: Path = DRAFTS_DIR, coverage: Optional[dict] = None
 ) -> list[tuple]:
-    """Drop synthetic meterplan drafts for plans a fully-scraped REP doesn't sell.
+    """Drop synthetic meterplan rows for plans a fully-scraped REP doesn't sell.
+
+    Runs over BOTH `plans/` and `plans/drafts/`. It used to see drafts only,
+    which left a blind spot with a long half-life: a synthetic promoted before
+    we started surveying its REP directly was never re-examined and simply
+    stayed in the ranking forever. Four such rows survived the 2026-07-26 run --
+    Chariot Fusion, Reliant Solar Payback Plus, TXU Solar Buyback Plus and
+    Saver -- none of which their retailer still sells.
 
     meterplan.com is a third-party index published by a competing REP, and its
     rows go stale: it lists plans the retailer no longer offers. When we have
@@ -492,13 +499,13 @@ def prune_stale_meterplan_drafts(
     subsets through different funnels (Champion's website-only plans versus its
     PTC listing are precedent). So this fires ONLY where the scrape was live and
     complete, and only against that same retailer's rows -- never as a general
-    "not seen lately" sweep. Returns ``(removed_draft_id, retailer)`` tuples.
+    "not seen lately" sweep. Returns ``(removed_id, retailer)`` tuples.
     """
     coverage = _read_discovery_coverage() if coverage is None else coverage
     if not coverage:
         return []
     removed: list[tuple] = []
-    for path in sorted(Path(drafts_dir).glob("*.yaml")):
+    for path in sorted(Path(directory).glob("*.yaml")):
         try:
             raw = yaml.safe_load(path.read_text()) or {}
             if str(raw.get("source") or "") != "meterplan":
@@ -637,6 +644,33 @@ def draft_energy_rate_summary(plan_dict: dict) -> str:
             parts.append("?")
     label = " / ".join(parts) if parts else "?"
     return f"{label} ({len(rates)} rate{'s' if len(rates) != 1 else ''})"
+
+
+# Boilerplate every Texas EFL carries that a name-hunting regex can mistake for
+# the plan's name. Tesla's Drive 12M landed in the database as "PUCT Certificate
+# Number: 10296" -- unreadable in the UI, and unmatchable, so the synthetic
+# meterplan row for the same plan could never be superseded and sat in the
+# ranking beside it. Treated like "Unnamed Plan": a failed read, so discovery's
+# own name (which came off the REP's plan card) is used instead.
+# Needs a qualifier -- "PUCT/REP certificate", or "certificate number" -- so a
+# bare "Certificate 12" can still be somebody's actual product name.
+_NOT_A_PLAN_NAME_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:puct|rep)\s*certificat(?:e|ion)(?:\s*(?:no\.?|number|#))?"
+    r"|certificat(?:e|ion)\s*(?:no\.?|number|#)"
+    r")[\s:#.]*\d*\s*$",
+    re.I,
+)
+
+
+def _is_not_a_plan_name(name) -> bool:
+    """Did the parser fail to find a plan name, whatever it put in the field?"""
+    text = str(name or "").strip()
+    return (
+        not text
+        or text == "Unnamed Plan"
+        or bool(_NOT_A_PLAN_NAME_RE.match(text))
+    )
 
 
 def _carry_source_hash(plan_dict: dict, raw: dict) -> dict:
@@ -803,7 +837,7 @@ def parse_downloaded_efls(
                 if retailer and draft.plan_dict.get("retailer") == "Unknown Retailer":
                     draft.plan_dict["retailer"] = retailer
                     changed_identity = True
-                if plan_name and draft.plan_dict.get("name") == "Unnamed Plan":
+                if plan_name and _is_not_a_plan_name(draft.plan_dict.get("name")):
                     draft.plan_dict["name"] = plan_name
                     changed_identity = True
                 if changed_identity:
@@ -972,8 +1006,13 @@ def reconcile_quarantine(
     efl_dir: Path = EFL_DIR,
     quarantine_dir: Path = QUARANTINE_DIR,
     drafts_dir: Path = DRAFTS_DIR,
+    retired_ids: Optional[set] = None,
 ) -> dict:
     """Restore whatever the run failed to re-derive, and flag what's truly gone.
+
+    `retired_ids` are ids this run deliberately removed (superseded or pruned).
+    Without them a retirement is indistinguishable from "never rebuilt" and gets
+    undone on the spot.
 
     Three outcomes per quarantined plan:
 
@@ -1004,7 +1043,7 @@ def reconcile_quarantine(
       deleted, because a plan leaving the market is a fact worth seeing --
       especially if it is the one you are currently on.
 
-    Authority is deliberately narrow, mirroring `prune_stale_meterplan_drafts`:
+    Authority is deliberately narrow, mirroring `prune_stale_meterplan_rows`:
     absence only means something when the source that would have listed it
     actually completed. If PTC never downloaded, nothing is delisted, and a
     broken run costs nothing.
@@ -1024,15 +1063,21 @@ def reconcile_quarantine(
     # (retailer, name, term). A term of None means the source published no term
     # -- discovery coverage is plan names only -- so it is filled in from the
     # plan under test, making the term a non-discriminator rather than an
-    # automatic mismatch. Same conservative rule prune_stale_meterplan_drafts
+    # automatic mismatch. Same conservative rule prune_stale_meterplan_rows
     # uses: when comparing, err towards "still listed".
     listings = [(str(r), str(n), t) for r, n, t in (authority.get("listings") or [])]
 
     drafts_dir = Path(drafts_dir)
+    retired = set(retired_ids or ())
     for path in sorted((q / "plans").glob("*.yaml")) if (q / "plans").exists() else []:
         # A confident promotion this run always wins: it is both newer and
         # verified, and it already overwrote plans/<id>.
         if (plans_dir / path.name).exists():
+            result["dropped"] += 1
+            continue
+        # Deliberately retired this run -- absent because we removed it, not
+        # because we failed to rebuild it.
+        if path.stem in retired:
             result["dropped"] += 1
             continue
         try:
@@ -2100,18 +2145,31 @@ def finish_refresh(
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
     # Rows for plans a fully-scraped REP doesn't actually sell (stale index).
-    for draft_id, retailer in prune_stale_meterplan_drafts(drafts_dir):
-        summary.setdefault("meterplan_pruned", []).append(draft_id)
-        notes.append(
-            f"Dropped synthetic meterplan draft {draft_id}: {retailer}'s own site was "
-            "scraped in full and does not offer this plan."
-        )
+    # Both directories: a synthetic promoted before we started surveying its REP
+    # directly is otherwise never re-examined and stays in the ranking forever.
+    for where, directory in (("plan", plans_dir), ("draft", drafts_dir)):
+        for row_id, retailer in prune_stale_meterplan_rows(directory):
+            summary.setdefault("meterplan_pruned", []).append(row_id)
+            notes.append(
+                f"Dropped synthetic meterplan {where} {row_id}: {retailer}'s own site was "
+                "scraped in full and does not offer this plan."
+            )
 
     # Last: restore anything this run quarantined but never rebuilt. Runs after
     # promotion so "was it re-derived?" is asked of the finished database, and
     # inside finish_refresh so the "Finish incomplete refresh" recovery path
     # un-quarantines too -- an interrupted run must not strand the old plans.
-    reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
+    # Ids this run deliberately RETIRED (superseded by a real plan, or pruned as
+    # not-offered) must not be resurrected: from the quarantine's point of view
+    # "no plan file with this id" is indistinguishable from "never rebuilt", and
+    # it restored mp_direct_energy_direct_solar_unlimited_12mo on 2026-07-26 in
+    # the same run that had just superseded it -- the summary said both.
+    retired = set(summary.get("meterplan_superseded") or []) | set(
+        summary.get("meterplan_pruned") or []
+    )
+    reconciled = reconcile_quarantine(
+        plans_dir=plans_dir, drafts_dir=drafts_dir, retired_ids=retired
+    )
     if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
         summary["quarantine"] = reconciled
     for plan_id in reconciled.get("kept_pending_review", []):

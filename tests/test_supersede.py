@@ -319,7 +319,7 @@ def test_prune_drops_rows_a_fully_scraped_rep_does_not_offer(tmp_path):
     )
     coverage = {"TXU Energy": ["Free Nights & Cool Summer 12", "Simple Rate 12", "e-Saver 12"]}
 
-    removed = prune = app_common.prune_stale_meterplan_drafts(drafts, coverage)
+    removed = prune = app_common.prune_stale_meterplan_rows(drafts, coverage)
 
     assert [d for d, _ in removed] == ["mp_txu_free_nights_solar_days_12mo"]
     assert not stale.exists()
@@ -341,17 +341,17 @@ def test_prune_never_touches_a_rep_we_did_not_fully_scrape(tmp_path):
         drafts,
     )
     # Coverage names a DIFFERENT retailer; Ambit isn't in it at all.
-    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert ambit.exists()
     # Empty coverage (no discovery run, or none completed) prunes nothing.
-    assert app_common.prune_stale_meterplan_drafts(drafts, {}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {}) == []
     assert ambit.exists()
 
 
 def test_prune_leaves_real_drafts_alone(tmp_path):
     drafts = tmp_path / "drafts"
     real = _save(_mk("TXU Energy", "Something Discontinued", 12, "efl:txu.pdf", "txu_real_12"), drafts)
-    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert real.exists(), "only meterplan-sourced drafts are ever pruned"
 
 
@@ -395,3 +395,37 @@ def test_meterplan_bb_abbreviation_supersedes_the_spelled_out_plan():
     # Still term-sensitive, and still not a licence to merge different products.
     other = _mk("TXU Energy", "TXU Energy Solar Buyback Saver 12", 12, "efl:x.pdf", "txu_saver")
     assert not app_common._plan_supersedes(synthetic, other)
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic meterplan rows that outlived their usefulness
+# --------------------------------------------------------------------------- #
+def test_prune_reaches_promoted_plans_not_just_drafts(tmp_path):
+    """The blind spot with the long half-life.
+
+    A synthetic promoted BEFORE we started surveying its REP directly was never
+    re-examined, so it sat in the ranking forever. Four such rows survived the
+    2026-07-26 run -- Chariot Fusion, Reliant Solar Payback Plus, TXU Solar
+    Buyback Plus and Saver -- none of them still sold by their retailer.
+    """
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("TXU Energy", "Solar Buyback Plus", 12, "meterplan", "mp_txu_solar_buyback_plus_12mo"), plans)
+    _save(_mk("TXU Energy", "Simple Rate 12", 12, "meterplan", "mp_txu_simple_rate_12mo"), plans)
+
+    removed = app_common.prune_stale_meterplan_rows(plans, {"TXU Energy": ["Simple Rate 12"]})
+
+    assert [r for r, _ in removed] == ["mp_txu_solar_buyback_plus_12mo"]
+    assert not (plans / "mp_txu_solar_buyback_plus_12mo.yaml").exists()
+    assert (plans / "mp_txu_simple_rate_12mo.yaml").exists(), "still offered -- keep it"
+
+
+def test_prune_spares_a_rep_we_do_not_survey(tmp_path):
+    """Almika is not in REP_CONFIGS, so nothing ever testifies that it stopped
+    selling a plan. Absence of evidence must not retire its row."""
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Almika Solar", "60 Energy Plus Buyback", 60, "meterplan", "mp_almika_60mo"), plans)
+
+    assert app_common.prune_stale_meterplan_rows(plans, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert (plans / "mp_almika_60mo.yaml").exists()

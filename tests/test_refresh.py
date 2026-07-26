@@ -1099,3 +1099,66 @@ def test_a_hand_edited_hash_is_not_overwritten_on_promote():
     plan_dict = {"source_sha256": "mine"}
     app_common._carry_source_hash(plan_dict, {"_parse": {"source_sha256": "parsers"}})
     assert plan_dict["source_sha256"] == "mine"
+
+
+def test_a_deliberately_retired_plan_is_not_resurrected(tmp_path):
+    """Supersede/prune remove a plan; the quarantine must not put it back.
+
+    From the quarantine's point of view "no plan file with this id" is
+    indistinguishable from "the run never rebuilt it". On 2026-07-26 that undid
+    a retirement inside the same run: the summary said both "Superseded
+    synthetic meterplan plan mp_direct_energy_direct_solar_unlimited_12mo" and
+    "Kept existing plan mp_direct_energy_direct_solar_unlimited_12mo".
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [["Direct Energy", "Direct Solar Unlimited", 12]])
+    _q_plan(q / "plans" / "mp_de_solar_12.yaml", "mp_de_solar_12", "Direct Energy",
+            "Direct Solar Unlimited", 12, source="meterplan")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q,
+        retired_ids={"mp_de_solar_12"},
+    )
+
+    assert out["restored"] == [] and out["delisted"] == []
+    assert not (plans_dir / "mp_de_solar_12.yaml").exists()
+
+
+def test_without_the_retired_set_the_same_plan_comes_back(tmp_path):
+    """The control: this is exactly the resurrection the parameter prevents."""
+    plans_dir, q = _setup_quarantine(tmp_path, [["Direct Energy", "Direct Solar Unlimited", 12]])
+    _q_plan(q / "plans" / "mp_de_solar_12.yaml", "mp_de_solar_12", "Direct Energy",
+            "Direct Solar Unlimited", 12, source="meterplan")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q
+    )
+
+    assert out["restored"] == ["mp_de_solar_12"]
+
+
+def test_a_certificate_line_is_not_a_plan_name():
+    """Tesla's Drive 12M entered the database as "PUCT Certificate Number:
+    10296" -- the parser's name regex caught EFL boilerplate. Unreadable in the
+    UI, and unmatchable, so the synthetic meterplan row for the same plan could
+    never be superseded and ranked beside it. Treated as a failed read so
+    discovery's name (off the REP's own plan card) is used instead."""
+    for boilerplate in (
+        "PUCT Certificate Number: 10296",
+        "PUCT Certificate No. 10296",
+        "REP Certification Number 10296",
+        "Certificate Number 10296",
+        "Unnamed Plan",
+        "",
+        None,
+    ):
+        assert app_common._is_not_a_plan_name(boilerplate), boilerplate
+
+    # ...without swallowing real product names that merely look similar.
+    for real in (
+        "Drive 12M",
+        "Certificate 12",
+        "Certified Green 12",
+        "Gexa Solar Buyback 12",
+        "Pollution Free e-Plus 24",
+    ):
+        assert not app_common._is_not_a_plan_name(real), real
