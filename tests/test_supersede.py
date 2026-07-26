@@ -473,3 +473,65 @@ def test_a_trailing_number_that_is_not_a_term_is_ignored():
     assert app_common._term_from_plan_name("Smart 2000 Select") is None
     assert app_common._term_from_plan_name("Pollution Free e-Plus") is None
     assert app_common._term_from_plan_name("Free 3 Day Weekends 12") == 12
+
+
+# --------------------------------------------------------------------------- #
+# Sibling grouping (one product, several brands)
+# --------------------------------------------------------------------------- #
+def _p(pid, retailer, name, **kw):
+    from energyanalyzer.core.models import EnergyRate, Plan
+    base = dict(id=pid, retailer=retailer, name=name, term_months=12,
+                energy_rates=[EnergyRate(rate_ckwh=9.3)])
+    base.update(kw)
+    return Plan(**base)
+
+
+def test_identical_deals_under_different_brands_collapse_to_one_row():
+    """Frontier Battery Awards 12, Frontier Sun Confidence 12, Gexa Battery
+    Benefits 12 and Gexa Solar Buyback 12 are one NRG product with four names --
+    same effective date, same 475 kWh outflow assumption in all four EFLs. Three
+    copies of the same deal crowding the top ten hide the real alternatives."""
+    plans = [
+        _p("a", "Frontier Utilities", "Frontier Battery Awards 12"),
+        _p("b", "Frontier Utilities", "Frontier Sun Confidence 12"),
+        _p("c", "Gexa Energy", "Gexa Battery Benefits 12"),
+        _p("d", "Gexa Energy", "Gexa Solar Buyback 12"),
+    ]
+    by_id = {p.id: p for p in plans}
+
+    kept, siblings = app_common.group_plan_siblings(["a", "b", "c", "d"], by_id)
+
+    assert kept == ["a"], "the best-ranked one represents the group"
+    assert [p.id for p in siblings["a"]] == ["b", "c", "d"]
+
+
+def test_a_cheaper_sibling_is_not_hidden_behind_a_dearer_one():
+    """Anything that can move a bill keeps plans apart -- only a genuinely
+    indistinguishable deal is folded away."""
+    by_id = {p.id: p for p in (
+        _p("cheap", "Gexa Energy", "Gexa 12"),
+        _p("dear", "Frontier Utilities", "Frontier 12", base_charge_usd=9.95),
+    )}
+    kept, siblings = app_common.group_plan_siblings(["cheap", "dear"], by_id)
+    assert kept == ["cheap", "dear"] and siblings == {}
+
+
+def test_eligibility_keeps_plans_apart():
+    """A plan this home cannot buy is not interchangeable with one it can,
+    however identical the arithmetic."""
+    by_id = {p.id: p for p in (
+        _p("ok", "Gexa Energy", "Gexa 12"),
+        _p("no", "TXU Energy", "Free Nights 12", excludes_solar=True),
+    )}
+    kept, _ = app_common.group_plan_siblings(["ok", "no"], by_id)
+    assert kept == ["ok", "no"]
+
+
+def test_the_current_plan_always_keeps_its_own_row():
+    """It is the baseline every other row is read against."""
+    by_id = {p.id: p for p in (
+        _p("rival", "Gexa Energy", "Gexa 12"),
+        _p(app_common.CURRENT_PLAN_ID, "Pulse Power", "Your Current Plan"),
+    )}
+    kept, _ = app_common.group_plan_siblings(["rival", app_common.CURRENT_PLAN_ID], by_id)
+    assert app_common.CURRENT_PLAN_ID in kept

@@ -784,6 +784,93 @@ def draft_summary_row(path: Path) -> dict:
     }
 
 
+def plan_economics_fingerprint(plan) -> str:
+    """A stable key for "this is the same deal, whatever it is called".
+
+    Texas retail is full of white labels: one product sold under several brands
+    by the same parent. Measured across the 263-plan database, 263 plans are only
+    234 distinct products, and 18 clusters span more than one retailer --
+    Frontier Battery Awards 12, Frontier Sun Confidence 12, Gexa Battery
+    Benefits 12 and Gexa Solar Buyback 12 are one NRG product with four names,
+    same effective date and same 475 kWh outflow assumption in all four EFLs.
+
+    Every field that can move a bill is in the key, so two plans only collide
+    when the simulation genuinely cannot tell them apart. Eligibility is in it
+    too (`excludes_solar`): a plan this home cannot buy is not interchangeable
+    with one it can, however identical the arithmetic.
+
+    Deliberately NOT a dedup key for storage. These are separate contracts with
+    separate retailers and, as `enroll_url` shows, separate places to sign up;
+    collapsing them on disk would lose that and would hide the day one brand's
+    price drifts from its siblings. Grouping belongs in the view.
+    """
+    def _window(w):
+        if w is None:
+            return None
+        return (tuple(sorted(w.months)), tuple(sorted(w.weekdays)), tuple(sorted(w.hours)))
+
+    def _rtw(r):
+        if r is None:
+            return None
+        return (r.multiplier, r.adder_ckwh, r.cap_ckwh, r.floor_ckwh)
+
+    def _rates(rates):
+        return [(r.rate_ckwh, _rtw(r.rtw), _window(r.window), r.tdu_exempt) for r in rates]
+
+    ev = plan.ev_free_charging
+    payload = {
+        "tdu": plan.tdu,
+        "term": plan.term_months,
+        "base": round(float(plan.base_charge_usd or 0.0), 6),
+        "etf": (round(float(plan.etf_usd or 0.0), 4), bool(plan.etf_per_month_remaining)),
+        "signup": round(float(getattr(plan, "signup_fee_usd", 0.0) or 0.0), 4),
+        "passthrough": bool(plan.tdu_passthrough),
+        "rates": _rates(plan.energy_rates),
+        "buyback": (
+            plan.buyback.kind.value,
+            plan.buyback.rate_ckwh,
+            _rtw(plan.buyback.rtw),
+            _rates(plan.buyback.rates),
+            plan.buyback.offset_scope,
+            plan.buyback.monthly_credit_cap,
+            bool(plan.buyback.rollover),
+            bool(plan.buyback.cash_out),
+        ),
+        "credits": sorted((c.min_kwh, c.max_kwh, c.credit_usd) for c in plan.bill_credits),
+        "ev": None if ev is None else (_window(ev.window), ev.monthly_kwh_cap),
+        "excludes_solar": bool(getattr(plan, "excludes_solar", False)),
+    }
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def group_plan_siblings(ranked_ids: list, plans_by_id: dict) -> tuple[list, dict]:
+    """Collapse identical deals, keeping the first of each in ranked order.
+
+    Returns ``(kept_ids, siblings)`` where `siblings` maps a kept id to the other
+    plans it stands for. The current plan is never collapsed away -- it is the
+    baseline every other row is read against, so it always keeps its own row.
+    """
+    seen: dict = {}
+    kept: list = []
+    siblings: dict = {}
+    for plan_id in ranked_ids:
+        plan = plans_by_id.get(plan_id)
+        if plan is None:
+            continue
+        if plan_id == CURRENT_PLAN_ID:
+            kept.append(plan_id)
+            continue
+        key = plan_economics_fingerprint(plan)
+        leader = seen.get(key)
+        if leader is None:
+            seen[key] = plan_id
+            kept.append(plan_id)
+            siblings[plan_id] = []
+        else:
+            siblings[leader].append(plan)
+    return kept, {k: v for k, v in siblings.items() if v}
+
+
 def known_efl_enroll_urls(ptc_dir: Path = PTC_DIR) -> dict:
     """Map ``<efl filename> -> enroll_url`` from the newest PTC snapshot.
 

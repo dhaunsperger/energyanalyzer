@@ -572,6 +572,36 @@ Three independent mechanisms now:
    is completed **without repeating the sweep**. Idempotent. Surfaced on the
    Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
 
+### 9e. Sibling brands (`plan_economics_fingerprint`, `group_plan_siblings`)
+
+Texas retail is full of white labels: one product sold under several brands by
+the same parent. Measured over the 263-plan database, **263 plans are only 234
+distinct products, and 18 clusters span more than one retailer** --
+
+* NRG: Frontier / Gexa / Companion (6 clusters). `Frontier Battery Awards 12`,
+  `Frontier Sun Confidence 12`, `Gexa Battery Benefits 12` and `Gexa Solar
+  Buyback 12` are ONE product with four names -- same effective date, same
+  475 kWh outflow assumption, same "solar energy and/or battery energy
+  generation" wording in all four EFLs. (Checked precisely because an identical
+  fingerprint can instead mean the parser is missing a term; here it does not.)
+* Just Energy: Amigo / Tara / Just Energy (5 clusters)
+* Rhythm / Energy Texas (4), Green Mountain / Reliant, Ranchero / Southern
+  Federal.
+
+`plan_economics_fingerprint` keys on every field that can move a bill -- rates
+and windows, base, ETF, signup fee, TDU pass-through, buyback, bill credits, EV
+allowance -- plus `excludes_solar`, because a plan this home cannot buy is not
+interchangeable with one it can. `group_plan_siblings` keeps the first of each
+group in ranked order and reports the rest, which Compare shows in an "Also sold
+as" column behind a toggle (default on).
+
+**Grouping is a VIEW, never storage.** Every plan stays on disk: these are
+separate contracts with separate retailers and separate enrollment links (see
+`Plan.enroll_url` -- Amigo, Tara and Just Energy each sell the identical
+GoodBundle plan at their own `/ptcsl/` referral page), and collapsing them on
+disk would hide the day one brand's price drifts from its siblings'. The current
+plan is never folded away; it is the baseline every other row is read against.
+
 ### 8d. Mandatory one-off charges (`Plan.signup_fee_usd`)
 
 Six 5-month "Sustainable / Bundle" plans -- Just Energy's family, sold under
