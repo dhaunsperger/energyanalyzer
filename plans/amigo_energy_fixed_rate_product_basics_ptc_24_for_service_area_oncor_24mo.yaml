@@ -21,7 +21,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Basics_PTC_-_24.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

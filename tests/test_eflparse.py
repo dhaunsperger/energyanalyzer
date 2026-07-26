@@ -358,11 +358,50 @@ class TestCorpusAeTexasSmartSecure36:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        # corrupted-font PDF -> low-confidence fallback extraction path
-        assert draft.plan_dict["needs_review"] is True
+        """A corrupted font is not, by itself, a reason to distrust the numbers.
+
+        This used to assert True: the fallback scan scored 0.6 because the
+        LABEL was unreadable, even though the values ("$0.0649 per kWh",
+        "$0.00 per billing cycle") are perfectly legible and -- as the other
+        assertions here have always checked -- correct. That cost a review on
+        every broken-font EFL, and worse, sent them to the LLM, which under the
+        assist-only policy pinned them in the queue permanently.
+
+        The label is now matched as a subsequence, so "\\ue001nerg\\ue006 Charge"
+        is recognised as an Energy Charge and the read is scored on its merits.
+        Audited across all 232 EFLs on disk: the matcher accepts only genuine
+        Base/Energy/Monthly Base labels and the PUA-mangled "ae"/"nerg" forms --
+        no false matches.
+        """
+        assert draft.plan_dict["needs_review"] is False
+        assert draft.confidence["energy_charge"] >= 0.8
+        assert draft.confidence["base_charge"] >= 0.8
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
+
+
+def test_multiple_differing_energy_rows_never_look_confident():
+    """A weekday/weekend pair is a schedule, not a flat rate.
+
+    The generic scan takes the first row; if that were scored confidently the
+    plan would auto-promote as flat 17.6c with the free weekend silently
+    dropped. Must stay in review.
+    """
+    from energyanalyzer.eflparse.parser import parse_efl_text
+
+    text = (
+        "Electricity Facts Label\nAcme Energy\nSome Plan 12\nOncor\n"
+        "Average Monthly Use 500 kWh 1000 kWh 2000 kWh\n"
+        "Base Charge $0.00 per billing cycle\n"
+        "Energy Charge 17.6000 ¢ per kWh – Weekdays\n"
+        "Energy Charge 0.0000 ¢ per kWh – Weekends\n"
+        "TDU Delivery Charge $4.06 per billing cycle\n"
+        "Contract Term 12 Month(s)\n"
+    )
+    d = parse_efl_text(text, "acme.pdf")
+    assert d.confidence["energy_charge"] < 0.8
+    assert d.plan_dict["needs_review"] is True
 
 
 class TestCorpusApGasTrueClassic11:
@@ -626,8 +665,29 @@ class TestCorpusChariotBrightNights12:
         assert draft.plan_dict["tdu_passthrough"] is True
 
     def test_needs_review(self, draft):
-        # heuristic brand-prefixed multi-tier reconstruction -> flagged
-        assert draft.plan_dict["needs_review"] is True
+        """Both rates AND the window come from the document, so nothing is
+        assumed and there is nothing for a human to resolve.
+
+        This used to assert True at 0.75. The distinction that matters is not
+        "was the label brand-prefixed" but "did the EFL state its hours": when
+        `_find_night_hours` comes up empty the parser falls back to an ASSUMED
+        9pm-6am window and scores 0.5, which still lands in review. Here the EFL
+        says "Bright Nights hours are 11:00 PM to 06:00 AM", and the window
+        below is exactly that.
+        """
+        assert draft.plan_dict["needs_review"] is False
+        assert draft.confidence["free_window"] >= 0.8
+
+    def test_assumed_window_still_lands_in_review(self, draft):
+        """The safety valve: strip the hours sentence and the plan must flag."""
+        import re as _re
+
+        text = _re.sub(
+            r"Bright Nights hours are[^\n.]*", "", (REAL_FIXTURES / "CHARIOT_ENERGY_Bright_Nights_12_34727.txt").read_text()
+        )
+        d = parse_efl_text(text, "chariot.txt")
+        assert d.confidence["free_window"] < 0.8
+        assert d.plan_dict["needs_review"] is True
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
@@ -1204,3 +1264,284 @@ class TestCorpusGreenMountainRenewableRewards:
 
     def test_schema_valid(self, draft):
         Plan.model_validate(draft.plan_dict)
+
+
+def test_usage_credit_table_row_form_is_parsed():
+    """Regression: the Gexa / Frontier / Discount Power price-table row states its
+    threshold as "for usage (>=N) kWh", not "when usage >= N kWh".
+
+    Missing that silently dropped credits worth $50-$125 PER MONTH from 9 plans,
+    5 of which had already auto-promoted -- the rest of those EFLs parse
+    confidently, so nothing ever flagged them. Found 2026-07-24 while reviewing
+    the draft queue, and the reason bill_credits is worth a dedicated test: it
+    is not a load-bearing key, so the needs_review gate does not protect it.
+    """
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    table = "Usage Credit $125.00 per billing cycle for usage (>=1000) kWh"
+    assert _extract_bill_credits(table) == [
+        {"min_kwh": 1000.0, "max_kwh": None, "credit_usd": 125.0}
+    ]
+
+    # $ before the amount is optional, and thousands separators appear in the wild
+    assert _extract_bill_credits("Usage Credit 50.00 per billing cycle for usage (>=500) kWh") == [
+        {"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}
+    ]
+
+    prose = (
+        "A Usage Credit of $50.00 will be included for each billing cycle when "
+        "your usage on this plan is above or equal to 500 kWh."
+    )
+    assert _extract_bill_credits(prose) == [
+        {"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}
+    ]
+
+
+def test_retailer_brand_alias_maps_the_licence_entity_to_the_brand():
+    """Meter's EFLs are issued by "Light Energy, LLC" -- a licence-holding entity
+    that appears nowhere a shopper would recognise, while the plan names on the
+    same document read "Meter Saver Plan".
+
+    Left unaliased it is not just confusing: `_plan_supersedes` compares retailer
+    brand tokens, and "Light Energy" shares none with "Meter Energy", so the real
+    EFL could never supersede the brand-named synthetic index row for the same
+    plan -- the two sat side by side in the rankings.
+    """
+    from energyanalyzer.eflparse.parser import _apply_retailer_alias
+
+    assert _apply_retailer_alias("Light Energy, LLC") == "Meter Energy"
+    assert _apply_retailer_alias("Light Energy LLC") == "Meter Energy"
+    # Anything not in the table is returned untouched -- this must stay a small,
+    # evidence-based table, not a general rewriter.
+    for other in ("Gexa Energy, LP", "Green Mountain Energy Company", "Lightning Power"):
+        assert _apply_retailer_alias(other) == other
+
+
+def test_meter_efl_parses_under_the_meter_brand():
+    draft = _real_draft("METER_Saver_Plan_12.txt") if (REAL_FIXTURES / "METER_Saver_Plan_12.txt").exists() else None
+    if draft is None:
+        pytest.skip("Meter EFL fixture not committed")
+    assert draft.plan_dict["retailer"] == "Meter Energy"
+
+
+def test_etf_is_not_read_as_a_buyback_rate():
+    """A dollar amount with no per-kWh unit must not become a per-kWh rate.
+
+    Champion's Free Weekends-24 hedges its buyback ("may be available... please
+    contact Customer Care") and, because PDF extraction interleaves the
+    two-column disclosure chart, its "$250.00" early termination fee lands
+    within the buyback label's context window. The parser read it as the buyback
+    rate and reported 25000c/kWh at 0.85 confidence -- a silent-wrong that would
+    have ranked the plan first by an absurd margin had its other fields parsed.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback, _rate_ckwh_from_snippet
+
+    # A unit-less dollar amount too large to be a per-kWh price is rejected...
+    assert _rate_ckwh_from_snippet("Early Termination Fee: $250.00") is None
+    # ...while genuine per-kWh prices still parse, with or without the unit.
+    assert _rate_ckwh_from_snippet("Buyback Rate $0.158 per kWh") == 15.8
+    assert _rate_ckwh_from_snippet("Buyback Rate: $0.035") == 3.5
+    # An explicit unit is trusted even when the value looks implausible.
+    assert _rate_ckwh_from_snippet("$2.50 per kWh") == 250.0
+
+    text = (
+        "Solar Buyback may be available with this plan. Please contact Customer "
+        "Care to further discuss Champion's Solar Buyback program. Disclosure Chart "
+        "Type of Product Fixed Rate Contract Term 24 Month(s) Yes, Early "
+        "Termination Fee: $250.00 If applicable, Champion will assess the fee."
+    )
+    buyback, _conf, _ev = _extract_buyback(text, energy_ckwh=10.9)
+    assert buyback == {"kind": "none"}
+
+
+def test_buyback_attachable_to_this_plan_goes_to_review_not_confident_none():
+    """"Available WITH THIS PLAN" and "for buyback plans ONLY" mean opposites.
+
+    Champion attaches buyback to any residential plan except Free Nights without
+    changing the rate, so a confident kind=none understates every Champion plan
+    for a solar owner. TXU and Abundance gate buyback behind switching products,
+    where kind=none genuinely describes the plan on the EFL. Both wordings hedge,
+    so the hedge alone cannot separate them.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    attachable = (
+        "Solar Buyback may be available with this plan. Please contact Customer "
+        "Care to further discuss Champion's Solar Buyback program."
+    )
+    bb, conf, ev = _extract_buyback(attachable, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf < 0.8, "must land in review, not assert no-buyback"
+    assert "THIS plan" in ev
+
+    gated = (
+        "Yes, for homeowners who are enrolled on an eligible TXU Energy solar "
+        "buyback plan, and who have executed an Interconnection Agreement."
+    )
+    bb, conf, _ = _extract_buyback(gated, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf >= 0.8, "switching products is required: none is right"
+
+    # Precedence: when the EFL answers the PUCT disclosure question with a clear
+    # "Yes", that veto outranks the gated reading and sends the plan to review
+    # anyway -- the document itself says the REP buys excess generation, so an
+    # unresolved rate is an unread field rather than an absent one. Abundance
+    # only lands at high confidence on the real PDF because column interleaving
+    # breaks the question/answer apart; on clean text the veto wins, which is
+    # the safer of the two outcomes.
+    disclosed_yes = (
+        "Does REP purchase excess distributed renewable generation? Yes, for solar "
+        "buy-back plans only. Please inquire for more details on solar buyback plans."
+    )
+    bb, conf, _ = _extract_buyback(disclosed_yes, energy_ckwh=None)
+    assert bb == {"kind": "none"} and conf < 0.8
+
+
+def test_champion_addendum_buyback_applied_to_eligible_plans_only():
+    """Champion's buyback is real but lives in an addendum, not the EFL.
+
+    Its EFLs say only "Solar Buyback may be available with this plan", so the
+    parser alone can only report kind=none -- which understates every Champion
+    plan for a solar owner. The addendum (read 2026-07-25) is a straight ERCOT
+    real-time settlement: Excess per 15-min interval x the load zone's real-time
+    settlement point price, and "does not contain any other costs, charges, fees,
+    or taxes" -- so multiplier 1.0, adder 0.0, no cap.
+    """
+    from energyanalyzer.eflparse.parser import _attachable_buyback_policy
+
+    attachable = "Solar Buyback may be available with this plan. Please contact Customer Care."
+    got = _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Champ Saver-12", attachable, {"kind": "none"}
+    )
+    assert got is not None
+    buyback, conf, _ev = got
+    assert buyback["kind"] == "rtw"
+    assert buyback["rtw"] == {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
+    assert buyback["offset_scope"] == "all_charges"
+    assert (buyback["rollover"], buyback["cash_out"]) == (True, False)
+    assert conf >= 0.8
+
+    # Only Free NIGHTS is excluded. Champion's site states buyback IS available
+    # on Free Weekends, so widening this would silently drop ~$215/yr of credit
+    # from a plan that qualifies.
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Free Nights 12", attachable, {"kind": "none"}
+    ) is None
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Free Weekends-24", attachable, {"kind": "none"}
+    ) is not None
+
+    # Never overrides a rate the EFL actually publishes...
+    assert _attachable_buyback_policy(
+        "Champion Energy Services, LLC", "Champ Saver-12", attachable,
+        {"kind": "fixed", "rate_ckwh": 3.5},
+    ) is None
+    # ...never fires on a REP that gates buyback behind switching products...
+    gated = "Yes, for solar buy-back plans only. Please inquire for more details."
+    assert _attachable_buyback_policy("TXU Energy", "e-Saver 12", gated, {"kind": "none"}) is None
+    # ...and never on a REP with no entry in the table.
+    assert _attachable_buyback_policy("Gexa Energy, LP", "Gexa Saver 12", attachable,
+                                      {"kind": "none"}) is None
+
+
+# --------------------------------------------------------------------------- #
+# Champion's REP/TDU split charge table (N rate columns + base + the TDU's pair)
+# --------------------------------------------------------------------------- #
+_CHAMPION_PREAMBLE = (
+    "Electricity Facts Label\nChampion Energy Services, LLC PUC #10098\n"
+    "Residential Service ⇒ {plan}\nOncor Electric Delivery\n7/25/2026\n"
+    "Your average price per kilowatt-hour will vary based on your actual usage.\n"
+)
+_CHAMPION_TAIL = "\nType of Product Fixed Rate\nContract Term {term} Month(s)\nRenewable Content 24.7%\n"
+
+
+def _champion_text(plan: str, term: int, prose: str, header: str, row: str) -> str:
+    return (
+        _CHAMPION_PREAMBLE.format(plan=plan)
+        + prose
+        + "\n"
+        + header
+        + "\n"
+        + row
+        + "\nOther Key Terms and Questions\n"
+        + "Utility delivery charges include all recurring passed through charges from the "
+        "utility without markup.\n"
+        + _CHAMPION_TAIL.format(term=term)
+    )
+
+
+def test_champion_split_table_two_rate_columns_tou():
+    """Champion prints rate(s), then its base charge, then the TDU's pair -- and
+    the TDU pair is ALWAYS last, which is what makes the row readable without
+    untangling the interleaved headers.
+
+    The old single-rate reader either matched at the SECOND rate column (reading
+    the discounted rate as the flat rate) or bailed on its "Energy Charge" header
+    guard, which these variants don't print. Both EV Saver-12 and Free
+    Weekends-24 came out as a flat 0.0c/kWh catch-all -- free electricity around
+    the clock -- and had to be hand-entered, which any refresh would silently undo.
+    """
+    ev = parse_efl_text(
+        _champion_text(
+            "EV Saver-12", 12,
+            "EV charging hours are from 10:00 PM to 4:00 AM every night.",
+            "Champion Energy Charges Delivery Charges from\nOncor Electric Delivery\n"
+            "Daytime Hours EV Charging Hours Base\nper kWh per month\n"
+            "Usage Charge Usage Charge Charge",
+            "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "ev.pdf",
+    ).plan_dict
+    # Oncor's 6.1196c/kWh and $4.06/mo are the TDU's -- never the plan's.
+    assert ev["base_charge_usd"] == 0.0
+    assert ev["energy_rates"] == [
+        {"label": "EV Charging", "rate_ckwh": 6.0, "window": {"hours": [22, 23, 0, 1, 2, 3]}},
+        {"label": "", "rate_ckwh": 7.4, "window": None},
+    ]
+
+    fw = parse_efl_text(
+        _champion_text(
+            "Free Weekends-24", 24,
+            "Weekend hours are all day Saturday and Sunday, from 12:01 am on Saturday "
+            "morning to 11:59 pm Sunday night.",
+            "Delivery Charges from Champion Energy Charges Oncor Electric Delivery\n"
+            "Base Weekdays Weekends Charge per kWh per month",
+            "10.9¢/kWh 0.0¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "fw.pdf",
+    ).plan_dict
+    assert fw["base_charge_usd"] == 0.0
+    assert fw["energy_rates"] == [
+        {"label": "Weekend", "rate_ckwh": 0.0, "window": {"weekdays": [5, 6]}},
+        {"label": "", "rate_ckwh": 10.9, "window": None},
+    ]
+    # The catch-all must be the WEEKDAY rate; a 0.0 catch-all is free power always.
+    assert fw["energy_rates"][-1]["rate_ckwh"] > 0
+
+
+def test_champion_split_table_single_rate_column_unchanged():
+    d = parse_efl_text(
+        _champion_text(
+            "Champ Saver-12", 12, "",
+            "Champion Energy Charges Delivery Charges from Energy Charge "
+            "Oncor Electric Delivery Base Charge (per kWh) per kWh per month",
+            "6.7¢/kWh $0.00 6.1196¢/kWh $4.06",
+        ),
+        "cs.pdf",
+    ).plan_dict
+    assert d["base_charge_usd"] == 0.0
+    assert d["energy_rates"] == [{"label": "", "rate_ckwh": 6.7, "window": None}]
+
+
+def test_multi_rate_split_row_needs_a_delivery_header_and_a_known_restricted_column():
+    """Guards against firing on an unrelated run of numbers, and against guessing
+    a window when the headers don't say which column is time-restricted."""
+    from energyanalyzer.eflparse.parser import _extract_multi_rate_charge_row
+
+    row = "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06"
+    # No delivery/TDU header above the row -> not this table.
+    assert _extract_multi_rate_charge_row("Some other table\n" + row) is None
+    # Header present but no restricted/general column labels -> index unknown,
+    # so parse_efl_text must not invent a window (it falls back to other readers).
+    got = _extract_multi_rate_charge_row(
+        "Delivery Charges from Oncor Electric Delivery\nCharge per month\n" + row
+    )
+    assert got is not None and got["restricted_index"] is None

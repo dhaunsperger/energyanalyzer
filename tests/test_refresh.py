@@ -594,3 +594,129 @@ def test_discovery_reports_error_when_render_fails_and_no_capture_exists(tmp_pat
     )
     assert out["reps"]["ambit"]["status"] == "error"
     assert "WAF" in out["reps"]["ambit"]["detail"]
+
+
+def test_refresh_threads_llm_assist_through_to_every_parse_stage(refresh_dirs, monkeypatch):
+    """The "Pre-fill unreadable fields with the local LLM" checkbox was wired to
+    `parse_downloaded_efls` but NOT to `refresh_market_data`, so ticking it did
+    nothing for a full refresh -- the case that matters most, since a refresh
+    re-parses every EFL and silently re-breaks the ones with damaged fonts
+    (Atlantex's "$19.95" base charge) on every run.
+    """
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    seen: list[bool] = []
+
+    def _spy(pdf_paths, drafts_dir=None, plans_dir=None, progress_callback=None, llm_assist=False, **kw):
+        seen.append(llm_assist)
+        return {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _spy)
+    monkeypatch.setattr(ptc_module, "fetch_ptc_csv", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
+    (ptc_dir / "snap.csv").write_text(FIXTURE.read_text())
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+
+    app_common.refresh_market_data(
+        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir,
+        ptc_dir=ptc_dir, meterplan_dir=meterplan_dir, llm_assist=True,
+    )
+    assert seen, "refresh should have reached a parse stage"
+    assert all(seen), "every parse stage must receive llm_assist=True"
+
+
+def test_refresh_defaults_llm_assist_off(refresh_dirs, monkeypatch):
+    """Off by default -- the LLM tier is optional and must never run unasked."""
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    seen: list[bool] = []
+    monkeypatch.setattr(app_common, "parse_downloaded_efls",
+        lambda *a, llm_assist=False, **k: (seen.append(llm_assist),
+            {"parsed": [], "skipped": [], "failed": []})[1])
+    monkeypatch.setattr(ptc_module, "fetch_ptc_csv", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(meterplan_module, "fetch_meterplan_efls", _boom_meter_efls)
+    (ptc_dir / "snap.csv").write_text(FIXTURE.read_text())
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _FakeHttpxClient)
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+    app_common.refresh_market_data(
+        plans_dir=plans_dir, drafts_dir=drafts_dir, efl_dir=efl_dir,
+        ptc_dir=ptc_dir, meterplan_dir=meterplan_dir,
+    )
+    assert seen and not any(seen)
+
+
+# --------------------------------------------------------------------------- #
+# EFL identity: an EFL is never anonymous
+# --------------------------------------------------------------------------- #
+def test_known_efl_identities_reads_discovery_manifest_and_ptc(tmp_path):
+    """Discovery records retailer/plan per download; PTC's snapshot row supplies
+    both and is what the saved filename was built from. Either way the identity
+    is known before the parser ever opens the PDF."""
+    efl_dir, ptc_dir = tmp_path / "efl", tmp_path / "ptc"
+    efl_dir.mkdir()
+    ptc_dir.mkdir()
+    (efl_dir / "rep_discovery_manifest.jsonl").write_text(
+        '{"file": "/abs/path/Atlantex_Power_Solar_Buy_Back_Plan.pdf", '
+        '"retailer": "Atlantex Power", "plan_name": "Solar Buy Back Plan"}\n'
+        '{"bad json"\n'                                    # tolerated, not fatal
+    )
+    ident = app_common.known_efl_identities(efl_dir=efl_dir, ptc_dir=ptc_dir)
+    assert ident["Atlantex_Power_Solar_Buy_Back_Plan.pdf"] == (
+        "Atlantex Power", "Solar Buy Back Plan"
+    )
+
+
+def test_parse_restores_identity_and_rebuilds_the_id(refresh_dirs, monkeypatch):
+    """A damaged-font EFL parses as "Unknown Retailer"/"Unnamed Plan", which is
+    both useless in the UI and a COLLISION -- several such plans differ only by
+    contract term and would overwrite each other's draft file. The download step
+    knew the real names, so the draft id must be rebuilt from them."""
+    plans_dir, drafts_dir, efl_dir, ptc_dir, _ = refresh_dirs
+    pdf = efl_dir / "Atlantex_Power_Solar_Buy_Back_Plan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    (efl_dir / "rep_discovery_manifest.jsonl").write_text(
+        f'{{"file": "{pdf}", "retailer": "Atlantex Power", "plan_name": "Solar Buy Back Plan"}}\n'
+    )
+
+    def _unreadable(path):
+        return eflparser.DraftPlan(
+            plan_dict={
+                "id": "unknown_retailer_unnamed_plan_12mo",
+                "retailer": "Unknown Retailer", "name": "Unnamed Plan",
+                "term_months": 12, "base_charge_usd": 0.0,
+                "energy_rates": [{"rate_ckwh": 5.59}], "buyback": {"kind": "none"},
+                "source": f"efl:{Path(path).name}", "needs_review": True,
+            },
+            confidence={"energy_charge": 0.6}, evidence={}, unparsed_notes=[],
+        )
+
+    monkeypatch.setattr(eflparser, "parse_efl", _unreadable)
+    out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
+
+    assert out["parsed"] == ["atlantex_power_solar_buy_back_plan_12mo"]
+    assert out["identified"][0]["file"] == "Atlantex_Power_Solar_Buy_Back_Plan.pdf"
+    saved = yaml.safe_load((drafts_dir / "atlantex_power_solar_buy_back_plan_12mo.yaml").read_text())
+    assert saved["retailer"] == "Atlantex Power"
+    assert saved["name"] == "Solar Buy Back Plan"
+    assert not (drafts_dir / "unknown_retailer_unnamed_plan_12mo.yaml").exists()
+
+
+def test_parse_does_not_override_an_identity_the_parser_read(refresh_dirs, monkeypatch):
+    """Only the placeholders are replaced -- a retailer the parser read from the
+    document itself is more trustworthy than a download-time label."""
+    plans_dir, drafts_dir, efl_dir, ptc_dir, _ = refresh_dirs
+    pdf = efl_dir / "Some_Retailer_Some_Plan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    (efl_dir / "rep_discovery_manifest.jsonl").write_text(
+        f'{{"file": "{pdf}", "retailer": "WRONG", "plan_name": "WRONG"}}\n'
+    )
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+    out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
+    assert out["identified"] == []
+    saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
+    assert saved["retailer"] == "Test Retailer"

@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_18.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

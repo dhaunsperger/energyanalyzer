@@ -66,7 +66,13 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
     "language": ["Language", "PlanLanguage", "Lang"],
     "retailer": ["RepCompany", "CompanyName", "Company", "ProviderName", "REP"],
     "plan_name": ["Product", "PlanName", "Plan"],
-    "term_months": ["Term", "TermMonths", "ContractTerm", "Terms"],
+    # "TermValue"/"CancelFee" are what the live PTC export actually emits; the
+    # generic spellings are kept for tolerance. Both real headers were missing
+    # until 2026-07-25, so term_months/cancel_fee silently fell through as
+    # unrecognized passthrough columns on every real snapshot -- which made
+    # _discovered_plan_in_ptc (it gates on term) return False for every plan and
+    # PTC dedup a no-op. Never drop a real header from these lists.
+    "term_months": ["TermValue", "Term", "TermMonths", "ContractTerm", "Terms"],
     "rate_type": ["RateType", "RateClass"],
     "fixed_flag": ["Fixed", "IsFixed"],
     "kwh500": ["kwh500", "Kwh500", "KWH500", "Price500", "Avg500"],
@@ -76,7 +82,7 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
     "prepaid": ["PrePaid", "Prepaid", "IsPrepaid"],
     "tou": ["TimeOfUse", "TOU", "IsTimeOfUse"],
     "renewable_pct": ["Renewable", "RenewablePercentage", "RenewableContent", "PctRenewable"],
-    "cancel_fee": ["CancellationFee", "ETF", "EarlyTerminationFee"],
+    "cancel_fee": ["CancelFee", "CancellationFee", "ETF", "EarlyTerminationFee"],
     "website": ["Website", "CompanyWebsite"],
     "enroll_url": ["EnrollURL", "EnrollUrl", "EnrollmentURL"],
     "efl_url": ["FactsURL", "FactsUrl", "EFLURL", "EFL", "FactSheetURL"],

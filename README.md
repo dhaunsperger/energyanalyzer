@@ -83,7 +83,7 @@ Two sites need extra setup for discovery:
 |---|---|---|
 | `data/IntervalData.csv` | 12 months of 15-min usage, BOTH channels (Consumption + Surplus Generation) | smartmetertexas.com → Reports → interval CSV. Or upload via the app's Usage page. |
 | `data/ercot/*.xlsx` | Real-time wholesale price history (needed only for RTW plans) | ercot.com, product NP6-785-ER "Historical RTM Load Zone and Hub Prices" — the yearly XLSX file(s) covering your usage window |
-| `data/config.yaml` | Optional: `load_zone: LZ_NORTH` (default; correct for Oncor/Round Rock) | — |
+| `data/config.yaml` | `load_zone:` your ERCOT load zone (default `LZ_NORTH`). **Look yours up — don't assume.** Counties are split across zones (Williamson spans SOUTH/NORTH/AEN/LCRA), and it's premise-specific. Only affects real-time-wholesale plans, but affects all of them. | ESID lookup, e.g. electricityplans.com/texas/esid-lookup/ — enter your address and read "Load Zone" |
 
 ## Coming back after months? Refresh your input files
 

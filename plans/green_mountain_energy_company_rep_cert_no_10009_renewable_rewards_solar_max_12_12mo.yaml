@@ -9,7 +9,11 @@ energy_rates:
   label: ''
   tdu_exempt: false
 buyback:
-  kind: none
+  kind: rtw
+  rtw:
+    multiplier: 1.0
+    adder_ckwh: 0.0
+    floor_ckwh: 0.0
   rates: []
   offset_scope: all_charges
   rollover: true
@@ -21,6 +25,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

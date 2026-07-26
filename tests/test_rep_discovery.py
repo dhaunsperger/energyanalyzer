@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -95,7 +96,9 @@ def test_txu_extractor_finds_all_cards():
     assert all(p.retailer == "TXU Energy" for p in plans)
     assert all(p.extraction_method == "static" for p in plans)
     # EFL links self-label via the PDFGenerator query string.
-    assert all("formType=EnergyFactsLabel" in p.efl_url for p in plans)
+    # EFL links self-label via the Vistra query string, rewritten from the
+    # /PDFGenerator viewer to the /api/getdocument document endpoint.
+    assert all("docType=EnergyFactsLabel" in p.efl_url for p in plans)
 
 
 def test_txu_extractor_unescapes_plan_names():
@@ -121,7 +124,7 @@ def test_txu_extractor_ignores_script_buyback_badges():
 def test_txu_buyback_efl_url_carries_product_id():
     buyback = [p for p in _extract_txu() if p.is_buyback]
     assert len(buyback) == 1
-    assert "comProdId=ONXSBBSYSV00AB" in buyback[0].efl_url
+    assert "productid=ONXSBBSYSV00AB" in buyback[0].efl_url
     assert buyback[0].buyback_ckwh is None  # rate isn't published on the page
 
 
@@ -1181,3 +1184,231 @@ def test_link_base_defaults_to_homepage_when_unset():
     assert GREEN_MOUNTAIN.link_base == GREEN_MOUNTAIN.homepage
     assert CHARIOT.link_base == "https://signup.chariotenergy.com/"
     assert CHARIOT.link_base != CHARIOT.homepage
+
+
+# --------------------------------------------------------------------------- #
+# Vistra platform: /PDFGenerator is a viewer page, /api/getdocument is the doc
+# --------------------------------------------------------------------------- #
+def test_vistra_efl_urls_are_rewritten_to_the_document_endpoint():
+    """TXU and Ambit share Vistra's shopping platform, whose scraped EFL link
+    (`/PDFGenerator?formType=...&comProdId=...`) is only a VIEWER page: it returns
+    the site's Next.js HTML shell to httpx, to a session carrying the full
+    funnel's cookies, and even to a real in-browser navigation. Its JS fetches
+    the actual PDF from `/api/getdocument`, which serves application/pdf to plain
+    httpx with no session.
+
+    Left unrewritten, TXU's EFLs were silently *deferred* every refresh ("HTML
+    response -- a browser-rendered EFL viewer/SPA"), so its solar buyback plans
+    never entered the database and only the meterplan synthetic covered them.
+    Every query parameter is renamed between the two, and efldate must be full
+    ISO 8601, so this asserts them individually.
+    """
+    out = rd._rewrite_vistra_efl_url(
+        "https://shopping.txu.com/PDFGenerator?formType=EnergyFactsLabel"
+        "&comProdId=ONXSBBSYSV00AB&efldate=2026-07-25&tdsp=ONCOR&lang=en&custClass=Residential"
+    )
+    assert out.startswith("https://shopping.txu.com/api/getdocument?")
+    assert "docType=EnergyFactsLabel" in out
+    assert "productid=ONXSBBSYSV00AB" in out
+    assert "efldate=2026-07-25T00:00:00" in out     # full ISO 8601, not a bare date
+    assert "tdsp=ONCOR" in out
+    assert "language=en" in out and "classification=Residential" in out
+    assert "PDFGenerator" not in out and "comProdId" not in out
+
+
+def test_vistra_rewrite_never_drops_a_url_it_does_not_understand():
+    """A rewrite that can't parse its input must pass the URL through untouched
+    -- losing an EFL URL here would silently drop a plan."""
+    for url in (
+        "https://example.com/some/efl.pdf",                       # not Vistra
+        "https://shopping.txu.com/PDFGenerator?formType=X",       # no comProdId
+        "",
+    ):
+        assert rd._rewrite_vistra_efl_url(url) == url
+
+
+def test_ambit_and_txu_share_the_same_document_endpoint_shape():
+    from energyanalyzer.fetchers.rep_discovery import _ambit_efl_url
+
+    ambit = _ambit_efl_url("ONAMTXSBBC12AA", "2026-07-25")
+    assert ambit.startswith("https://shopping.ambitenergy.com/api/getdocument?")
+    assert "productid=ONAMTXSBBC12AA" in ambit and "efldate=2026-07-25T00:00:00" in ambit
+
+
+# --------------------------------------------------------------------------- #
+# Tesla Electric
+# --------------------------------------------------------------------------- #
+TESLA_FIXTURE = Path(__file__).parent / "fixtures" / "rep_tesla_sample.html"
+
+
+def _extract_tesla():
+    return rd.extract_tesla(TESLA_FIXTURE.read_text(encoding="utf-8"), rd.TESLA)
+
+
+def test_tesla_extractor_finds_the_plan_efls():
+    plans = _extract_tesla()
+    assert {p.plan_name for p in plans} == {"Fixed", "Drive 12M"}
+    assert all(p.retailer == "Tesla Electric" for p in plans)
+    assert all(p.efl_url.endswith(".pdf") for p in plans)
+    assert all(p.extraction_method == "static" for p in plans)
+
+
+def test_tesla_extractor_ignores_terms_and_conditions_pdfs():
+    """The plan tabs link T&C documents from the SAME asset host, so the host
+    can't be the filter -- only EFLs carry the `TE_<plan>_PLAN` filename."""
+    plans = _extract_tesla()
+    assert not any("Terms" in p.efl_url for p in plans)
+    assert all(re.search(r"/TE_.+?_PLAN", p.efl_url, re.I) for p in plans)
+
+
+def test_tesla_plans_are_all_flagged_buyback():
+    """Every Tesla Electric plan buys back exports -- the EFLs state
+    "Other Energy Exports: 3c / kWh" and "Vehicle Energy Exports: 90% of the
+    Real-Time Market Price"."""
+    assert all(p.is_buyback for p in _extract_tesla())
+
+
+def test_tesla_is_registered_and_forces_a_headful_browser():
+    """Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
+    page (verified 2026-07-25: headless 403, headful 200 on the same URL/UA), so
+    this REP opts into a real window. Per-REP, never a blanket default."""
+    assert rd.REP_CONFIGS["tesla"] is rd.TESLA
+    assert rd.TESLA.force_headful is True
+    assert all(
+        c.force_headful is False for k, c in rd.REP_CONFIGS.items() if k != "tesla"
+    ), "headful must stay opt-in"
+
+
+def test_champion_captures_the_download_url_not_the_blank_popup(monkeypatch):
+    """Champion serves its EFL as a DOWNLOAD (Content-Disposition: attachment),
+    so the popup it opens never navigates and `popup.url` stays at Playwright's
+    ":" placeholder.
+
+    Reading that placeholder gave every plan the same dedup key, silently
+    collapsing 7 harvested plans into 1 -- with an unusable URL that then failed
+    download as "malformed or non-http EFL URL". Measured live 2026-07-25:
+    7 cards -> 1 plan before, 6 after (cards 1 and 2 are both "Champ Saver-24"
+    and genuinely share PN5134).
+    """
+    from energyanalyzer.fetchers.rep_discovery import _popup_url_when_ready
+
+    class _Popup:
+        def __init__(self, url):
+            self.url = url
+
+        def wait_for_timeout(self, _ms):
+            return None
+
+    # the failing case: a popup that never leaves the placeholder
+    assert _popup_url_when_ready(_Popup(":"), timeout_ms=500) is None
+    assert _popup_url_when_ready(_Popup("about:blank"), timeout_ms=500) is None
+    # a popup that really did navigate is still honoured
+    assert _popup_url_when_ready(_Popup("https://x/e.pdf"), timeout_ms=500) == "https://x/e.pdf"
+
+
+# --------------------------------------------------------------------------- #
+# Download retry (probabilistic WAFs)
+# --------------------------------------------------------------------------- #
+class _FlakyClient:
+    """Returns `statuses` in order, then a real PDF."""
+
+    def __init__(self, statuses):
+        self.statuses = list(statuses)
+        self.calls = 0
+
+    def get(self, url):
+        self.calls += 1
+
+        class _R:
+            def __init__(self, status, body):
+                self.status_code = status
+                self.content = body
+                self.headers = {"content-type": "application/pdf"}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(f"HTTP {self.status_code}")
+
+        if self.statuses:
+            return _R(self.statuses.pop(0), b"")
+        return _R(200, b"%PDF-1.4 real")
+
+
+def test_download_retries_a_probabilistic_waf_403(monkeypatch):
+    """Ambit and TXU sit behind an Azure Front Door WAF that answers a
+    plain-text 403 *probabilistically* -- sampled 3/6 through on the identical
+    URL, and the Ambit EFL endpoint 403s on one refresh then serves a valid PDF
+    on the next. One attempt says nothing, so a small backed-off retry is the
+    difference between capturing those plans and losing them every other run."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([403, 403])
+    resp = rd._get_with_retry(c, "https://shopping.ambitenergy.com/api/getdocument", "ambit")
+    assert resp.content.startswith(b"%PDF")
+    assert c.calls == 3
+
+
+def test_download_gives_up_on_a_persistent_403(monkeypatch):
+    """A site that consistently refuses still fails -- the retry must not become
+    a way to grind past a genuine "no"."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([403, 403, 403, 403, 403])
+    resp = rd._get_with_retry(c, "https://x/y.pdf", "x")
+    assert resp.status_code == 403
+    assert c.calls == rd._DOWNLOAD_ATTEMPTS
+
+
+def test_download_does_not_retry_a_normal_404(monkeypatch):
+    """Only transient statuses retry; a 404 is a real answer."""
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda *_: None)
+    c = _FlakyClient([404])
+    resp = rd._get_with_retry(c, "https://x/y.pdf", "x")
+    assert resp.status_code == 404
+    assert c.calls == 1
+
+
+def test_retry_honours_the_per_host_rate_limit(monkeypatch):
+    """A retry must never hit a site faster than the normal path."""
+    seen = []
+    monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(rd, "_respect_rate_limit", lambda host: seen.append(host))
+    rd._get_with_retry(_FlakyClient([403, 403]), "https://x/y.pdf", "somehost")
+    assert seen == ["somehost"] * 3
+
+
+def test_meter_is_registered_as_a_harvester_rep():
+    """Meter's own EFLs used to come from JSON-LD on /plans as presigned S3
+    links. Meter rebuilt that page client-side and the links left the HTML
+    entirely -- `parse_meterplan_efl_offers` returned 0 offers on every refresh
+    (verified 2026-07-25), which is why Meter's six plans stayed synthetic
+    markdown rows. The URLs still exist behind a JS button with no href, so
+    Meter needs the harvester seam, not an extractor."""
+    assert rd.REP_CONFIGS["meter"] is rd.METER
+    assert rd.METER.harvester is not None
+    assert rd.METER.extractor is None
+
+
+def test_meter_efl_name_is_read_from_the_presigned_filename():
+    """Plan identity comes from the S3 object name
+    (EFL_<Plan>_<date>_<TDU>_<hash>.pdf), since the button carries no href."""
+    m = rd._METER_EFL_NAME_RE.search(
+        "https://light-assets.s3.amazonaws.com/efls/EFL_Earner_20260723_ONCOR_3dc6b881.pdf?X-Amz-Sig=x"
+    )
+    assert m and m.group(1) == "Earner"
+
+
+def test_meter_plan_names_carry_the_term():
+    """Meter's EFL filename encodes the plan but NOT the term
+    (EFL_Earner_<date>_<TDU>_<hash>.pdf), and all three terms are real distinct
+    documents -- so the term has to come from the tab that was selected, or the
+    three Earner plans collapse to one."""
+    m = rd._METER_EFL_NAME_RE.search(
+        "https://light-assets.s3.amazonaws.com/efls/EFL_Earner_20260723_ONCOR_d21a74be.pdf?X-Amz-Sig=x"
+    )
+    assert m and m.group(1) == "Earner"
+    assert rd._METER_TERMS == ("12 months", "24 months", "36 months")
+    # "Solar + battery" must stay out: battery-required plans are excluded
+    # everywhere else in this app.
+    assert "Solar + battery" not in rd._METER_PROFILES

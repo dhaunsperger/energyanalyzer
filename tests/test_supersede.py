@@ -157,6 +157,23 @@ def test_discovered_plan_in_ptc_keeps_variants_and_other_terms():
     assert not app_common._discovered_plan_in_ptc("Reliant Energy", "Truly Free Nights 12", idx)
 
 
+def test_discovered_plan_in_ptc_distinguishes_product_numbers():
+    """A number that names the product must not be treated as a term.
+
+    "Smart 1000 Select 12" and "Smart 2000 Select 12" are different TXU plans --
+    the number is the usage tier the bill credit keys off. Token extraction used
+    to drop every pure number, collapsing both to {smart, select}, so discovery's
+    Smart 2000 was discarded as a duplicate of PTC's Smart 1000. Only term-sized
+    numbers (1..60) are dropped now.
+    """
+    df = pd.DataFrame(
+        [{"retailer": "TXU ENERGY", "plan_name": "Smart 1000 Select 12", "term_months": 12}]
+    )
+    idx = app_common._build_ptc_identity_index(df)
+    assert app_common._discovered_plan_in_ptc("TXU Energy", "Smart 1000 Select 12", idx)
+    assert not app_common._discovered_plan_in_ptc("TXU Energy", "Smart 2000 Select 12", idx)
+
+
 def test_discovered_plan_in_ptc_keeps_when_term_unknown():
     # No term in the discovered name -> we can't be sure, so we keep it (never
     # drop a possibly-distinct plan on a weak signal).
@@ -166,3 +183,69 @@ def test_discovered_plan_in_ptc_keeps_when_term_unknown():
 
 def test_build_ptc_identity_index_empty_for_none():
     assert app_common._build_ptc_identity_index(None) == []
+
+
+# --------------------------------------------------------------------------- #
+# A synthetic must never outrank a real EFL -- not even one still in review
+# --------------------------------------------------------------------------- #
+def _mkplan(path, **kw):
+    import yaml as _y
+    d = {"id": path.stem, "retailer": "X", "name": "Y", "term_months": 12,
+         "base_charge_usd": 0.0, "energy_rates": [{"rate_ckwh": 10.0}], "source": "ptc"}
+    d.update(kw)
+    path.write_text(_y.safe_dump(d, sort_keys=False))
+
+
+def test_synthetic_is_not_promoted_when_a_real_draft_covers_it(tmp_path):
+    """The inversion this guards against: simple meterplan rows come out
+    needs_review=False, so an unverified third-party rate could auto-promote
+    into the rankings while the authoritative EFL for the SAME plan sat in the
+    draft queue. Supersede alone doesn't help -- it only fires once the real
+    plan is promoted, which may never happen."""
+    plans, drafts = tmp_path / "plans", tmp_path / "plans" / "drafts"
+    drafts.mkdir(parents=True)
+    _mkplan(drafts / "mp_txu_energy_solar_buyback_12mo.yaml", retailer="TXU Energy",
+           name="Solar Buyback", term_months=12, source="meterplan", needs_review=False,
+           _parse={"confidence": {"energy_charge": 0.95, "base_charge": 0.95}})
+    _mkplan(drafts / "txu_energy_solar_buyback_12_12mo.yaml", retailer="TXU Energy Retail Company",
+           name="TXU Energy Solar Buyback 12", term_months=12, source="efl:txu.pdf",
+           needs_review=True, _parse={"confidence": {"energy_charge": 0.4}})
+
+    out = app_common.finish_refresh(plans_dir=plans, drafts_dir=drafts)
+
+    assert out["promoted"] == [], "the synthetic must not promote over a real draft"
+    assert out["meterplan_not_promoted"][0]["synthetic"] == "mp_txu_energy_solar_buyback_12mo"
+    assert (drafts / "mp_txu_energy_solar_buyback_12mo.yaml").exists()  # left as a draft
+
+
+def test_synthetic_still_promotes_when_no_real_plan_covers_it(tmp_path):
+    """The gate must not block synthetics that are the only source for a plan --
+    those are genuinely useful leads."""
+    plans, drafts = tmp_path / "plans", tmp_path / "plans" / "drafts"
+    drafts.mkdir(parents=True)
+    _mkplan(drafts / "mp_tesla_electric_drive_plan_12mo.yaml", retailer="Tesla Electric",
+           name="Drive Plan", term_months=12, source="meterplan", needs_review=False,
+           _parse={"confidence": {"energy_charge": 0.95, "base_charge": 0.95}})
+
+    out = app_common.finish_refresh(plans_dir=plans, drafts_dir=drafts)
+    assert out["promoted"] == ["mp_tesla_electric_drive_plan_12mo"]
+    assert out.get("meterplan_not_promoted", []) == []
+
+
+def test_promoted_synthetic_is_flagged_when_only_a_real_draft_covers_it(tmp_path):
+    """Deleting would leave a hole in the rankings with nothing in its place, so
+    a draft-only match flags rather than removes."""
+    import yaml as _y
+    plans, drafts = tmp_path / "plans", tmp_path / "plans" / "drafts"
+    drafts.mkdir(parents=True)
+    _mkplan(plans / "mp_txu_energy_solar_buyback_12mo.yaml", retailer="TXU Energy",
+           name="Solar Buyback", term_months=12, source="meterplan", needs_review=False)
+    _mkplan(drafts / "txu_energy_solar_buyback_12_12mo.yaml", retailer="TXU Energy Retail Company",
+           name="TXU Energy Solar Buyback 12", term_months=12, source="efl:txu.pdf")
+
+    removed = app_common.supersede_meterplan_plans(plans_dir=plans, drafts_dir=drafts)
+
+    assert removed == []                                        # not deleted
+    saved = _y.safe_load((plans / "mp_txu_energy_solar_buyback_12mo.yaml").read_text())
+    assert saved["needs_review"] is True
+    assert "awaiting review" in saved["notes"]

@@ -173,8 +173,17 @@ def slugify(s: str) -> str:
     return s or "plan"
 
 
-_DOLLAR_KWH = re.compile(r"\$\s*(\d*\.\d+)\s*(?:per\s*kwh|/\s*kwh)?", re.I)
+_DOLLAR_KWH = re.compile(r"\$\s*(\d*\.\d+)\s*(per\s*kwh|/\s*kwh)?", re.I)
 _CENT_KWH = re.compile(r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I)
+
+# A per-kWh price in dollars is always well under $1 -- Texas energy charges and
+# buyback rates live around $0.03-$0.20/kWh. The "per kWh" suffix in _DOLLAR_KWH
+# is optional (rates often sit in a table whose unit is only in the header), so
+# without this bound ANY dollar amount in the search window parses as a rate:
+# Champion's Free Weekends-24 read its "$250.00" early termination fee as a
+# 25000c/kWh solar buyback and reported it at 0.85 confidence. Cap only applies
+# when the unit is absent -- an explicit "per kWh" is trusted as written.
+_MAX_UNITLESS_USD_PER_KWH = 1.0
 
 
 def _rate_ckwh_from_snippet(s: str) -> Optional[float]:
@@ -182,7 +191,10 @@ def _rate_ckwh_from_snippet(s: str) -> Optional[float]:
     out of a short text snippet. Returns cents/kWh."""
     m = _DOLLAR_KWH.search(s)
     if m:
-        return round(float(m.group(1)) * 100, 4)
+        usd = float(m.group(1))
+        if m.group(2) or usd < _MAX_UNITLESS_USD_PER_KWH:
+            return round(usd * 100, 4)
+        return None
     m = _CENT_KWH.search(s)
     if m:
         return round(float(m.group(1)), 4)
@@ -240,11 +252,23 @@ def _find_night_hours(text: str) -> list[int]:
     """Scan the whole document for a clock-time range whose immediate context
     mentions "night" (e.g. "Bright Nights hours are 11:00 PM to 06:00 AM.",
     a separate sentence from the rate table itself for brand-prefixed
-    multi-tier plans like Chariot). Returns [] if none is found."""
-    for m in re.finditer(r"[^\n.]{0,40}\bnight[^\n.]{0,80}", text, re.I):
-        hours = parse_time_range(m.group(0))
-        if hours:
-            return hours
+    multi-tier plans like Chariot), or which states a free/no-charge period
+    outright. Returns [] if none is found.
+
+    The second phrasing matters because the footnote defining the window need
+    not use the word "night" at all: Green Mountain's Pollution Free Nights
+    marks its 0.00 tier with an asterisk and explains it as "*There is no charge
+    applied to usage from 9:00 PM to 6:00 AM."
+    """
+    patterns = (
+        r"[^\n.]{0,40}\bnight[^\n.]{0,80}",
+        r"[^\n.]{0,40}\b(?:no|free)\s+charge[^\n.]{0,30}(?:applied\s+)?to\s+usage[^\n.]{0,60}",
+    )
+    for pat in patterns:
+        for m in re.finditer(pat, text, re.I):
+            hours = parse_time_range(m.group(0))
+            if hours:
+                return hours
     return []
 
 
@@ -457,6 +481,31 @@ def _scan_efl_header(text: str) -> tuple[Optional[str], Optional[str], str, str]
 # --------------------------------------------------------------------------- #
 # Field extractors
 # --------------------------------------------------------------------------- #
+# Legal entity -> brand, applied to whatever `_extract_retailer` reads off the
+# EFL. Texas REPs often issue EFLs under a licence-holding entity whose name
+# appears nowhere else the user would recognise, which makes a plan hard to place
+# in the UI and -- worse -- stops `app.common._plan_supersedes` from matching the
+# brand-named synthetic index row for the same plan (it compares retailer brand
+# tokens, and "Light Energy" shares none with "Meter Energy").
+#
+# Keep this table SMALL and evidence-based: only add a pair when the EFL itself
+# shows the connection. Light Energy, LLC issues EFLs whose plan names are
+# literally "Meter Saver Plan" / "Meter Earner Plan" / "Meter Standard Plan",
+# and meterplan.com is published by Meter Energy.
+_RETAILER_ALIASES = {
+    "light energy": "Meter Energy",
+}
+
+
+def _apply_retailer_alias(retailer: str) -> str:
+    """Map a licence-holding legal entity to the brand customers shop under."""
+    key = re.sub(r"[^a-z ]+", "", (retailer or "").lower()).strip()
+    for legal, brand in _RETAILER_ALIASES.items():
+        if key.startswith(legal):
+            return brand
+    return retailer
+
+
 def _extract_retailer(text: str) -> Optional[Extraction]:
     patterns = [
         (
@@ -929,16 +978,21 @@ def _extract_brand_energy_tiers(text: str) -> list[dict]:
     'Chariot Energy Bright Nights Energy Charge       0c       per kWh'
     Returns a list of {"prefix", "rate_ckwh", "evidence"} (possibly empty).
     """
+    # The rate may be given in cents ("0¢ per kWh") or dollars ("$0.00 per
+    # kWh") -- Green Mountain's Pollution Free Nights prints its daytime tier in
+    # cents and its night tier in dollars on the very same list. Only matching
+    # cents found one tier, which is not a schedule, so the whole plan fell
+    # through to the flat-rate reader and modelled the DAY rate around the clock.
     pat = re.compile(
         r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\s*[:\-]?\s*"
-        r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)?\s*per\s*kWh",
+        r"(?:\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:¢|cents?)?)\s*per\s*kWh",
         re.I,
     )
     rows = []
     for m in pat.finditer(text):
-        rows.append(
-            {"prefix": m.group(1).strip(), "rate_ckwh": float(m.group(2)), "evidence": _snippet(m)}
-        )
+        usd, cents = m.group(2), m.group(3)
+        rate = float(usd) * 100 if usd is not None else float(cents)
+        rows.append({"prefix": m.group(1).strip(), "rate_ckwh": rate, "evidence": _snippet(m)})
     return rows
 
 
@@ -1036,9 +1090,46 @@ def _extract_daily_fee_as_base(text: str) -> Optional[Extraction]:
 
 _PRICE_COMPONENTS_ANCHOR = re.compile(
     r"(?:based\s*on\s*the\s*following|following\s*components?\s*of\s*the\s*price"
-    r"|includes\s*the\s*energy\s*charge\s*and\s*(?:tdu|tdsp)?\s*deliver\w*\s*charges?)\s*:?",
+    r"|includes\s*the\s*energy\s*charge\s*and\s*(?:tdu|tdsp)?\s*deliver\w*\s*charges?"
+    # "The price you pay each month will consist of the Energy Charge, and ONCOR
+    # (TDU) Delivery Charges." (Meter Energy) -- an exhaustive component list
+    # just like the others, phrased as "consist of" rather than "includes".
+    r"|(?:will\s*)?consists?\s*of\s*the\s*energy\s*charge[^.]{0,80}?deliver\w*\s*charges?"
+    r"|utilizing\s*the\s*follo\w*\s*price\s*component)\s*:?",
     re.I,
 )
+
+# Labels a REP's fixed monthly charge goes by. Matched as a SUBSEQUENCE against
+# the PUA-stripped prefix, because the EFLs that reach this point are usually the
+# broken-font ones: a subset font with no ToUnicode mapping drops letters, so
+# "Base Charge" arrives as "ae Charge" ("B" and "s" are Private-Use codepoints)
+# and "Energy" as "nerg". Exact label matching can't see those, which left the
+# value -- correctly read, right there in the row -- scored too low to promote.
+_BASE_LABEL_WORDS = ("base", "basemonthly", "monthlybase", "customer", "monthlyservice", "minimum")
+_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply")
+
+
+def _is_subsequence(needle: str, haystack: str) -> bool:
+    it = iter(haystack)
+    return all(ch in it for ch in needle)
+
+
+def _label_matches(prefix: str, words: tuple[str, ...]) -> bool:
+    """True if a charge row's label plausibly names one of `words`, tolerating
+    dropped glyphs. Requires >=2 surviving letters so a single stray character
+    can't match everything."""
+    p = re.sub(r"[^a-z]", "", _strip_pua(prefix or "").lower())
+    if len(p) < 2:
+        return False
+    return any(_is_subsequence(p, w) for w in words)
+
+
+def _looks_like_base_label(prefix: str) -> bool:
+    return _label_matches(prefix, _BASE_LABEL_WORDS)
+
+
+def _looks_like_energy_label(prefix: str) -> bool:
+    return _label_matches(prefix, _ENERGY_LABEL_WORDS)
 _CHARGE_LINE = re.compile(r"^.{0,80}\b(?:Charge|Fee)\b.{0,80}$", re.I | re.M)
 
 
@@ -1070,20 +1161,97 @@ def _extract_base_charge_absent_from_itemized_list(text: str) -> Optional[Extrac
     return None
 
 
+_COMPONENT_SENTENCE = re.compile(
+    r"(?:price\s*you\s*pay|total\s*price|price\s*for\s*electric\w*\s*service)"
+    r"[^.]{0,60}?(?:will\s*)?(?:consists?\s*of|includes?|is\s*made\s*up\s*of)\s*([^.]{0,220})\.",
+    re.I,
+)
+_BASE_COMPONENT_WORDS = re.compile(
+    r"\bbase\b|\bcustomer\s*charge|\bminimum\b|monthly\s*(?:service|fee)|\bmonthly\s*charge", re.I
+)
+
+
+def _extract_base_charge_from_component_sentence(text: str) -> Optional[Extraction]:
+    """A Texas EFL that states its price components in prose is making an
+    exhaustive disclosure, so a list that names only an energy charge and the
+    TDU's delivery charges means the REP levies no fixed monthly charge.
+
+    Meter Energy: "The price you pay each month will consist of the Energy
+    Charge, and ONCOR (TDU) Delivery Charges." Distinct from
+    :func:`_extract_base_charge_absent_from_itemized_list`, which scans the
+    itemized block FOLLOWING its anchor -- Meter prints the items above the
+    sentence and labels them "Energy Rate", so neither the direction nor the
+    label vocabulary lines up. The sentence alone is the sounder signal: a plan
+    that did have a base charge would have to name it here.
+    """
+    for m in _COMPONENT_SENTENCE.finditer(text):
+        clause = m.group(1)
+        if _BASE_COMPONENT_WORDS.search(clause):
+            return None  # a base/customer charge IS one of the components
+        has_energy = re.search(r"energy\s*(?:charge|rate)", clause, re.I)
+        has_tdu = re.search(r"deliver|\btdu\b|\btdsp\b", clause, re.I)
+        if has_energy and has_tdu:
+            return 0.0, 0.85, _snippet(m)
+    return None
+
+
 def _extract_all_kwh_rate(text: str) -> Optional[Extraction]:
     """Some EFLs (e.g. TXU) split the 'Energy Charge' header from its value
     across lines in a flattened table -- the header line has no inline
     number, and the rate instead appears on a following 'All kWh <rate>c'
-    row."""
-    m = re.search(r"\bAll\s*kWh\s*(\d+(?:\.\d+)?)\s*¢", text, re.I)
-    if m:
-        return float(m.group(1)), 0.75, _snippet(m)
+    row.
+
+    Confidence turns on whether an 'Energy Charge' header actually precedes the
+    row. Anchored, this is unambiguous -- the whole TXU/Vistra template prints
+    "Energy Charge: Per kWh (¢) Electricity All kWh 9.7000¢" -- and the old flat
+    0.75 (below the review bar) sent every such plan to the LLM, and from there
+    to the review queue under the assist-only policy, for a rate the parser had
+    read correctly all along. Measured across the EFL corpus: all 8 documents
+    using this row are header-anchored, and their rates check out against the
+    documents. Unanchored, keep the cautious score -- a bare "All kWh" elsewhere
+    could be anything.
+    """
+    for m in re.finditer(r"\bAll\s*kWh\s*(\d+(?:\.\d+)?)\s*¢", text, re.I):
+        anchored = re.search(
+            r"Energy\s*Charge[^\n]{0,120}$",
+            " ".join(text[max(0, m.start() - 160) : m.start()].split()),
+            re.I,
+        )
+        return float(m.group(1)), (0.85 if anchored else 0.75), _snippet(m)
     return None
 
 
 _SPLIT_CHARGE_ROW = re.compile(
     r"(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)"
 )
+
+# The same table with N rate columns instead of one. Champion prints every plan
+# this way: its own rate(s), then its base charge, then the TDU's two charges --
+# and the TDU pair is ALWAYS last, which is what makes the row readable without
+# parsing the interleaved headers:
+#
+#   single rate : "6.7¢/kWh $0.00 6.1196¢/kWh $4.06"
+#   two rates   : "7.4¢/kWh 6.0¢/kWh $0.00 6.1196¢/kWh $4.06"   (EV Saver)
+#                 "10.9¢/kWh 0.0¢/kWh $0.00 6.1196¢/kWh $4.06"  (Free Weekends)
+#
+# _SPLIT_CHARGE_ROW only ever matched one leading rate column, so on a two-rate
+# plan it either matched at the SECOND rate (reading the discounted rate as the
+# flat rate) or, because its header guard wants a literal "Energy Charge" that
+# these variants don't print, fell through entirely -- EV Saver-12 and Free
+# Weekends-24 both ended up at a flat 0.0¢/kWh catch-all, i.e. free electricity
+# around the clock. Both had to be hand-entered, which a refresh would silently
+# undo. Hence reading the columns properly.
+_MULTI_RATE_CHARGE_ROW = re.compile(
+    r"((?:\d+(?:\.\d+)?\s*¢\s*/\s*kWh\s+){2,})\$(\d+(?:\.\d+)?)\s+"
+    r"(\d+(?:\.\d+)?)\s*¢\s*/\s*kWh\s+\$(\d+(?:\.\d+)?)"
+)
+
+# Column headers, split into the one that carries a time restriction and the one
+# that's the everyday/default rate. Order of appearance in the header region
+# tells us which data column is which -- Champion prints the general column
+# first ("Daytime Hours | EV Charging Hours", "Weekdays | Weekends").
+_RESTRICTED_COL = re.compile(r"EV\s*Charging|Weekend|Night|Free", re.I)
+_GENERAL_COL = re.compile(r"Daytime|Weekday|Standard|Anytime|Energy\s*Charge", re.I)
 
 
 def _extract_split_energy_base_row(text: str) -> Optional[tuple[float, float, str]]:
@@ -1098,6 +1266,72 @@ def _extract_split_energy_base_row(text: str) -> Optional[tuple[float, float, st
         context = text[max(0, m.start() - 200) : m.start()]
         if re.search(r"Energy\s*Charge", context, re.I) and re.search(r"Base\s*Charge", context, re.I):
             return float(m.group(1)), float(m.group(2)), _snippet(m)
+    return None
+
+
+def _extract_multi_rate_charge_row(text: str) -> Optional[dict]:
+    """Read a REP/TDU split charge row carrying MORE than one rate column.
+
+    Returns ``{"rates": [ckwh, ...], "base_usd", "tdu_ckwh", "tdu_usd",
+    "restricted_index", "evidence"}``, or None. ``restricted_index`` is the
+    position of the time-restricted column (the free/EV/weekend rate) when the
+    headers identify it, else None -- callers must not guess a window without it.
+
+    The row is only accepted when a 'Base Charge' label sits above it, so an
+    unrelated run of numbers can't match.
+    """
+    for m in _MULTI_RATE_CHARGE_ROW.finditer(text):
+        header = text[max(0, m.start() - 320) : m.start()]
+        # The row's LAST two columns are the utility's, so the header must name
+        # the delivery utility -- that, plus a charge/per-month label, is what
+        # distinguishes this table from an unrelated run of numbers. Requiring a
+        # contiguous "Base Charge" does not work: Champion's headers interleave
+        # across lines ("Base per kWh per month ... Usage Charge Usage Charge
+        # Charge"), so the words are present but never adjacent.
+        if not re.search(r"deliver", header, re.I):
+            continue
+        if not re.search(r"charge", header, re.I) or not re.search(r"per\s*month", header, re.I):
+            continue
+        rates = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*¢", m.group(1))]
+        if len(rates) < 2:
+            continue
+
+        # Which data column is the restricted one? Take the LAST occurrence of
+        # each header keyword: the header region also contains prose above the
+        # table ("...30% of usage occurs during Weekends...") whose word order
+        # doesn't reflect the columns.
+        restricted = list(_RESTRICTED_COL.finditer(header))
+        general = list(_GENERAL_COL.finditer(header))
+        restricted_index = None
+        restricted_label = ""
+        if restricted and general and len(rates) == 2:
+            restricted_index = 1 if restricted[-1].start() > general[-1].start() else 0
+            restricted_label = restricted[-1].group(0).strip()
+
+        return {
+            "rates": rates,
+            "base_usd": float(m.group(2)),
+            "tdu_ckwh": float(m.group(3)),
+            "tdu_usd": float(m.group(4)),
+            "restricted_index": restricted_index,
+            "restricted_label": restricted_label,
+            "evidence": _snippet(m),
+        }
+    return None
+
+
+def _restricted_window(text: str, label_hint: str) -> Optional[dict]:
+    """The window for a restricted rate column, read from the EFL's own prose
+    ("EV charging hours are from 10:00 PM to 4:00 AM every night."; "Weekend
+    hours are all day Saturday and Sunday"). None when it isn't stated."""
+    low = (label_hint or "").lower()
+    if "weekend" in low or "weekday" in low:
+        days = _weekdays_from_snippet(label_hint, text)
+        return {"weekdays": days} if days else None
+    for m in re.finditer(r"[^\n.]{0,60}(?:EV\s*charging|free|night)[^\n.]{0,90}", text, re.I):
+        hours = parse_time_range(m.group(0))
+        if hours:
+            return {"hours": hours}
     return None
 
 
@@ -1209,6 +1443,34 @@ def _extract_bill_credits(text: str) -> list[dict]:
     ):
         _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
 
+    # "Usage Credit $125.00 per billing cycle for usage (>=1000) kWh" -- the
+    # Gexa / Frontier / Discount Power price-table row. It states the threshold
+    # as "for usage (>=N)" with the comparator in parentheses, rather than the
+    # "when usage >= N" the patterns above expect. Missing it silently dropped
+    # credits worth $50-$125 PER MONTH from 9 plans, 5 of which had already
+    # auto-promoted -- the rest of those EFLs parse confidently, so nothing
+    # flagged them. Found 2026-07-24 while reviewing the draft queue.
+    for m in re.finditer(
+        r"Usage\s*Credit[:\s]*\$?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*\$?\s*"
+        r"(?:per\s*(?:billing\s*cycle|bill\s*month|month)\s*)?"
+        r"for\s*usage\s*\(?\s*(?:>=|=>|≥)\s*(\d+(?:,\d{3})*)\s*\)?\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1).replace(",", "")), float(m.group(2).replace(",", "")), None)
+
+    # Prose variant: "A Usage Credit of $50.00 will be included for each billing
+    # cycle when your usage on this plan is above or equal to 500 kWh."
+    # ("above or equal to", plus filler between "usage" and "is".)
+    for m in re.finditer(
+        r"(?:usage|bill)\s*credit\s*of\s*\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)"
+        r"[^.]{0,120}?usage\b[^.]{0,40}?\bis\s*"
+        r"(?:above|greater\s*than)\s*or\s*equal\s*to\s*(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1).replace(",", "")), float(m.group(2).replace(",", "")), None)
+
     # "Usage Credit for 1,000 kWh or more: $125"
     for m in re.finditer(
         r"Usage\s*Credit\s*for\s*(\d+(?:,\d{3})*)\s*kWh\s*or\s*more[:\s]*\$(\d+(?:\.\d+)?)",
@@ -1288,6 +1550,29 @@ _BUYBACK_HEDGE = re.compile(
 )
 
 
+# A hedged buyback mention means one of two very different things, and treating
+# them alike is wrong in opposite directions:
+#
+#   PLAN-GATED   "Yes, for solar buy-back plans only" (Abundance); "for homeowners
+#                enrolled on an eligible TXU Energy solar buyback plan" (TXU).
+#                Buyback requires switching to a DIFFERENT product, so for the
+#                plan this EFL describes, kind=none is correct and confident.
+#
+#   ATTACHABLE   "Solar Buyback may be available WITH THIS PLAN" (Champion);
+#                "Champion may then add Solar Buyback to your services".
+#                Buyback attaches to this very plan -- it is simply priced in a
+#                separate addendum instead of on the EFL. Reporting a confident
+#                kind=none here understates the plan for a solar owner (Champion
+#                confirms buyback can be added to every residential plan except
+#                Free Nights, without changing the rate), so this must land in
+#                review as an unresolved field rather than assert "no buyback".
+_BUYBACK_ATTACHABLE = re.compile(
+    r"(?:may\s*be\s*available|available)\s*(?:with|on)\s*this\s*plan"
+    r"|(?:may\s*then\s*)?add\s*solar\s*buy\s*-?\s*back\s*to\s*your",
+    re.I,
+)
+
+
 _RTW_CAP_LABEL_RE = re.compile(r"\bcap(?:ped)?\b(?:\s+at)?", re.I)
 
 
@@ -1322,6 +1607,74 @@ def _buyback_offset_scope(text: str) -> str:
     """'energy_only' if the EFL restricts buyback credits to the energy charge
     (excluding base/TDU/taxes), else 'all_charges'."""
     return "energy_only" if _OFFSET_ENERGY_ONLY_RE.search(text) else "all_charges"
+
+
+# REP-level buyback terms that are REAL but live outside the EFL, in a separate
+# addendum. Applied ONLY where the EFL itself says buyback attaches to this plan
+# (`_BUYBACK_ATTACHABLE`) and no rate resolved -- so it never overrides a
+# published rate, and never fires on a REP that gates buyback behind switching
+# products. Keep this table small and evidence-backed: each entry needs a
+# document, not a marketing page.
+#
+# Champion (addendum read 2026-07-25, championenergyservices.com .../Solar-Addendum):
+# a straight ERCOT real-time settlement, no modifiers --
+#   "Champion will provide you a billing credit... determined by multiplying your
+#    Excess for that Interval by the corresponding real-time settlement point
+#    price... for the Interconnected Meter's load-zone"
+#   "does not contain any other costs, charges, fees, or taxes"
+# -> multiplier 1.0, adder 0.0, no cap. Settled per 15-minute interval, which is
+# exactly the engine's RTW model. Credits carry into a renewal but are void on
+# cancellation and never cashed out -> rollover, no cash_out. The credit is a
+# billing credit on the invoice, not an energy-charge-only offset -> all_charges.
+#
+# floor_ckwh stays 0.0 (the engine default every other RTW plan uses) even though
+# the addendum states no floor: measured against Doug's 2025-26 exports and
+# LZ_SOUTH prices, 9.4% of export kWh land on negative prices but the difference
+# is $4.15/yr on a $215 credit -- immaterial, and consistency across RTW plans
+# matters more for ranking.
+#
+# Only FREE NIGHTS plans are excluded -- the exclusion is literal, not a general
+# rule about free-hours plans. Champion's site states buyback IS available on
+# Free Weekends (confirmed by Doug 2026-07-25), and Champion's Oncor lineup
+# carries no Free Nights plan at all, so today this excludes nothing here. Do
+# not widen this to "free weekends": that silently drops ~$215/yr of buyback
+# credit from a plan that qualifies.
+_ATTACHABLE_BUYBACK_POLICY: dict[str, dict] = {
+    "champion": {
+        "buyback": {
+            "kind": "rtw",
+            "rtw": {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0},
+            "offset_scope": "all_charges",
+            "rollover": True,
+            "cash_out": False,
+        },
+        "exclude_plan": re.compile(r"free\s*nights?", re.I),
+        "confidence": 0.85,
+        "evidence": (
+            "REP addendum (not the EFL): ERCOT real-time settlement point price "
+            "for the meter's load zone, no fees or modifiers"
+        ),
+    },
+}
+
+
+def _attachable_buyback_policy(
+    retailer: str, plan_name: str, text: str, resolved: dict
+) -> Optional[tuple[dict, float, str]]:
+    """Apply a known REP addendum to a plan whose EFL says buyback attaches to
+    it but prices it elsewhere. Returns None to leave the parse untouched."""
+    if (resolved or {}).get("kind") != "none":
+        return None  # a published rate always wins
+    if not _BUYBACK_ATTACHABLE.search(text or ""):
+        return None
+    brand = (retailer or "").lower()
+    for key, policy in _ATTACHABLE_BUYBACK_POLICY.items():
+        if key not in brand:
+            continue
+        if policy["exclude_plan"].search(plan_name or ""):
+            return None
+        return dict(policy["buyback"]), policy["confidence"], policy["evidence"]
+    return None
 
 
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
@@ -1388,6 +1741,13 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
 
         rate = _rate_ckwh_from_snippet(m.group(0))
         if rate is None:
+            # A hedged mention ("Solar Buyback may be available -- please
+            # contact Customer Care") publishes no rate at all, so any number
+            # near it belongs to something else and must not be swept out of
+            # the wide context window. The label line itself is still read
+            # above: an EFL that hedges AND prints a rate is taken at its word.
+            if _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]):
+                continue
             rate = _rate_ckwh_from_snippet(context)
         if rate is None and re.search(
             r"(?:equal\s*to|same\s*as|at)\s*(?:the\s*)?Energy\s*Charge", context, re.I
@@ -1414,6 +1774,15 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
     hedged = any(
         _BUYBACK_HEDGE.search(text[max(0, m.start() - 150) : m.end() + 240]) for m in candidates
     )
+    # "...available with THIS plan" is not a disclaimer that there's no buyback
+    # (see _BUYBACK_ATTACHABLE) -- the value stays "none" because no rate is
+    # published, but the confidence must send it to a human.
+    if _BUYBACK_ATTACHABLE.search(text):
+        return (
+            {"kind": "none"},
+            0.3,
+            fallback_evidence + " [buyback attaches to THIS plan; rate not on the EFL]",
+        )
     conf = 0.85 if hedged and not says_yes else 0.3
     return {"kind": "none"}, conf, fallback_evidence
 
@@ -1436,6 +1805,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         return val
 
     retailer = record("retailer", _extract_retailer(text)) or "Unknown Retailer"
+    aliased = _apply_retailer_alias(retailer)
+    if aliased != retailer:
+        evidence["retailer"] = f"{evidence.get('retailer', retailer)} [brand alias -> {aliased}]"
+        retailer = aliased
     plan_name = record("plan_name", _extract_plan_name(text)) or "Unnamed Plan"
     term_months = record("term_months", _extract_term_months(text))
     if term_months is None:
@@ -1449,6 +1822,13 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
     split_base_charge: Optional[float] = None
+    # Confidence for a base charge read out of a split charge row. Both readers
+    # pin $base on BOTH sides -- rate column(s) before it, the TDU's (¢/kWh,
+    # $/month) pair after it -- and the 4-column reader additionally requires
+    # "Energy Charge" and "Base Charge" labels above the row, so neither is a
+    # guess. The old 0.75 kept every Champion plan permanently in review over a
+    # $0.00 base charge the document states plainly.
+    split_base_conf: float = 0.85
 
     brand_rows: Optional[list[dict]] = None
     if not tou_rows:
@@ -1459,7 +1839,41 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             if night_rows and other_rows:
                 brand_rows = candidate_brand_rows
 
-    if tou_rows:
+    # A REP/TDU split row with two rate columns is a real TOU schedule, and a
+    # more reliable read than the generic scanners -- the columns are positional
+    # and the TDU's pair is always last. Checked before them so the discounted
+    # column can't be mistaken for the flat rate.
+    multi_row = None if tou_rows else _extract_multi_rate_charge_row(text)
+    if multi_row is not None and multi_row["restricted_index"] is None:
+        multi_row = None  # can't tell which column is restricted; don't guess
+
+    if multi_row is not None:
+        ri = multi_row["restricted_index"]
+        restricted_rate = multi_row["rates"][ri]
+        general_rate = multi_row["rates"][1 - ri]
+        label = multi_row["restricted_label"] or "restricted"
+        window = _restricted_window(text, label)
+        if window is None:
+            # Rates are trustworthy, the window isn't stated -- record the rates
+            # and let review supply the window rather than inventing one.
+            flat_ckwh = general_rate
+            energy_rates.append({"label": "", "rate_ckwh": general_rate, "window": None})
+            confidence["energy_charge"] = 0.6
+            notes.append(
+                f"split charge row gave a restricted rate of {restricted_rate}c/kWh but the EFL "
+                "does not state its hours; only the general rate is modelled"
+            )
+        else:
+            energy_rates.append({"label": label, "rate_ckwh": restricted_rate, "window": window})
+            energy_rates.append({"label": "", "rate_ckwh": general_rate, "window": None})
+            flat_ckwh = general_rate
+            confidence["energy_charge"] = 0.85
+            confidence["free_window"] = 0.85
+            evidence["free_window"] = multi_row["evidence"]
+        evidence["energy_charge"] = multi_row["evidence"]
+        split_base_charge = multi_row["base_usd"]
+        split_base_conf = 0.85
+    elif tou_rows:
         defaults = [r for r in tou_rows if r["is_default"]]
         non_defaults = [r for r in tou_rows if not r["is_default"]]
         for r in non_defaults:
@@ -1494,7 +1908,11 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         day_rate = other_rows[0]["rate_ckwh"]
         hours = _find_night_hours(text)
         if hours:
-            conf = 0.75
+            # Both the two rates and the window come from the document -- there
+            # is nothing left to guess, so this is a full read, not a partial
+            # one. At 0.75 every free-nights plan sat one notch below the bar
+            # and went to review with nothing for a human to actually resolve.
+            conf = 0.85
         else:
             hours = [21, 22, 23, 0, 1, 2, 3, 4, 5]  # assumed 9 p.m.-6 a.m.
             conf = 0.5
@@ -1558,7 +1976,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 notes.append("energy rate derived from a split header/value table ('All kWh <rate>' row)")
             elif split_row is not None:
                 flat_ckwh, split_base_charge, ev = split_row
-                confidence["energy_charge"] = 0.75
+                # Same reasoning as split_base_conf: the row is positionally
+                # unambiguous (rate, base, then the TDU's pair) and only matches
+                # when "Energy Charge" and "Base Charge" head the columns.
+                confidence["energy_charge"] = 0.85
                 evidence["energy_charge"] = ev
                 notes.append("energy rate derived from a split 4-column Energy/Base/TDU charge row")
             elif base_kwh_row is not None:
@@ -1569,9 +1990,27 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                     "energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider row"
                 )
             elif generic_kwh_rows:
-                r = generic_kwh_rows[0]
+                # As with the base charge: a row whose label reads as an energy
+                # charge -- even through a broken subset font, where "Energy"
+                # survives as "nerg" -- is a real read, not a guess. Only fall
+                # back to the cautious score when nothing identifies the row.
+                labelled = [r for r in generic_kwh_rows if _looks_like_energy_label(r["prefix"])]
+                r = (labelled or generic_kwh_rows)[0]
                 flat_ckwh = r["value"]
-                confidence["energy_charge"] = 0.6
+                # Several DIFFERING energy rows are a schedule, not a flat rate
+                # ("Energy Charge 17.6000¢ per kWh - Weekdays" / "... 0.0000¢
+                # per kWh - Weekends"). Taking the first as a flat rate drops
+                # the free window entirely, so this must never look confident --
+                # the same rule the labelled-line reader applies above.
+                distinct = {row["value"] for row in (labelled or generic_kwh_rows)}
+                if len(distinct) > 1:
+                    confidence["energy_charge"] = 0.5
+                    notes.append(
+                        f"multiple differing Energy Charge rows found {sorted(distinct)}; used "
+                        f"{flat_ckwh} as a flat rate -- any time-of-use window is NOT modelled"
+                    )
+                else:
+                    confidence["energy_charge"] = 0.85 if labelled else 0.6
                 evidence["energy_charge"] = r["evidence"]
                 notes.append("energy rate derived from a generic '<label> Charge ... per kWh' table-line scan")
             elif avg_ext is not None:
@@ -1601,7 +2040,9 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # --- base charge --------------------------------------------------- #
     base_charge = record("base_charge", _extract_base_charge(text))
     if base_charge is None and split_base_charge is not None:
-        base_charge = record("base_charge", (split_base_charge, 0.75, evidence.get("energy_charge", "")))
+        base_charge = record(
+            "base_charge", (split_base_charge, split_base_conf, evidence.get("energy_charge", ""))
+        )
         notes.append("base charge derived from the same split 4-column Energy/Base/TDU charge row")
     if base_charge is None:
         daily_ext = _extract_daily_fee_as_base(text)
@@ -1617,14 +2058,26 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
                 r for r in _generic_charge_rows(text) if r["kind"] == "month" and not r["is_tdu"]
             ]
             if generic_month_rows:
-                r = generic_month_rows[0]
-                base_charge = record("base_charge", (r["value"], 0.6, r["evidence"]))
+                # Prefer a row whose label actually reads as a base charge; that
+                # is what separates "the REP's fixed monthly charge" from some
+                # other per-month fee, and it earns a promotable score.
+                labelled = [r for r in generic_month_rows if _looks_like_base_label(r["prefix"])]
+                r = (labelled or generic_month_rows)[0]
+                base_charge = record(
+                    "base_charge", (r["value"], 0.85 if labelled else 0.6, r["evidence"])
+                )
                 notes.append("base charge derived from a generic '<label> Charge ... per month' table-line scan")
             elif absent_ext is not None:
                 base_charge = record("base_charge", absent_ext)
                 notes.append(
                     "base charge inferred as $0.00: itemized price-components list has no "
                     "REP base/customer charge line"
+                )
+            elif (sentence_ext := _extract_base_charge_from_component_sentence(text)) is not None:
+                base_charge = record("base_charge", sentence_ext)
+                notes.append(
+                    "base charge inferred as $0.00: the EFL states its price components in prose "
+                    "and names only an energy charge and TDU delivery charges"
                 )
             else:
                 notes.append("base charge not found; defaulting to 0.0")
@@ -1665,6 +2118,9 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- buyback ----------------------------------------------------------#
     buyback, buyback_conf, buyback_ev = _extract_buyback(text, flat_ckwh)
+    policy = _attachable_buyback_policy(retailer, plan_name, text, buyback)
+    if policy is not None:
+        buyback, buyback_conf, buyback_ev = policy
     confidence["buyback"] = buyback_conf
     if buyback_ev:
         evidence["buyback"] = buyback_ev

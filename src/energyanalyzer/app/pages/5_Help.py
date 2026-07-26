@@ -211,7 +211,12 @@ page. Refresh is confirmation-gated and shows one progress bar with staged label
 8. **Auto-promote** every draft the parser was confident about (`needs_review=False` **and** all
    load-bearing fields scored ≥ 0.8). Anything less is left as a draft for you to review.
 9. **Supersede**: remove a synthetic meterplan plan once a real EFL (from PTC, discovery, or
-   Meter) — or a manual entry — covers the same plan.
+   Meter) — or a manual entry — covers the same plan. A synthetic is never promoted over a real
+   plan, including one still sitting in the draft queue.
+
+Tick **"Pre-fill unreadable fields with the local LLM"** before starting if you have Ollama
+running. A refresh re-parses every EFL from scratch, so any hand-fix you made to a
+broken-font PDF is lost each time — the LLM tier is what makes those stick without retyping.
 
 **It runs in the background.** You can navigate away, or close the tab, and it keeps going —
 progress is written to disk as it goes, so the Plans page always shows where it got to, even

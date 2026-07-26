@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: variable
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_Flex.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

@@ -11,6 +11,8 @@ afterwards so the cache picks up the change.
 from __future__ import annotations
 
 import datetime as dt
+import json
+from dataclasses import dataclass
 import logging
 import re
 import subprocess
@@ -67,13 +69,23 @@ _RETAILER_NOISE_TOKENS = frozenset(
 
 
 def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
-    """Lowercased alphanumeric tokens with corporate/industry noise, pure
-    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`)."""
+    """Lowercased alphanumeric tokens with corporate/industry noise, term
+    numbers, and `<n>mo` term tokens removed (plus any `extra_drop`).
+
+    Only *term-sized* numbers (1..60) are dropped -- callers compare the term
+    separately, so the term number carries no identity, but a larger number
+    usually names the product: "Smart 1000 Select 12" and "Smart 2000 Select 12"
+    are different plans (the number is the usage tier the bill credit keys off).
+    Dropping every pure number collapsed both to {smart, select} and made them
+    compare equal, so PTC dedup discarded the 2000 as a duplicate of the 1000.
+    """
     cleaned = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
     drop = _RETAILER_NOISE_TOKENS | extra_drop
     out = set()
     for tok in cleaned.split():
-        if tok in drop or tok.isdigit() or re.fullmatch(r"\d+mo", tok):
+        if tok in drop or re.fullmatch(r"\d+mo", tok):
+            continue
+        if tok.isdigit() and int(tok) <= 60:  # a term, not a product number
             continue
         out.add(tok)
     return out
@@ -275,7 +287,52 @@ def _build_ptc_identity_index(ptc_df) -> list:
     return index
 
 
-def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
+@dataclass
+class _CoverageCandidate:
+    """Minimal stand-in for a Plan, so a *draft* can act as authoritative
+    coverage in :func:`_plan_supersedes` (which only reads retailer/name/term).
+    Drafts can't be Plan-validated in general -- that's often exactly why
+    they're still drafts -- so we don't try."""
+
+    id: str
+    retailer: str
+    name: str
+    term_months: Optional[int]
+
+
+def _real_draft_candidates(drafts_dir: Path) -> list:
+    """Real (non-meterplan) drafts, as coverage candidates.
+
+    A parsed EFL sitting in review is still better evidence than a synthetic
+    index row, so it should stop that synthetic from being promoted over it.
+    """
+    out = []
+    for path in sorted(Path(drafts_dir).glob("*.yaml")) if Path(drafts_dir).exists() else []:
+        try:
+            raw = load_draft_raw(path)
+        except Exception:  # noqa: BLE001 -- an unreadable draft simply isn't coverage
+            continue
+        if str(raw.get("source") or "") == "meterplan":
+            continue
+        out.append(
+            _CoverageCandidate(
+                id=str(raw.get("id") or path.stem),
+                retailer=str(raw.get("retailer") or ""),
+                name=str(raw.get("name") or ""),
+                term_months=raw.get("term_months"),
+            )
+        )
+    return out
+
+
+def _covered_by_real(synthetic, candidates) -> Optional[object]:
+    """The first authoritative plan/draft covering this synthetic, or None."""
+    return next((c for c in candidates if _plan_supersedes(synthetic, c)), None)
+
+
+def supersede_meterplan_plans(
+    plans_dir: Path = PLANS_DIR, drafts_dir: Path = DRAFTS_DIR
+) -> list[tuple]:
     """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
     that a real/authoritative plan now covers, and return the removals as a list
     of ``(removed_plan_id, superseding_plan_id)`` tuples.
@@ -299,7 +356,30 @@ def supersede_meterplan_plans(plans_dir: Path = PLANS_DIR) -> list[tuple]:
         if match is not None:
             (Path(plans_dir) / f"{mp_plan.id}.yaml").unlink(missing_ok=True)
             removed.append((mp_plan.id, match.id))
+            continue
+        # Only a real DRAFT covers it: don't delete (that would leave a hole in
+        # the rankings with nothing promoted in its place), but flag it so the
+        # synthetic can't sit in Compare looking as verified as a parsed EFL.
+        draft_match = _covered_by_real(mp_plan, _real_draft_candidates(drafts_dir))
+        if draft_match is not None and not mp_plan.needs_review:
+            _flag_plan_needs_review(
+                Path(plans_dir) / f"{mp_plan.id}.yaml",
+                f"Third-party index row; a real EFL for this plan ({draft_match.id}) is "
+                "awaiting review in plans/drafts/. Promote that draft to replace this.",
+            )
     return removed
+
+
+def _flag_plan_needs_review(path: Path, note: str) -> None:
+    """Set needs_review on a saved plan and append a note. Best-effort."""
+    try:
+        raw = yaml.safe_load(path.read_text()) or {}
+        raw["needs_review"] = True
+        existing = str(raw.get("notes") or "").strip()
+        raw["notes"] = f"{existing} {note}".strip() if existing else note
+        path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    except Exception as exc:  # noqa: BLE001 -- flagging must never break a refresh
+        logger.info("Could not flag %s for review: %r", path.name, exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -415,6 +495,55 @@ def draft_summary_row(path: Path) -> dict:
     }
 
 
+def known_efl_identities(efl_dir: Path = EFL_DIR, ptc_dir: Path = PTC_DIR) -> dict:
+    """Map ``<efl filename> -> (retailer, plan_name)`` from the sources that
+    already know it.
+
+    An EFL never arrives anonymously: it was either downloaded from a REP site
+    by discovery (which records retailer/plan in
+    `data/efl/rep_discovery_manifest.jsonl`) or listed in the Power to Choose
+    snapshot (whose row supplies both, and from which the saved filename is
+    built by `fetchers.ptc._efl_filename`). The parser re-derives identity from
+    the PDF *text* and falls back to "Unknown Retailer"/"Unnamed Plan" when the
+    document's font is damaged -- which also makes several unrelated plans
+    collide on one draft filename. This recovers what the download step knew.
+
+    Discovery wins over PTC on a filename collision: it is the more specific
+    source (a REP's own site) and PTC rows are the generic fallback.
+    """
+    out: dict[str, tuple] = {}
+
+    # Power to Choose: rebuild the exact filename each row would have produced.
+    try:
+        from energyanalyzer.fetchers.ptc import _efl_filename, load_ptc
+
+        snaps = sorted(Path(ptc_dir).glob("*.csv")) if Path(ptc_dir).exists() else []
+        if snaps:
+            df = load_ptc(max(snaps, key=lambda p: p.stat().st_mtime))
+            for _, row in df.iterrows():
+                retailer = str(row.get("retailer") or "").strip()
+                plan = str(row.get("plan_name") or "").strip()
+                if retailer or plan:
+                    out[_efl_filename(row)] = (retailer, plan)
+    except Exception as exc:  # noqa: BLE001 -- identity recovery is best-effort
+        logger.info("Could not read PTC identities: %r", exc)
+
+    # REP discovery manifest (more specific -- applied second so it wins).
+    manifest = Path(efl_dir) / "rep_discovery_manifest.jsonl"
+    if manifest.exists():
+        for line in manifest.read_text(errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            fname = Path(str(rec.get("file") or "")).name
+            retailer = str(rec.get("retailer") or "").strip()
+            plan = str(rec.get("plan_name") or "").strip()
+            if fname and (retailer or plan):
+                out[fname] = (retailer, plan)
+    return out
+
+
 def parse_downloaded_efls(
     pdf_paths: list[Path],
     drafts_dir: Path = DRAFTS_DIR,
@@ -448,12 +577,13 @@ def parse_downloaded_efls(
     'failed': [{'file': filename, 'error': str}, ...],
     'llm_assisted': [{'id': plan_id, 'fields': [...]}, ...]}`.
     """
-    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft
+    from energyanalyzer.eflparse.parser import extract_text, parse_efl, save_draft, slugify
 
     drafts_dir = Path(drafts_dir)
     plans_dir = Path(plans_dir)
     total = len(pdf_paths)
-    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": []}
+    summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": [], "identified": []}
+    identities = known_efl_identities(efl_dir=Path(pdf_paths[0]).parent if pdf_paths else EFL_DIR)
 
     # One availability probe for the whole batch rather than a per-file timeout.
     use_llm = bool(llm_assist) and _llm.available()
@@ -464,6 +594,30 @@ def parse_downloaded_efls(
         pdf_path = Path(pdf_path)
         try:
             draft = parse_efl(pdf_path)
+            # An EFL is never anonymous -- discovery or PTC knew its retailer and
+            # plan at download time. When the PDF's font is too damaged for the
+            # parser to read the header it falls back to "Unknown Retailer" /
+            # "Unnamed Plan", which is both useless in the UI and a collision:
+            # several such plans differ only by contract term and would overwrite
+            # each other's draft file. Restore the known identity and rebuild the id.
+            known = identities.get(pdf_path.name)
+            if known:
+                retailer, plan_name = known
+                changed_identity = False
+                if retailer and draft.plan_dict.get("retailer") == "Unknown Retailer":
+                    draft.plan_dict["retailer"] = retailer
+                    changed_identity = True
+                if plan_name and draft.plan_dict.get("name") == "Unnamed Plan":
+                    draft.plan_dict["name"] = plan_name
+                    changed_identity = True
+                if changed_identity:
+                    draft.plan_dict["id"] = slugify(
+                        f"{draft.plan_dict['retailer']}_{draft.plan_dict['name']}"
+                        f"_{draft.plan_dict.get('term_months')}mo"
+                    )
+                    summary["identified"].append(
+                        {"file": pdf_path.name, "id": draft.plan_dict["id"]}
+                    )
             plan_id = draft.plan_dict.get("id")
             already = (drafts_dir / f"{plan_id}.yaml").exists() or (plans_dir / f"{plan_id}.yaml").exists()
             if already:
@@ -585,6 +739,7 @@ def _newest_capture(snapshot_dir: Path, key: str) -> Optional[Path]:
 
 def _run_rep_discovery(
     zip_code: str,
+    llm_assist: bool = False,
     efl_dir: Path = EFL_DIR,
     drafts_dir: Path = DRAFTS_DIR,
     plans_dir: Path = PLANS_DIR,
@@ -667,7 +822,10 @@ def _run_rep_discovery(
         try:
             if config.harvester is not None:
                 plans = rd.harvest_live(
-                    config, zip_code, headless=headless, check_robots=config.check_robots
+                    config,
+                    zip_code,
+                    headless=headless and not config.force_headful,
+                    check_robots=config.check_robots,
                 )
                 detail = "harvested live"
             elif config.render is not None:
@@ -675,7 +833,9 @@ def _run_rep_discovery(
                     html, _snap = rd.fetch_rendered_html(
                         config,
                         zip_code,
-                        headless=headless,
+                        # Tesla's Akamai edge 403s headless Chromium; its config
+                        # opts into a real window (see RepConfig.force_headful).
+                        headless=headless and not config.force_headful,
                         snapshot_dir=snapshot_dir,
                         check_robots=config.check_robots,
                     )
@@ -782,6 +942,7 @@ def _run_rep_discovery(
             discovered_pdfs,
             drafts_dir=drafts_dir,
             plans_dir=plans_dir,
+            llm_assist=llm_assist,
             progress_callback=lambda d, t, n: _report("discovery-parse", d, t, n),
         )
     return result
@@ -801,6 +962,7 @@ def refresh_market_data(
     discovery_zip: str = "78665",
     discovery_headless: bool = True,
     discovery_reps: Optional[list[str]] = None,
+    llm_assist: bool = False,
 ) -> dict:
     """"Refresh market data" one-button pipeline (ARCHITECTURE.md §9).
 
@@ -1023,6 +1185,7 @@ def refresh_market_data(
             pdf_paths,
             drafts_dir=drafts_dir,
             plans_dir=plans_dir,
+            llm_assist=llm_assist,
             progress_callback=lambda d, t, n: _report("parse", d, t, n),
         )
 
@@ -1053,6 +1216,7 @@ def refresh_market_data(
                     me_pdfs,
                     drafts_dir=drafts_dir,
                     plans_dir=plans_dir,
+                    llm_assist=llm_assist,
                     progress_callback=lambda d, t, n: _report("meter-efl-parse", d, t, n),
                 )
         except Exception as exc:  # noqa: BLE001 -- Meter EFL fetch must never abort the run
@@ -1141,6 +1305,7 @@ def refresh_market_data(
             summary["discovery"].update(
                 _run_rep_discovery(
                     zip_code=discovery_zip,
+                    llm_assist=llm_assist,
                     efl_dir=efl_dir,
                     drafts_dir=drafts_dir,
                     plans_dir=plans_dir,
@@ -1257,6 +1422,18 @@ def finish_refresh(
         if progress_callback is not None:
             progress_callback(done, total, f"{stage}: {item}")
 
+    # A synthetic meterplan row must never be promoted over a REAL plan for the
+    # same plan -- not even one still sitting in review. Without this, an
+    # unverified third-party rate can auto-promote into the rankings (simple
+    # meterplan rows come out needs_review=False) while the authoritative EFL
+    # waits in the draft queue. Supersede (below) only cleans that up once the
+    # real plan is *promoted*, which may never happen.
+    try:
+        _real_coverage = [p for p in load_plans(plans_dir) if str(p.source) != "meterplan"]
+    except Exception:  # noqa: BLE001 -- degrade to "no coverage known"
+        _real_coverage = []
+    _real_coverage += _real_draft_candidates(drafts_dir)
+
     current_draft_paths = sorted(drafts_dir.glob("*.yaml")) if drafts_dir.exists() else []
     promote_total = len(current_draft_paths)
     for i, draft_path in enumerate(current_draft_paths, start=1):
@@ -1268,6 +1445,23 @@ def finish_refresh(
             min_conf = min(seen) if seen else None
             needs_review_flag = raw.get("needs_review", True)
             eligible = (not needs_review_flag) and min_conf is not None and min_conf >= 0.8
+            if eligible and str(raw.get("source") or "") == "meterplan":
+                synthetic = _CoverageCandidate(
+                    id=str(raw.get("id") or draft_path.stem),
+                    retailer=str(raw.get("retailer") or ""),
+                    name=str(raw.get("name") or ""),
+                    term_months=raw.get("term_months"),
+                )
+                covered = _covered_by_real(synthetic, _real_coverage)
+                if covered is not None:
+                    eligible = False
+                    summary.setdefault("meterplan_not_promoted", []).append(
+                        {"synthetic": synthetic.id, "covered_by": getattr(covered, "id", "?")}
+                    )
+                    notes.append(
+                        f"Did not promote synthetic meterplan plan {synthetic.id}: real plan "
+                        f"{getattr(covered, 'id', '?')} covers it (left as a draft)."
+                    )
             if eligible:
                 plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")
@@ -1290,7 +1484,7 @@ def finish_refresh(
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
     # entry -- the synthetic row is redundant and is removed (logged).
-    for mp_id, match_id in supersede_meterplan_plans(plans_dir):
+    for mp_id, match_id in supersede_meterplan_plans(plans_dir, drafts_dir):
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
     if summary["meterplan_superseded"]:

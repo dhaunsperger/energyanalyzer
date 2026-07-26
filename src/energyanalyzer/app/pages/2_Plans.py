@@ -49,6 +49,97 @@ from energyanalyzer.core.models import Plan  # noqa: E402
 from energyanalyzer.eflparse.parser import plan_fields  # noqa: E402
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, save_plan  # noqa: E402
 
+def _hours_span(hours: list) -> str:
+    """Render a window's hours compactly: [23,0,1,2,3,4,5] -> "23:00-06:00"."""
+    if not hours:
+        return ""
+    present = {int(h) for h in hours}
+    # A night window wraps midnight (e.g. {23,0,1,2,3,4,5}), so neither min() nor
+    # max() bounds it: max() would render 23:00-00:00 for a window that actually
+    # runs to 06:00. Start at the hour whose predecessor is absent, then walk
+    # forward modulo 24 to the true end.
+    starts = [h for h in sorted(present) if (h - 1) % 24 not in present]
+    start = starts[0] if starts else min(present)
+    end = start
+    while (end + 1) % 24 in present and (end + 1) % 24 != start:
+        end = (end + 1) % 24
+    return f"{start:02d}:00-{(end + 1) % 24:02d}:00"
+
+
+def _window_label(win: dict | None) -> str:
+    if not win:
+        return "all hours"
+    bits = []
+    if win.get("hours"):
+        bits.append(_hours_span(win["hours"]))
+    if win.get("weekdays"):
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        bits.append("/".join(names[int(d)] for d in win["weekdays"]))
+    if win.get("months"):
+        bits.append("months " + ",".join(str(int(m)) for m in win["months"]))
+    return " ".join(bits) or "all hours"
+
+
+def draft_field_value(raw: dict, field: str) -> str:
+    """The value the draft actually assigned for a scored field.
+
+    The confidence table used to show only field/source/confidence/evidence, so
+    checking what was *stored* meant scrolling to the YAML and back for every
+    row. Keys are the parser's confidence keys, which don't map 1:1 onto Plan
+    fields -- several are parse-time only and have no stored value ("--").
+    """
+    def _rates() -> str:
+        rates = raw.get("energy_rates") or []
+        if not rates:
+            return "--"
+        return " | ".join(
+            f"{r.get('rate_ckwh')}c @ {_window_label(r.get('window'))}" for r in rates
+        )
+
+    bb = raw.get("buyback") or {}
+    if field == "retailer":
+        return str(raw.get("retailer", "--"))
+    if field == "plan_name":
+        return str(raw.get("name", "--"))
+    if field == "term_months":
+        return f"{raw.get('term_months')} mo"
+    if field == "rate_type":
+        return str(raw.get("rate_type", "--"))
+    if field == "energy_charge":
+        return _rates()
+    if field == "free_window":
+        wins = [r for r in (raw.get("energy_rates") or []) if r.get("window")]
+        return _window_label(wins[0].get("window")) if wins else "--"
+    if field == "base_charge":
+        return f"${raw.get('base_charge_usd')}"
+    if field == "buyback":
+        kind = bb.get("kind", "none")
+        if kind == "fixed":
+            return f"fixed {bb.get('rate_ckwh')}c ({bb.get('offset_scope', 'all_charges')})"
+        if kind == "rtw":
+            rtw = bb.get("rtw") or {}
+            cap = f", cap {rtw['cap_ckwh']}c" if rtw.get("cap_ckwh") else ""
+            return f"rtw x{rtw.get('multiplier', 1.0)}{cap}"
+        return str(kind)
+    if field == "bill_credits":
+        credits = raw.get("bill_credits") or []
+        return " | ".join(f"${c.get('credit_usd')} @>={c.get('min_kwh')}kWh" for c in credits) or "--"
+    if field == "etf":
+        etf = raw.get("etf_usd")
+        if etf is None:
+            return "--"
+        return f"${etf}/mo remaining" if raw.get("etf_per_month_remaining") else f"${etf}"
+    if field == "renewable_pct":
+        pct = raw.get("renewable_pct")
+        return f"{pct}%" if pct is not None else "--"
+    if field == "tdu_passthrough":
+        return str(raw.get("tdu_passthrough"))
+    # tdu_ckwh / tdu_monthly / avg_price_* are read to CHECK the parse but are
+    # not stored on the Plan (TDU tariffs come from tdu/oncor.yaml).
+    return "--"
+
+
+
 st.set_page_config(page_title="EnergyAnalyzer - Plans", page_icon="⚡", layout="wide")
 st.title("Plans")
 
@@ -438,6 +529,21 @@ run_discovery = st.checkbox(
         "`octopus:` -- it is never committed or logged."
     ),
 )
+refresh_llm_assist = st.checkbox(
+    "Pre-fill unreadable fields with the local LLM",
+    key="refresh_llm_assist",
+    help=(
+        "For EFLs the static parser can't read confidently, ask a local Ollama model to "
+        "propose the missing rate/charge fields. It mainly rescues PDFs with broken embedded "
+        "fonts -- e.g. Atlantex's base charge renders as 'ae Charge $19.95 per ill', which the "
+        "regex parser reads as $0 and which is otherwise re-broken on EVERY refresh.\n\n"
+        "Suggestions are badged with the model's reasoning and **always still require your "
+        "review** -- the LLM never promotes a plan on its own. Needs Ollama running; adds "
+        "roughly a second per unreadable draft, and is skipped silently if Ollama is down.\n\n"
+        "(The same option appears in 'Parse downloaded EFLs' below, for parsing without a "
+        "full refresh.)"
+    ),
+)
 discovery_zip = st.text_input(
     "Discovery ZIP code",
     value="78665",
@@ -467,6 +573,7 @@ if st.button(
         meterplan_dir=METERPLAN_DIR,
         run_discovery=run_discovery,
         discovery_zip=discovery_zip.strip() or "78665",
+        llm_assist=refresh_llm_assist,
     )
     if started is None:
         st.warning("A refresh is already running.")
@@ -1084,6 +1191,7 @@ if current_draft_paths:
             conf_rows = [
                 {
                     "field": field,
+                    "value": draft_field_value(raw_draft, field),
                     "source": "LLM" if field in llm_fields else "parser",
                     "confidence": conf,
                     "evidence": draft_evidence.get(field, ""),

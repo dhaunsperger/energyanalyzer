@@ -21,6 +21,6 @@ etf_per_month_remaining: true
 rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_13.pdf
-retrieved: '2026-07-24'
+retrieved: '2026-07-25'
 notes: ''
 needs_review: false

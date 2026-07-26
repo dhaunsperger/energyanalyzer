@@ -155,6 +155,12 @@ class RepConfig:
     # and silently, because a bad base only surfaces later as a failed download.
     # Observed 2026-07-24: all 11 Chariot EFLs 404'd exactly this way.
     efl_base: Optional[str] = None
+    # Force a HEADFUL browser for this REP. Tesla sits behind Akamai, which
+    # answers headless Chromium with a 403 "Access Denied" page (verified
+    # 2026-07-25: headless 403, headful 200 on the same URL and UA). Needs a
+    # display -- fine under WSLg, which exports DISPLAY. Per-REP, never a
+    # blanket default: headful pops a visible window and is slower.
+    force_headful: bool = False
 
     @property
     def link_base(self) -> str:
@@ -329,6 +335,59 @@ _TXU_CARD_SPLIT_RE = re.compile(r'(?=<div\b[^>]*\bclass="[^"]*\bshow-plan\b)')
 _TXU_TITLE_RE = re.compile(r'<p\b[^>]*\bclass="([^"]*)"[^>]*>(.*?)</p>', re.I | re.S)
 # The EFL link IS its own self-label: TXU points at a PDF generator with
 # formType=EnergyFactsLabel and the plan's product id in comProdId.
+# --------------------------------------------------------------------------- #
+# Vistra platform: the EFL *document* endpoint
+# --------------------------------------------------------------------------- #
+# TXU and Ambit both run Vistra's shopping platform, and both expose an EFL link
+# of the form `<host>/PDFGenerator?formType=EnergyFactsLabel&comProdId=<id>...`.
+# That URL is a **viewer page**, not the document: it returns the site's Next.js
+# HTML shell (~8-9 KB, content-type text/html) to httpx, to a browser session
+# carrying the full funnel's cookies, and even to a real in-browser navigation.
+# Its JS then fetches the actual PDF from `/api/getdocument` and wraps it in a
+# `blob:` for display.
+#
+# `/api/getdocument` serves `application/pdf` to plain httpx with no session at
+# all, so rewriting to it keeps EFL downloads browser-free. Every query
+# parameter is renamed, and `efldate` must be full ISO 8601:
+#
+#   viewer : formType  comProdId  efldate=YYYY-MM-DD  lang      custClass
+#   backend: docType   productid  efldate=<ISO8601>   language  classification
+#
+# Found 2026-07-24 on Ambit by watching the popup's network traffic; TXU's
+# identical deferral ("HTML response -- a browser-rendered EFL viewer/SPA")
+# confirmed the same rewrite works there.
+_VISTRA_PDFGEN_RE = re.compile(r"(?i)^(https?://[^/]+)/PDFGenerator\?(.*)$")
+
+
+def _vistra_getdocument_url(
+    host: str, product_id: str, efldate: str, tdsp: str = "ONCOR"
+) -> str:
+    """Vistra's real EFL-PDF endpoint for a product id. `efldate` is YYYY-MM-DD;
+    the endpoint wants full ISO 8601, so midnight is appended."""
+    return (
+        f"{host}/api/getdocument?docType=EnergyFactsLabel&productid={product_id}"
+        f"&efldate={efldate}T00:00:00&tdsp={tdsp}"
+        f"&language=en&classification=Residential"
+    )
+
+
+def _rewrite_vistra_efl_url(url: str, tdsp: str = "ONCOR") -> str:
+    """Rewrite a scraped `/PDFGenerator?...` viewer URL to the `/api/getdocument`
+    document URL. Returns the input unchanged if it isn't a PDFGenerator URL or
+    lacks a comProdId -- callers must never lose a URL to this."""
+    m = _VISTRA_PDFGEN_RE.match(url or "")
+    if not m:
+        return url
+    host, query = m.group(1), m.group(2)
+    pid_m = re.search(r"comProdId=([A-Za-z0-9]+)", query, re.I)
+    if not pid_m:
+        return url
+    date_m = re.search(r"efldate=(\d{4}-\d{2}-\d{2})", query, re.I)
+    efldate = date_m.group(1) if date_m else dt.date.today().isoformat()
+    tdsp_m = re.search(r"tdsp=([A-Za-z]+)", query, re.I)
+    return _vistra_getdocument_url(host, pid_m.group(1), efldate, tdsp_m.group(1) if tdsp_m else tdsp)
+
+
 _TXU_EFL_URL_RE = re.compile(
     r'href="([^"]*PDFGenerator\?formType=EnergyFactsLabel[^"]*)"', re.I
 )
@@ -376,8 +435,8 @@ def extract_txu(html: str, config: RepConfig) -> list[DiscoveredPlan]:
         url_m = _TXU_EFL_URL_RE.search(card)
         if not url_m:
             continue
-        efl_url = urljoin(base, unescape(url_m.group(1)))
-        pid_m = _TXU_COMPRODID_RE.search(efl_url)
+        efl_url = _rewrite_vistra_efl_url(urljoin(base, unescape(url_m.group(1))))
+        pid_m = _TXU_COMPRODID_RE.search(efl_url) or re.search(r"productid=([A-Za-z0-9]+)", efl_url, re.I)
         product_id = pid_m.group(1) if pid_m else efl_url
         if product_id in seen:
             continue
@@ -637,11 +696,7 @@ def _ambit_efl_url(product_id: str, efldate: str) -> str:
     directly to plain httpx -- no browser, no session, so `download_discovered`
     handles Ambit like any other REP.
     """
-    return (
-        f"{_AMBIT_EFL_BASE}?docType=EnergyFactsLabel&productid={product_id}"
-        f"&efldate={efldate}T00:00:00&tdsp={_AMBIT_TDSP}"
-        f"&language=en&classification=Residential"
-    )
+    return _vistra_getdocument_url("https://shopping.ambitenergy.com", product_id, efldate, _AMBIT_TDSP)
 
 
 def extract_ambit(html: str, config: RepConfig) -> list[DiscoveredPlan]:
@@ -1166,6 +1221,53 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
     return f"{base}.pdf"[:150]
 
 
+# Statuses worth a second try. 403 is here for a specific, measured reason: Ambit
+# (and TXU) sit behind an Azure Front Door WAF that answers a plain-text
+# "Blocked by WAF" 403 *probabilistically* -- sampled 2026-07-24, plain httpx got
+# through 3 times in 6 on the very same URL, and the EFL endpoint 403s on one
+# refresh and serves a valid PDF on the next. A single attempt therefore says
+# nothing about whether the document is reachable. Kept deliberately small and
+# backed off: this is a handful of requests for one household's own shopping,
+# not a way to grind past a site that means "no" (a persistent 403 still fails).
+_RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
+_DOWNLOAD_ATTEMPTS = 3
+
+
+def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEMPTS):
+    """GET `url`, retrying a transient status with linear backoff.
+
+    Honours the per-host rate limit before every attempt, so a retry can never
+    make us hit a site faster than the normal path does.
+    """
+    last_exc: Optional[Exception] = None
+    resp = None
+    for attempt in range(1, attempts + 1):
+        _respect_rate_limit(host)
+        try:
+            resp = client.get(url)
+            # getattr: test seams supply minimal response doubles without a
+            # status_code, and "no status" must mean "not retryable", never a
+            # crash that turns a working download into a failure.
+            if getattr(resp, "status_code", None) not in _RETRY_STATUSES:
+                return resp
+            last_exc = None
+        except Exception as exc:  # noqa: BLE001 -- transport hiccups are retryable too
+            last_exc = exc
+            resp = None
+        if attempt < attempts:
+            logger.info(
+                "download: %s returned %s (attempt %d/%d), retrying",
+                host,
+                getattr(resp, "status_code", None) if resp is not None else repr(last_exc)[:40],
+                attempt,
+                attempts,
+            )
+            time.sleep(1.5 * attempt)
+    if resp is not None:
+        return resp
+    raise last_exc if last_exc else RuntimeError(f"download failed for {url}")
+
+
 def download_discovered(
     plans: list[DiscoveredPlan],
     dest: Path = Path("data/efl"),
@@ -1258,8 +1360,7 @@ def download_discovered(
                     # shell). _render_efl_pdf handles its own rate limiting.
                     content = _render_efl_pdf(plan.efl_url, headless=headless)
                 else:
-                    _respect_rate_limit(host)
-                    resp = client.get(plan.efl_url)
+                    resp = _get_with_retry(client, plan.efl_url, host)
                     resp.raise_for_status()
                     content = resp.content
                 # A direct-GET EFL URL can still resolve to an HTML viewer/SPA
@@ -1361,9 +1462,15 @@ TXU = RepConfig(
     homepage="https://www.txu.com/",
     extractor=extract_txu,
     render=_txu_render,
-    # EFLs are the Vistra shopping.txu.com/PDFGenerator endpoint, which returns
-    # an HTML SPA shell to httpx -- keep only buyback plans (the rest are on PTC).
-    broaden=False,
+    # Was buyback-only on two premises that both expired. (1) "PDFGenerator
+    # returns an HTML shell to httpx" -- fixed by _rewrite_vistra_efl_url, which
+    # works on shopping.txu.com (verified 2026-07-25: a conventional plan's EFL
+    # returns application/pdf). (2) "the rest are on PTC" -- measured false: the
+    # 2026-07-25 PTC snapshot carries 2 TXU products against 10 on TXU's own
+    # site, so buyback-only was silently dropping 8 plans nothing else supplies
+    # (Free Nights & Cool Summer had to be hand-entered from the report for
+    # exactly this reason). _discovered_plan_in_ptc dedups the overlap.
+    broaden=True,
 )
 
 
@@ -1545,8 +1652,9 @@ AMBIT = RepConfig(
     extractor=extract_ambit,
     render=_ambit_render,
     # EFLs come from shopping.ambitenergy.com/api/getdocument (plain PDF over
-    # httpx); keep only buyback plans -- the rest are on PTC.
-    broaden=False,
+    # httpx). Was buyback-only on the same false premise as TXU: the 2026-07-25
+    # PTC snapshot lists 1 Ambit product against 14 on Ambit's own site.
+    broaden=True,
 )
 
 
@@ -1610,6 +1718,35 @@ _CHAMPION_PLANNAME_PARAM_RE = re.compile(r"planName=([^&]+)", re.I)
 _CHAMPION_MODAL_TITLE_RE = re.compile(r"Details of\s+(.+)", re.I)
 
 
+def _popup_url_when_ready(popup: object, timeout_ms: int = 15_000) -> Optional[str]:
+    """The popup's real URL, waiting for it to actually navigate.
+
+    `popup.url` is available immediately after `expect_popup()` -- but before the
+    navigation commits it is a placeholder (Playwright reports ":" here, not
+    even "about:blank"). Waiting on `load` does not help: these popups render a
+    **PDF**, whose load event may never fire, so the wait times out and the
+    placeholder is read instead.
+
+    Measured on Champion 2026-07-25: all 7 plans returned ":" , which then
+    collapsed to ONE plan because the dedup key is derived from the URL -- the
+    harvester reported "1 plan(s)" from 7 successfully-opened popups, and the
+    surviving one carried an unusable URL ("malformed or non-http EFL URL").
+
+    So: poll until the URL looks like a real http(s) address.
+    """
+    deadline = timeout_ms
+    while deadline > 0:
+        url = getattr(popup, "url", None)
+        if url and url.lower().startswith(("http://", "https://")):
+            return url
+        try:
+            popup.wait_for_timeout(250)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 -- popup closed under us
+            break
+        deadline -= 250
+    return None
+
+
 def _champion_plan_name(page: object) -> str:
     """Read the open details modal's "Details of <plan>" heading."""
     try:
@@ -1633,16 +1770,79 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
         except Exception:  # noqa: BLE001
             return False
 
+    def _enter_zip_and_wait() -> int:
+        """Run the ZIP prelude and WAIT for plan cards. Returns the card count.
+
+        A fixed sleep here used to be the whole synchronisation: on a slow load
+        the sweep found 0 cards and the REP silently contributed nothing
+        (observed 2026-07-25 -- 7 cards at 10:44, 0 at 12:03 with no other
+        change). Waiting on the cards themselves makes it depend on the page
+        being ready rather than on the site responding within 3 seconds.
+        """
+        # Champion renders the whole ZIP form TWICE (a desktop copy and a mobile
+        # one). `.first` is frequently the off-screen copy, so the fill/click
+        # silently time out and the flow never leaves the homepage -- the REP
+        # then reports "0 plan card(s)" with no error anywhere. Try each copy.
+        # The ZIP form is React-rendered; filling it the instant DOMContentLoaded
+        # fires lands before the input is wired up.
+        _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+        # NB: do NOT click the "Enter Your Address or Zip Code" label first --
+        # it matches twice and clicking the off-screen copy leaves the form in a
+        # state where the subsequent fill lands nowhere. Filling the input
+        # directly is both simpler and what actually works.
+        if not _fill_any_matching(page, "input[name='zipcode']", zip_code):
+            _fill_any_matching(page, "input[type='text']", zip_code)
+        _click_any_matching(page, "View Rates and Plans", 8000)
+        # Two interstitials, and they are SEQUENTIAL -- each appears only after
+        # the previous is dismissed, and each takes several seconds:
+        #   View Rates -> (~8s) "New Service" -> /ShopAndEnroll
+        #                -> (~9s) a dialog that COVERS the plan cards
+        # The old code fired both clicks back-to-back with 6s timeouts, so it
+        # missed the first, never reached the second, and left the flow on the
+        # homepage -- reported only as "0 plan card(s)", with no error anywhere.
+        _click_any_matching(page, "New Service", 20_000)
+        _try(lambda: page.wait_for_timeout(6000))  # type: ignore[attr-defined]
+        for closer in ("Close this dialog", "Close", "\u00d7"):
+            if _click_any_matching(page, closer, 15_000):
+                break
+        _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+        _try(lambda: page.wait_for_selector(  # type: ignore[attr-defined]
+            "button:has-text('See More Plan Details')", timeout=30_000
+        ))
+        try:
+            return page.get_by_role("button", name="See More Plan Details").count()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return 0
+
     logger.info("Champion Energy: entering ZIP %s and loading plans", zip_code)
-    _try(lambda: page.get_by_text("Enter Your Address or Zip Code").first.click())  # type: ignore[attr-defined]
-    # The ZIP input id (_r_g_) is a React-generated id that changes per render;
-    # target the focused textbox instead.
-    _try(lambda: page.get_by_role("textbox").first.fill(zip_code))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="View Rates and Plans").first.click())  # type: ignore[attr-defined]
-    # Session-dependent interstitials -- best-effort.
-    _try(lambda: page.get_by_role("button", name="New Service").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="Close this dialog").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+    if _enter_zip_and_wait() == 0:
+        # One reload + retry: the prelude is interstitial-dependent and a single
+        # bad run shouldn't cost the whole REP.
+        logger.info("Champion Energy: no plan cards yet -- reloading and retrying the ZIP flow")
+        _try(lambda: page.goto(config.homepage, wait_until="domcontentloaded", timeout=60_000))  # type: ignore[attr-defined]
+        _try(lambda: page.wait_for_timeout(2000))  # type: ignore[attr-defined]
+        _enter_zip_and_wait()
+
+    # Champion serves the EFL as a DOWNLOAD (Content-Disposition: attachment),
+    # not a navigation: the popup it opens stays blank forever and `popup.url`
+    # reports the placeholder ":". Reading that gave every plan the same key, so
+    # the dedup collapsed 7 plans into 1 -- with an unusable URL. The real URL is
+    # on the response, so capture it there (same approach as Reliant, whose PDF
+    # also arrives outside the page's own navigation).
+    captured_pdfs: list[str] = []
+
+    def _on_response(resp) -> None:
+        try:
+            ctype = (resp.headers.get("content-type") or "").lower()
+            if "application/pdf" in ctype:
+                captured_pdfs.append(resp.url)
+        except Exception:  # noqa: BLE001 -- listener must never raise
+            pass
+
+    try:
+        page.context.on("response", _on_response)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 -- fake page seam in tests has no context
+        pass
 
     details = page.get_by_role("button", name="See More Plan Details")  # type: ignore[attr-defined]
     count = details.count()
@@ -1664,13 +1864,28 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
                 count,
                 plan_name or "?",
             )
+            before = len(captured_pdfs)
             with page.expect_popup() as pop:  # type: ignore[attr-defined]
                 page.get_by_role("button", name="Electricity Facts Label").click()  # type: ignore[attr-defined]
             popup = pop.value
-            _try(lambda: popup.wait_for_load_state())
-            efl_url = popup.url
+            # Give the download response a moment to arrive, then take the URL
+            # the network saw. Fall back to the popup's own URL for any variant
+            # that really does navigate.
+            for _ in range(24):
+                if len(captured_pdfs) > before:
+                    break
+                _try(lambda: page.wait_for_timeout(250))  # type: ignore[attr-defined]
+            efl_url = captured_pdfs[-1] if len(captured_pdfs) > before else _popup_url_when_ready(popup, 2000)
             _try(lambda: popup.close())
-            logger.info("Champion Energy: plan %d/%d -- captured EFL URL", i + 1, count)
+            if efl_url:
+                logger.info(
+                    "Champion Energy: plan %d/%d -- captured EFL URL %s", i + 1, count, efl_url
+                )
+            else:
+                logger.info(
+                    "Champion Energy: plan %d/%d -- popup never resolved to an http URL",
+                    i + 1, count,
+                )
         except Exception:  # noqa: BLE001
             logger.info("Champion Energy: plan %d/%d -- no EFL popup captured", i + 1, count)
             efl_url = None
@@ -1684,6 +1899,10 @@ def _champion_harvest(page: object, zip_code: str, config: RepConfig) -> list[Di
         code_m = _CHAMPION_PLANNAME_PARAM_RE.search(efl_url)
         key = code_m.group(1) if code_m else efl_url
         if key in seen:
+            logger.info(
+                "Champion Energy: plan %d/%d (%s) -- duplicate EFL key %s, skipping",
+                i + 1, count, plan_name or "?", key,
+            )
             continue
         seen.add(key)
         plans.append(
@@ -1995,6 +2214,328 @@ ATLANTEX = RepConfig(
 )
 
 # Registry of configured REPs. Add more here as their flows are recorded.
+# --------------------------------------------------------------------------- #
+# Tesla Electric extractor
+# --------------------------------------------------------------------------- #
+# Tesla puts each plan behind a tab ("With Powerwall" / "With Vehicle" / "None")
+# on /tesla-electric/view-plans, and each tab's "Electricity Facts Label" link is
+# a DIRECT PDF on digitalassets-energy.tesla.com -- no viewer page, no popup URL
+# to capture, so a plain extractor is enough once the tabs have been clicked.
+# `_tesla_render` concatenates the per-tab HTML (same trick as Chariot's
+# paginated listing) and this dedups by PDF URL.
+_TESLA_EFL_URL_RE = re.compile(
+    r'href="(https://digitalassets-energy\.tesla\.com/[^"]+\.pdf)"', re.I
+)
+# Plan identity is encoded in the filename, e.g.
+# ".../Drive%2012M/TE_DRIVE_12M_PLAN_ONCOR_JUN_2026.pdf" -> "Drive 12M".
+_TESLA_PLAN_FROM_FILE_RE = re.compile(r"/TE_(.+?)_PLAN", re.I)
+
+
+def extract_tesla(html: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Static (no-LLM) extractor for Tesla Electric's rendered plans tabs.
+
+    Every Tesla Electric plan buys back exported energy -- the EFLs state
+    "Other Energy Exports: 3c / kWh" and "Vehicle Energy Exports: 90% of the
+    Real-Time Market Price" -- so `is_buyback` is True for all of them. The rate
+    itself is left to the EFL parser: for a solar house the relevant number is
+    the "Other Energy Exports" one, not the vehicle rate.
+    """
+    html = _SCRIPT_RE.sub("", _strip_comments(html))
+    plans: list[DiscoveredPlan] = []
+    seen: set[str] = set()
+    for m in _TESLA_EFL_URL_RE.finditer(html):
+        url = unescape(m.group(1))
+        if url in seen:
+            continue
+        seen.add(url)
+        # The tabs also link Terms & Conditions PDFs from the same asset host.
+        # Only the EFLs carry the `TE_<plan>_PLAN` filename, so that pattern --
+        # not the host -- is what identifies an EFL.
+        name_m = _TESLA_PLAN_FROM_FILE_RE.search(url)
+        if not name_m:
+            continue
+        raw = name_m.group(1).replace("_", " ").title()
+        plans.append(
+            DiscoveredPlan(
+                retailer=config.retailer,
+                plan_name=raw,
+                efl_url=url,
+                is_buyback=True,
+                extraction_method="static",
+                context="Tesla Electric plan tab; EFL is a direct digitalassets PDF",
+            )
+        )
+    return plans
+
+
+def _tesla_render(page: object, zip_code: str) -> Optional[str]:
+    """Tesla nav flow, from a `playwright codegen` recording: ZIP -> View Plans,
+    then click each plan tab and collect its HTML.
+
+    Returns the concatenated per-tab HTML (extract_tesla dedups by PDF URL), so
+    one render captures every plan. Tabs are best-effort -- Tesla varies which
+    are offered by address -- but at least one EFL link must appear or this
+    raises, so discovery reports a failure rather than silently finding nothing.
+    """
+    page.get_by_role("textbox", name="Zip Code").fill(zip_code, timeout=25_000)
+    page.get_by_role("button", name="View Plans").first.click(timeout=25_000)
+    page.wait_for_timeout(6_000)
+
+    parts: list[str] = []
+    for tab in ("With Powerwall", "With Vehicle", "None"):
+        try:
+            page.get_by_role("tab", name=tab, exact=True).first.click(timeout=15_000)
+            page.wait_for_timeout(3_000)
+            parts.append(page.content())
+        except Exception:  # noqa: BLE001 -- not every tab is offered everywhere
+            logger.info("Tesla: tab %r not available (continuing)", tab)
+    joined = "\n".join(parts) if parts else page.content()
+    if not _TESLA_EFL_URL_RE.search(joined):
+        raise RuntimeError("Tesla: no Electricity Facts Label PDF link found after the tab sweep")
+    return joined
+
+
+TESLA = RepConfig(
+    key="tesla",
+    retailer="Tesla Electric",
+    homepage="https://www.tesla.com/tesla-electric/plans",
+    extractor=extract_tesla,
+    render=_tesla_render,
+    # Akamai serves headless Chromium a 403 "Access Denied"; headful gets 200.
+    force_headful=True,
+)
+
+
+
+# --------------------------------------------------------------------------- #
+# Meter Energy interactive harvester
+# --------------------------------------------------------------------------- #
+# Meter (meterplan.com) publishes the markdown index `fetchers/meterplan.py`
+# reads, but its OWN plans' real EFLs used to come from JSON-LD on /plans as
+# presigned S3 links. Meter rebuilt that page as a client-rendered app and the
+# links left the HTML entirely: `parse_meterplan_efl_offers` returned 0 offers on
+# every refresh (verified 2026-07-25 -- 0 offers, 0 downloaded, 0 parsed), which
+# is why Meter's six plans stayed synthetic markdown rows.
+#
+# The presigned URLs still exist, now behind a JS button ("View Electricity Facts
+# Label (EFL)") with no href -- the same shape as Champion. Clicking it fetches
+# `light-assets.s3.amazonaws.com/efls/EFL_<Plan>_<date>_<TDU>_<hash>.pdf` and
+# hands it to the browser as a download, so the URL is captured from a
+# context-level `application/pdf` response rather than from any anchor.
+_METER_PLANS_URL = "https://meterplan.com/plans?zipcode={zip}"
+_METER_EFL_NAME_RE = re.compile(r"/EFL_([A-Za-z0-9+]+)_", re.I)
+# Term filters to sweep. Meter shows one term at a time; the EFL parser reads the
+# actual term out of each PDF, so this is only about making every plan reachable.
+_METER_TERMS = ("12 months", "24 months", "36 months")
+# Usage profiles. "Solar + battery" is skipped deliberately: battery-required
+# plans are excluded everywhere else in this app (they need hardware the owner
+# doesn't have), matching `meterplan_to_drafts`' battery skip.
+# Order matters: the page loads on a profile that already lists the solar plans,
+# and clicking "No solar" first NARROWS it to Standard only. Sweep the default
+# view first, then the alternatives.
+# Sweep the default view (which lists the solar plans) plus the two non-battery
+# profiles. "Solar + battery" is skipped on purpose: battery-required plans need
+# hardware the owner doesn't have and are excluded everywhere else in this app
+# (see meterplan_to_drafts' battery skip).
+_METER_PROFILES = (None, "Solar", "No solar")
+
+
+def _fill_any_matching(page: object, selector: str, value: str, timeout_ms: int = 6000) -> bool:
+    """Fill the first ACTIONABLE input matching `selector`.
+
+    Same hazard as `_click_any_matching`: sites commonly render a desktop and a
+    mobile copy of the same form, so `.first` is often the off-screen one and the
+    fill silently times out.
+    """
+    try:
+        loc = page.locator(selector)  # type: ignore[attr-defined]
+        n = loc.count()
+    except Exception:  # noqa: BLE001
+        return False
+    for i in range(n):
+        try:
+            el = loc.nth(i)
+            el.scroll_into_view_if_needed(timeout=2000)
+            el.fill(value, timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+def _click_any_matching(page: object, name: str, timeout_ms: int = 6000) -> bool:
+    """Click the first ACTIONABLE control with this accessible name.
+
+    Meter renders its filter chips twice (a desktop row and a mobile one), so
+    `.first` is often the off-screen copy: Playwright then waits for
+    actionability and times out even though `is_visible()`/`is_enabled()` both
+    report True. Trying each match -- scrolling it into view first -- is what
+    makes the filter sweep work.
+    """
+    try:
+        loc = page.get_by_role("button", name=name)  # type: ignore[attr-defined]
+        # WAIT for the control to exist before counting. `count()` is evaluated
+        # immediately, so on a control that hasn't rendered yet this returned 0
+        # and the function gave up without ever waiting -- the per-click timeout
+        # only ever applied once a match already existed. That silently skipped
+        # Champion's "New Service" interstitial (which appears ~8s after the ZIP
+        # submit), leaving the flow on the homepage and the REP reporting
+        # "0 plan card(s)" with no error at all.
+        try:
+            loc.first.wait_for(state="attached", timeout=timeout_ms)
+        except Exception:  # noqa: BLE001 -- genuinely absent: nothing to click
+            return False
+        n = loc.count()
+    except Exception:  # noqa: BLE001
+        return False
+    for i in range(n):
+        try:
+            el = loc.nth(i)
+            el.scroll_into_view_if_needed(timeout=2000)
+            el.click(timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001 -- try the next copy
+            continue
+    return False
+
+
+def _close_extra_pages(page: object) -> None:
+    """Close every page in the context except `page` itself."""
+    ctx = page.context  # type: ignore[attr-defined]
+    for other in list(getattr(ctx, "pages", [])):
+        if other is page:
+            continue
+        try:
+            other.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
+    """Interactive harvester for Meter Energy's own plans.
+
+    Meter shows one card per plan (Saver / Earner / Standard) and **each card
+    carries its OWN 12/24/36-month tabs**. Clicking a page-level "24 months"
+    therefore only re-terms the FIRST card -- every other plan silently keeps its
+    default 12-month EFL, which is exactly the bug that made Earner return the
+    same document for all three terms. So the term tab is scoped to the card that
+    owns the EFL button being clicked.
+
+    Two further behaviours, both measured:
+
+    * A profile chip ("No solar" / "Solar") changes which plans are listed;
+      Standard only appears under some of them, so profiles are swept too.
+      "Solar + battery" is skipped -- battery-required plans need hardware the
+      owner doesn't have and are excluded everywhere else in this app.
+    * Clicking an EFL hands the browser a download and opens a blank popup, after
+      which the page stops responding to clicks entirely. A fresh load before
+      every capture is the only reliable reset found.
+    """
+    captured: list[str] = []
+
+    def _on_response(resp) -> None:
+        try:
+            if "application/pdf" in (resp.headers.get("content-type") or "").lower():
+                captured.append(resp.url)
+        except Exception:  # noqa: BLE001 -- listener must never raise
+            pass
+
+    try:
+        page.context.on("response", _on_response)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 -- fake page seam in tests
+        pass
+
+    url = _METER_PLANS_URL.format(zip=zip_code)
+
+    def _efl_buttons():
+        return page.get_by_role(  # type: ignore[attr-defined]
+            "button", name="View Electricity Facts Label (EFL)"
+        )
+
+    def _load(profile: Optional[str]) -> int:
+        """Fresh load + optional profile chip; returns the EFL-button count."""
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)  # type: ignore[attr-defined]
+            page.wait_for_timeout(6000)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return 0
+        if profile and not _click_any_matching(page, profile, 8000):
+            return 0
+        try:
+            page.wait_for_timeout(1500)  # type: ignore[attr-defined]
+            return _efl_buttons().count()
+        except Exception:  # noqa: BLE001
+            return 0
+
+    seen: set[str] = set()
+    plans: list[DiscoveredPlan] = []
+    for profile in _METER_PROFILES:
+        n = _load(profile)
+        logger.info("Meter Energy: %s -- %d plan card(s)", profile or "default view", n)
+        for i in range(n):
+            for term in _METER_TERMS:
+                if _load(profile) <= i:
+                    break
+                try:
+                    efl = _efl_buttons().nth(i)
+                    # The card owning this button: nearest ancestor that also
+                    # holds the per-plan term tabs.
+                    card = efl.locator(
+                        "xpath=ancestor::*[.//button[normalize-space()='12 months']][1]"
+                    )
+                    card.get_by_role("button", name=term).first.click(timeout=8000)
+                    page.wait_for_timeout(2000)  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 -- card may not offer this term
+                    continue
+                before = len(captured)
+                try:
+                    btn = _efl_buttons().nth(i)
+                    btn.scroll_into_view_if_needed(timeout=2000)
+                    btn.click(timeout=10_000)
+                except Exception:  # noqa: BLE001
+                    continue
+                for _ in range(28):
+                    if len(captured) > before:
+                        break
+                    try:
+                        page.wait_for_timeout(250)  # type: ignore[attr-defined]
+                    except Exception:  # noqa: BLE001
+                        break
+                _close_extra_pages(page)
+                if len(captured) <= before:
+                    continue
+                got = captured[-1]
+                # Presigned URLs carry a rotating signature; key on the path so
+                # the same document isn't re-captured under another filter.
+                key = got.split("?", 1)[0]
+                if key in seen:
+                    continue
+                seen.add(key)
+                name_m = _METER_EFL_NAME_RE.search(got)
+                plan_name = name_m.group(1) if name_m else "Meter plan"
+                logger.info("Meter Energy: captured %s (%s)", plan_name, term)
+                plans.append(
+                    DiscoveredPlan(
+                        retailer=config.retailer,
+                        plan_name=f"{plan_name} {term.split()[0]}",
+                        efl_url=got,
+                        # Saver/Earner are the solar buyback products; Standard isn't.
+                        is_buyback=plan_name.lower() != "standard",
+                        extraction_method="harvest",
+                        context=f"Meter Energy /plans, {profile or 'default'} / {term}",
+                    )
+                )
+    return plans
+
+
+METER = RepConfig(
+    key="meter",
+    retailer="Meter Energy",
+    homepage="https://meterplan.com/plans",
+    harvester=_meter_harvest,
+)
+
+
 REP_CONFIGS: dict[str, RepConfig] = {
     c.key: c
     for c in (
@@ -2009,5 +2550,7 @@ REP_CONFIGS: dict[str, RepConfig] = {
         DIRECT_ENERGY,
         RELIANT,
         ATLANTEX,
+        TESLA,
+        METER,
     )
 }
