@@ -1030,15 +1030,35 @@ def _strip_pua(s: str) -> str:
     return "".join(ch for ch in s if not (0xE000 <= ord(ch) <= 0xF8FF))
 
 
+# Unit markers per charge basis. "ccle"/"illing" are the broken-subset-font
+# spellings of cycle/billing (see _strip_pua).
+_UNIT_MARKERS = (
+    ("kwh", ("kwh",)),
+    ("day", ("day",)),
+    ("month", ("month", "cycle", "ccle", "illing")),
+)
+
+
 def _classify_unit_kind(unit_word: str) -> str:
+    """Charge basis of a '... per <unit>' phrase, decided by which unit is named
+    FIRST rather than by a fixed precedence.
+
+    The captured phrase can name more than one unit, because a trailing
+    qualifier gets swallowed: "Minimum Usage Charge: $0 per billing cycle < 0
+    kWh" is a per-billing-cycle charge, but testing for "kwh" first classified
+    it per-kWh -- a $0.00 ENERGY RATE, i.e. free electricity around the clock.
+    It was latent (those EFLs resolve their rate by an earlier path) but became
+    reachable once the generic scan's reads started scoring high enough to
+    auto-promote. The unit immediately after "per" is the real basis.
+    """
     u = _strip_pua(unit_word).lower()
-    if "kwh" in u:
-        return "kwh"
-    if "day" in u:
-        return "day"
-    if "month" in u or "cycle" in u or "ccle" in u or "illing" in u:
-        return "month"
-    return "other"
+    best, best_pos = "other", len(u) + 1
+    for kind, markers in _UNIT_MARKERS:
+        for marker in markers:
+            i = u.find(marker)
+            if i != -1 and i < best_pos:
+                best, best_pos = kind, i
+    return best
 
 
 def _generic_charge_rows(text: str) -> list[dict]:
@@ -1106,7 +1126,7 @@ _PRICE_COMPONENTS_ANCHOR = re.compile(
 # and "Energy" as "nerg". Exact label matching can't see those, which left the
 # value -- correctly read, right there in the row -- scored too low to promote.
 _BASE_LABEL_WORDS = ("base", "basemonthly", "monthlybase", "customer", "monthlyservice", "minimum")
-_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply")
+_ENERGY_LABEL_WORDS = ("energy", "electricity", "energycharge", "supply", "usage")
 
 
 def _is_subsequence(needle: str, haystack: str) -> bool:
@@ -1115,13 +1135,25 @@ def _is_subsequence(needle: str, haystack: str) -> bool:
 
 
 def _label_matches(prefix: str, words: tuple[str, ...]) -> bool:
-    """True if a charge row's label plausibly names one of `words`, tolerating
-    dropped glyphs. Requires >=2 surviving letters so a single stray character
-    can't match everything."""
+    """True if a charge row's label plausibly names one of `words`.
+
+    Two directions, because labels go wrong in two opposite ways:
+
+    * SHORTER than the word -- a broken subset font drops letters, so "Base"
+      arrives as "ae" and "Energy" as "nerg". Matched as a subsequence.
+    * LONGER than the word -- the label is brand-prefixed or compound:
+      "SmartEnergy Fixed Charge", "Base Usage Charge", "Chariot Energy Daytime".
+      Matched as a substring.
+
+    Requires >=2 surviving letters so a single stray character can't match
+    everything. Which bucket a row lands in is decided by its UNIT before this
+    is consulted (per-kWh rows are energy candidates, per-month rows base
+    candidates), so this only has to identify the row, not classify it.
+    """
     p = re.sub(r"[^a-z]", "", _strip_pua(prefix or "").lower())
     if len(p) < 2:
         return False
-    return any(_is_subsequence(p, w) for w in words)
+    return any(_is_subsequence(p, w) or w in p for w in words)
 
 
 def _looks_like_base_label(prefix: str) -> bool:

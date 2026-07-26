@@ -1545,3 +1545,23 @@ def test_multi_rate_split_row_needs_a_delivery_header_and_a_known_restricted_col
         "Delivery Charges from Oncor Electric Delivery\nCharge per month\n" + row
     )
     assert got is not None and got["restricted_index"] is None
+
+
+def test_charge_basis_is_the_first_unit_named_not_a_fixed_precedence():
+    """A '... per <unit>' phrase can name more than one unit.
+
+    Heritage Power prints "Minimum Usage Charge: $0 per billing cycle < 0 kWh".
+    Testing for "kwh" before "cycle" classified that as a per-kWh charge -- a
+    $0.00 ENERGY RATE, i.e. free electricity around the clock. Harmless while
+    the generic scan's reads scored too low to promote; a live trap once they
+    didn't. The unit immediately after "per" is the real basis.
+    """
+    from energyanalyzer.eflparse.parser import _classify_unit_kind, _generic_charge_rows
+
+    assert _classify_unit_kind("billing cycle < 0 kWh") == "month"
+    assert _classify_unit_kind("kWh") == "kwh"
+    assert _classify_unit_kind("day") == "day"
+    assert _classify_unit_kind("illing ccle") == "month"  # broken-font spelling
+
+    rows = _generic_charge_rows("Minimum Usage Charge: $0 per billing cycle < 0 kWh\n")
+    assert rows and rows[0]["kind"] == "month", "must never be offered as an energy rate"
