@@ -2185,6 +2185,23 @@ def finish_refresh(
     if summary["promoted"]:
         invalidate_plans_cache()
 
+    # Last: restore anything this run quarantined but never rebuilt. Runs after
+    # promotion so "was it re-derived?" is asked of the finished database, and
+    # inside finish_refresh so the "Finish incomplete refresh" recovery path
+    # un-quarantines too -- an interrupted run must not strand the old plans.
+    reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    # Retiring synthetics runs AFTER the quarantine has put back whatever this
+    # run failed to rebuild, because both directions of the ordering bite:
+    #   * before restore, a real plan that only exists again after reconcile
+    #     cannot supersede its synthetic -- Ambit's EFLs were WAF-blocked on
+    #     2026-07-26, so mp_ambit_energy_free_clear_nights_12mo stayed in the
+    #     review queue beside the real Free & Clear Nights 12 plan;
+    #   * after retiring, "no plan file with this id" reads to the quarantine as
+    #     "never rebuilt", so it restored a synthetic in the same run that had
+    #     just superseded it -- the summary printed both statements.
+    # Restore first, then retire, and the final state is right either way.
+    #
     # meterplan.com rows carry no EFL PDF (source="meterplan", efl_url=None). If
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
@@ -2203,21 +2220,7 @@ def finish_refresh(
                 "scraped in full and does not offer this plan."
             )
 
-    # Last: restore anything this run quarantined but never rebuilt. Runs after
-    # promotion so "was it re-derived?" is asked of the finished database, and
-    # inside finish_refresh so the "Finish incomplete refresh" recovery path
-    # un-quarantines too -- an interrupted run must not strand the old plans.
-    # Ids this run deliberately RETIRED (superseded by a real plan, or pruned as
-    # not-offered) must not be resurrected: from the quarantine's point of view
-    # "no plan file with this id" is indistinguishable from "never rebuilt", and
-    # it restored mp_direct_energy_direct_solar_unlimited_12mo on 2026-07-26 in
-    # the same run that had just superseded it -- the summary said both.
-    retired = set(summary.get("meterplan_superseded") or []) | set(
-        summary.get("meterplan_pruned") or []
-    )
-    reconciled = reconcile_quarantine(
-        plans_dir=plans_dir, drafts_dir=drafts_dir, retired_ids=retired
-    )
+
     if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
         summary["quarantine"] = reconciled
     for plan_id in reconciled.get("kept_pending_review", []):

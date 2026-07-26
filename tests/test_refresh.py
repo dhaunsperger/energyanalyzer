@@ -1162,3 +1162,34 @@ def test_a_certificate_line_is_not_a_plan_name():
         "Pollution Free e-Plus 24",
     ):
         assert not app_common._is_not_a_plan_name(real), real
+
+
+def test_restore_runs_before_retire_so_a_restored_plan_can_supersede(tmp_path):
+    """Ordering, asserted end to end because both directions bite.
+
+    Ambit's EFLs were WAF-blocked on 2026-07-26, so its real Free & Clear
+    Nights 12 was quarantined and only came back via reconcile. Retiring
+    synthetics BEFORE that restore meant the real plan did not exist yet, and
+    mp_ambit_energy_free_clear_nights_12mo sat in the review queue beside it.
+    Retiring AFTER, meanwhile, is what stopped the quarantine resurrecting a
+    synthetic it had just superseded. Restore first, then retire.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    # The real plan this run could not rebuild (its EFL was blocked).
+    _q_plan(q / "plans" / "ambit_free_clear_12.yaml", "ambit_free_clear_12",
+            "Ambit Texas, LLC", "Ambit Free & Clear Nights 12SM", 12, source="efl:a.pdf")
+    # ...and the synthetic that stands in for it.
+    _q_plan(drafts_dir / "mp_ambit_free_clear_12mo.yaml", "mp_ambit_free_clear_12mo",
+            "Ambit Energy", "Free & Clear Nights", 12, source="meterplan")
+
+    app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+    assert (plans_dir / "ambit_free_clear_12.yaml").exists(), "restored first"
+
+    retired = app_common.supersede_meterplan_plans(plans_dir, drafts_dir)
+
+    assert [mp for mp, _ in retired] == ["mp_ambit_free_clear_12mo"]
+    assert not (drafts_dir / "mp_ambit_free_clear_12mo.yaml").exists()
