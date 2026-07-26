@@ -291,6 +291,26 @@ def rank(
     (see RankedResults) rather than aborting the whole ranking."""
     results = RankedResults()
     for plan in plans:
+        # A plan that charges nothing for energy in EVERY window is not a cheap
+        # plan, it is a failed parse. The EFL parser defaults to 0.0 when it can
+        # find no Energy Charge -- which happens on usage-tiered plans, whose
+        # tiers the schema cannot express -- and 0c/kWh then wins the ranking
+        # outright. Free electricity is the one wrong answer that always sorts
+        # first, so it is refused here rather than trusted: the confidence gate
+        # cannot catch it, because "Promote all drafts" bypasses needs_review.
+        # `rtw is None` on every rate first: an RTW-indexed IMPORT rate leaves
+        # rate_ckwh unset, and must not be mistaken for a zero.
+        if all(r.rtw is None for r in plan.energy_rates) and not any(
+            r.rate_ckwh for r in plan.energy_rates
+        ):
+            msg = (
+                f"skipping plan {plan.id}: every energy rate is 0c/kWh, which means the "
+                "rate could not be read from the EFL (usage-tiered plans parse this way) "
+                "-- not that the electricity is free"
+            )
+            logger.warning(msg)
+            results.warnings.append(msg)
+            continue
         try:
             results.append(simulate(plan, intervals, tdu, prices))
         except ValueError as exc:

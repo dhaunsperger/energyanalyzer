@@ -1763,3 +1763,89 @@ def test_excludes_solar_defaults_false_and_round_trips():
     )
     assert Plan(**base).excludes_solar is False
     assert Plan(**base, excludes_solar=True).excludes_solar is True
+
+
+# --------------------------------------------------------------------------- #
+# Free-window TDU relief
+# --------------------------------------------------------------------------- #
+def test_free_window_tdu_waiver_reads_all_four_real_phrasings():
+    """Whether TDU delivery is waived inside a free window is the single biggest
+    lever on what these plans cost, and it is plan-specific.
+
+    Missing it charged Oncor's 6.1196c/kWh across every free-window hour and
+    put Green Mountain Pollution Free Nights 24 at $1,648 against the report's
+    $1,265 -- ranked #140 instead of #3.
+    """
+    from energyanalyzer.eflparse.parser import _free_window_waives_tdu
+
+    # Green Mountain: an explicit per-period delivery row priced at zero.
+    assert _free_window_waives_tdu(
+        "Oncor Electric Delivery Daytime Delivery Charges 6.1196c per kWh "
+        "Oncor Electric Delivery Nighttime Delivery Charges $0.00"
+    )[0]
+    # Frontier/Gexa: the period trails the amount instead of leading it.
+    assert _free_window_waives_tdu("TDU Delivery Charges 0.0000 ¢ per kWh - Weekends")[0]
+    # Ambit: prose.
+    assert _free_window_waives_tdu(
+        "*TDU Per kWh Delivery Charges will be credited for usage during the nighttime hours"
+    )[0]
+    # Direct Energy: the same promise as a negative, about a NAMED period.
+    assert _free_window_waives_tdu(
+        "*All delivery charges will be prorated and the customer will not be billed for any "
+        "TDU delivery charges during the Designated Free Period."
+    )[0]
+
+
+def test_free_window_tdu_waiver_respects_an_explicit_denial():
+    """A REP that spells out that delivery charges still apply is answering
+    exactly this question, and must beat every positive signal."""
+    from energyanalyzer.eflparse.parser import _free_window_waives_tdu
+
+    assert not _free_window_waives_tdu(
+        "Free Lunch Hour is 12:00 PM to 1:00 PM. Note - Transmission and Distribution Utility "
+        "(TDU) delivery charges apply to all electricity usage, including electricity used "
+        "during the Free Lunch Hour."
+    )[0]
+    # And a clock time inside an average-price formula is not a zero rate --
+    # this matched before the amount had to carry a currency unit.
+    assert not _free_window_waives_tdu(
+        "Delivery Charge per kWh)] / Monthly Usage. EV charging hours are from 10:00 PM to "
+        "4:00 AM every night."
+    )[0]
+
+
+def test_named_free_period_window_survives_an_interleaved_column():
+    """"Designated Free Period (9:00 PM until 9:00 AM)" -> 12 hours.
+
+    Direct Energy renders that phrase with the rate cell from the OTHER column
+    dropped inside the parentheses: "(9:00 <newline> 0c <newline> PM until 9:00
+    AM)". Without stripping the amount the range is unparseable, and the plan
+    -- named Twelve Hour Power -- silently kept meterplan's generic 9-hour
+    guess.
+    """
+    from energyanalyzer.eflparse.parser import _find_night_hours
+
+    interleaved = (
+        "                     per kWh - Designated Free Period (9:00\n"
+        "            0¢\n"
+        "                     PM until 9:00 AM)\n"
+    )
+    assert _find_night_hours(interleaved) == [21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+
+def test_bare_base_charge_is_read_but_never_the_delivery_utilitys():
+    """"Base Charge: $9.95" with no unit is still a base charge.
+
+    Direct Energy prints the unit on some EFLs and omits it on others; every
+    labelled reader required it, so Twelve Hour Power defaulted to $0.00.
+    But "Oncor Base Charge: $4.06 /month" is the TDU's own charge and must not
+    be adopted as the plan's -- Tesla Drive 12M prints it right above the
+    energy rates.
+    """
+    from energyanalyzer.eflparse.parser import _extract_base_charge_bare_amount
+
+    got = _extract_base_charge_bare_amount("Base Charge: $9.95")
+    assert got is not None and got[0] == 9.95
+    assert _extract_base_charge_bare_amount(
+        "Oncor Delivery Charges: 6.1196 ¢/kWh\nOncor Base Charge: $4.06 /month"
+    ) is None

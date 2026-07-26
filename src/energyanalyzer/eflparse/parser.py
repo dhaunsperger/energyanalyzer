@@ -263,13 +263,33 @@ def _find_night_hours(text: str) -> list[int]:
     patterns = (
         r"[^\n.]{0,40}\bnight[^\n.]{0,80}",
         r"[^\n.]{0,40}\b(?:no|free)\s+charge[^\n.]{0,30}(?:applied\s+)?to\s+usage[^\n.]{0,60}",
+        # A named free period, where the name carries the hours and the word
+        # "night" never appears: Direct Energy's Twelve Hour Power prints
+        # "0c per kWh - Designated Free Period (9:00 PM until 9:00 AM)".
+        # The parenthesised range may wrap to the next line, so newlines are
+        # allowed inside this one -- unlike the patterns above, which are
+        # anchored on prose that stays on a single line.
+        r"free\s+period[^)\n]{0,40}\([^)]{0,200}\)",
     )
     for pat in patterns:
         for m in re.finditer(pat, text, re.I):
-            hours = parse_time_range(m.group(0))
+            hours = parse_time_range(_clean_window_fragment(m.group(0)))
             if hours:
                 return hours
     return []
+
+
+def _clean_window_fragment(fragment: str) -> str:
+    """Drop rate cells and collapse whitespace before reading a clock range.
+
+    A two-column layout can drop an unrelated cell INSIDE the phrase defining
+    the window: Direct Energy's Twelve Hour Power renders as
+    "Designated Free Period (9:00 <newline> 0c <newline> PM until 9:00 AM)",
+    so the "9:00" and its "PM" are separated by a rate from the other column.
+    Removing the amount and collapsing the whitespace restores
+    "(9:00 PM until 9:00 AM)" and the range parses.
+    """
+    return " ".join(re.sub(r"\d+(?:\.\d+)?\s*¢", " ", fragment).split())
 
 
 _WEEKDAY_WORDS = {
@@ -318,6 +338,82 @@ _SOLAR_EXCLUSION_RE = re.compile(
     re.I,
 )
 _SOLAR_SUBJECT_RE = re.compile(r"rooftop solar|solar panel|distributed generation|net meter", re.I)
+
+# --------------------------------------------------------------------------- #
+# TDU relief during a free window
+# --------------------------------------------------------------------------- #
+# The period label a free window is sold under. "free" is included for plans
+# that label the row "Free Nights" rather than naming the period.
+_FREE_PERIOD = r"(?:night|nighttime|night-time|weekend|free)"
+
+# An explicit per-period delivery-charge row priced at zero. Two real layouts:
+#   Frontier: "TDU Delivery Charges   0.0000 c per kWh - Weekends"
+#   Green Mtn: "Oncor Electric Delivery Nighttime Delivery Charges   $0.00"
+# The period may sit before or after the amount, so both orders are matched.
+_ZERO_AMOUNT = r"(?:\$\s*0(?:\.0+)?|\b0(?:\.0+)?\s*[¢c])"
+_TDU_ZERO_AFTER = re.compile(
+    # Never cross a sentence boundary, and require a real zero AMOUNT (with a
+    # currency unit) followed by a dash-qualified period. Without both guards
+    # this matched a clock time inside Champion EV Saver's average-price
+    # formula -- "...Delivery Charge per kWh)] / Monthly Usage. EV charging
+    # hours are from 10:00 PM to 4:00 AM every night".
+    r"delivery charges?[^.\n]{0,40}?" + _ZERO_AMOUNT + r"[^.\n]{0,25}?[-–—]\s*" + _FREE_PERIOD,
+    re.I,
+)
+_TDU_ZERO_BEFORE = re.compile(
+    _FREE_PERIOD + r"[a-z \-]{0,20}delivery charges?\s*[:]?\s*" + _ZERO_AMOUNT,
+    re.I,
+)
+# Prose form (Ambit): "TDU Per kWh Delivery Charges will be credited for usage
+# during the nighttime hours".
+_TDU_CREDITED = re.compile(
+    r"delivery charges?[^.\n]{0,80}?(?:will be |are )?credited[^.\n]{0,80}?" + _FREE_PERIOD,
+    re.I,
+)
+# The same promise stated as a negative, and about a NAMED period rather than
+# "night"/"weekend" (Direct Energy Twelve Hour Power: "the customer will not be
+# billed for any TDU delivery charges during the Designated Free Period").
+# Newlines allowed: this sentence is centred across two lines in that layout.
+_TDU_NOT_BILLED = re.compile(
+    r"(?:not be billed|no charge|will not (?:be )?(?:apply|charge))[^.]{0,80}?"
+    r"delivery charges[^.]{0,60}?during[^.]{0,40}?(?:" + _FREE_PERIOD + r"|free period)",
+    re.I,
+)
+# Explicit denial, which must beat every positive above (SoFed Free Energy
+# Lunch: "delivery charges apply to all electricity usage, including
+# electricity used during the Free Lunch Hour").
+_TDU_APPLIES_ANYWAY = re.compile(
+    r"delivery charges? apply to all[^.\n]{0,120}", re.I
+)
+
+
+# A zero price stated beside a NAMED free period, e.g. Direct Energy's
+# "0c per kWh - Designated Free Period (9:00 PM until 9:00 AM)". The zero may
+# sit either side of the label because the two are in different columns and the
+# flattened text interleaves them.
+_FREE_PERIOD_ZERO = re.compile(
+    r"(?:\b0(?:\.0+)?\s*[¢c][^.\n]{0,60}?free period"
+    r"|free period[^.\n]{0,60}?\b0(?:\.0+)?\s*[¢c])",
+    re.I,
+)
+
+
+def _free_window_waives_tdu(text: str) -> tuple[bool, str]:
+    """Does this EFL waive the TDU per-kWh charge inside its free window?
+
+    Returns ``(waived, evidence)``. An explicit "charges apply to all usage"
+    wins over any positive signal: a REP that spells out that delivery charges
+    still apply is answering exactly this question.
+    """
+    flat = " ".join((text or "").split())
+    denial = _TDU_APPLIES_ANYWAY.search(flat)
+    if denial:
+        return False, ""
+    for pattern in (_TDU_ZERO_BEFORE, _TDU_ZERO_AFTER, _TDU_CREDITED, _TDU_NOT_BILLED):
+        m = pattern.search(flat)
+        if m:
+            return True, m.group(0).strip()[:150]
+    return False, ""
 
 
 _DAY_DEFN_RE = re.compile(
@@ -1379,6 +1475,35 @@ def _extract_base_charge_trailing_amount(text: str) -> Optional[Extraction]:
     return (float(m.group(1)), 0.85, _snippet(m)) if m else None
 
 
+# "Base Charge: $9.95" with no period unit at all. Direct Energy prints the
+# unit on some EFLs ("Base Charge: $9.95   per billing cycle" -- Free Days 12)
+# and omits it on others (Twelve Hour Power 24), and every labelled reader
+# requires the unit, so the charge silently defaulted to $0.00 -- understating
+# the plan by ~$119/yr. Anchored tight: the amount must follow the label on the
+# SAME line with only a colon and spaces between, which the "Price per kWh =
+# (Base Charge + Energy Charge ..." formula line cannot satisfy.
+_BASE_CHARGE_BARE_AMOUNT = re.compile(
+    r"\bbase(?:\s+\w+){0,2}\s+charge\s*:?\s*\$\s*(\d+(?:\.\d+)?)(?!\s*(?:per|/)\s*k?wh)",
+    re.I,
+)
+
+
+def _extract_base_charge_bare_amount(text: str) -> Optional[Extraction]:
+    """A labelled base charge stated as a bare dollar amount, with no unit.
+
+    Skips the DELIVERY utility's own base charge, which is written the same way
+    and is not the REP's: Tesla's Drive 12M prints "Oncor Base Charge: $4.06
+    /month" right above its energy rates, and reading that as the plan's base
+    charge understates every other plan it is compared against.
+    """
+    for m in _BASE_CHARGE_BARE_AMOUNT.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        if _TDU_MARK_WORDS.search(text[line_start : m.start()]):
+            continue
+        return (float(m.group(1)), 0.85, _snippet(m))
+    return None
+
+
 _BULLET_ITEM = re.compile(r"[•▪●]\s*([^•▪●\n]{3,160})")
 
 
@@ -2280,6 +2405,10 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
         trailing_ext = _extract_base_charge_trailing_amount(text)
         if trailing_ext is not None:
             base_charge = record("base_charge", trailing_ext)
+    if base_charge is None:
+        bare_ext = _extract_base_charge_bare_amount(text)
+        if bare_ext is not None:
+            base_charge = record("base_charge", bare_ext)
     if base_charge is None and split_base_charge is not None:
         base_charge = record(
             "base_charge", (split_base_charge, split_base_conf, evidence.get("energy_charge", ""))
@@ -2371,6 +2500,46 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     confidence["buyback"] = buyback_conf
     if buyback_ev:
         evidence["buyback"] = buyback_ev
+
+    # --- free window stated outside any recognised rate table --------------#
+    # Direct Energy's Twelve Hour Power prices its free period in a separate
+    # column from its label, so no row extractor sees it: the flat scan finds
+    # only the daytime 21.7727c and the plan looks like an ordinary fixed rate
+    # priced at its EXPENSIVE tier. The window and its zero price are both
+    # stated plainly in prose, so pair them here when no windowed rate was
+    # built. Requires an explicit zero beside the named period -- a window
+    # alone is not enough, or a plan that merely *mentions* nighttime hours
+    # would be given free electricity.
+    if flat_ckwh and not any(r.get("window") for r in energy_rates):
+        free_hours = _find_night_hours(text)
+        if free_hours and _FREE_PERIOD_ZERO.search(" ".join((text or "").split())):
+            energy_rates.insert(0, {"label": "free", "rate_ckwh": 0.0, "window": {"hours": free_hours}})
+            confidence["free_window"] = 0.85
+            evidence["free_window"] = f"free period priced at 0, {len(free_hours)} hours"
+            notes.append(
+                f"free window ({len(free_hours)}h) read from prose; it is priced in a "
+                "different column from its label, so no rate table carries it"
+            )
+
+    # --- TDU relief inside a free window -----------------------------------#
+    # A free-nights/weekends plan may ALSO waive the TDU per-kWh delivery
+    # charge during the window. Whether it does is the single biggest lever on
+    # what these plans cost -- at Oncor's 6.12c/kWh, missing it overstated
+    # Green Mountain Pollution Free Nights by ~$383/yr against the report
+    # benchmark -- and it is genuinely plan-specific: TXU's Cool Summer formula
+    # subtracts only the Energy Charge, and SoFed says outright that delivery
+    # charges apply during its free hour. So it is read, never assumed, and the
+    # default stays False -- which overstates a plan's cost rather than
+    # understating it, and so under-ranks rather than wrongly recommends.
+    if any(r.get("window") and not r.get("rate_ckwh") for r in energy_rates):
+        exempt, exempt_ev = _free_window_waives_tdu(text)
+        if exempt:
+            for r in energy_rates:
+                if r.get("window") and not r.get("rate_ckwh"):
+                    r["tdu_exempt"] = True
+            notes.append(f"TDU delivery charge waived during the free window ({exempt_ev})")
+            confidence["tdu_free_window"] = 0.9
+            evidence["tdu_free_window"] = exempt_ev
 
     # --- assemble id -------------------------------------------------------#
     plan_id = slugify(f"{retailer}_{plan_name}_{term_months}mo")

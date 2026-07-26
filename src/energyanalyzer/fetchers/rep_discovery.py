@@ -2107,8 +2107,12 @@ def _direct_energy_harvest(
         except Exception:  # noqa: BLE001
             continue
         # Discovery targets Direct Energy's solar (buyback) plans; the rest are
-        # standard PTC plans. Widen this to take every plan if ever needed.
-        if "solar" not in _normalize_name(name) or name in seen:
+        # standard PTC plans -- unless the config says broaden. Twelve Hour
+        # Power is why: it is a free-window plan, not a solar one, so this
+        # filter hid it, and the only other source (meterplan, which publishes
+        # no EFL) guessed a generic 9pm-6am window for a plan whose name says
+        # twelve hours, plus a day rate 2.3c off. It ranked ~$824 too high.
+        if name in seen or (not getattr(config, "broaden", False) and "solar" not in _normalize_name(name)):
             continue
         seen.add(name)
         logger.info("Direct Energy: capturing EFL for %r", name)
@@ -2151,6 +2155,10 @@ DIRECT_ENERGY = RepConfig(
     retailer="Direct Energy",
     homepage="https://shop.directenergy.com/",
     harvester=_direct_energy_harvest,
+    # Take every plan, not just the solar ones: Twelve Hour Power is a
+    # free-window plan whose real EFL beats meterplan's guess by ~$824/yr, and
+    # it is one of the report's own benchmark plans.
+    broaden=True,
 )
 
 

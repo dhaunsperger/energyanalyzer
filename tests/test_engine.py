@@ -579,3 +579,45 @@ def test_integration_report_benchmarks():
 
     if failures:
         pytest.fail("core engine benchmark mismatch:\n" + "\n".join(failures))
+
+
+def test_rank_refuses_a_plan_whose_every_rate_is_zero():
+    """0c/kWh is a failed parse, and it is the one wrong answer that always
+    sorts first.
+
+    The EFL parser defaults to 0.0 when it cannot find an Energy Charge, which
+    is what happens on usage-tiered plans (TXU e-Saver, Saver's Choice, Ambit
+    Lone Star Plus) since the schema cannot express tiers. Promoted, those took
+    the top 6 slots of the ranking as free electricity. needs_review cannot
+    catch it -- "Promote all drafts" deliberately bypasses that gate -- so the
+    refusal lives here.
+    """
+    from energyanalyzer.core.models import EnergyRate, Plan
+    from energyanalyzer.engine.cost import rank
+
+    def mk(pid, rate):
+        return Plan(
+            id=pid, retailer="R", name=pid, term_months=12,
+            energy_rates=[EnergyRate(label="", rate_ckwh=rate, window=None)],
+        )
+
+    intervals = make_intervals("2024-03-01", 2, 0.5, 0.0)
+    results = rank([mk("free", 0.0), mk("real", 12.0)], intervals, flat_tdu(), None)
+
+    assert [r.plan_id for r in results] == ["real"]
+    assert any("0c/kWh" in w and "free" in w for w in results.warnings)
+
+
+def test_rank_still_simulates_an_rtw_indexed_import_rate():
+    """An RTW import rate leaves rate_ckwh unset, which must not read as zero."""
+    from energyanalyzer.core.models import EnergyRate, Plan, RtwRate
+    from energyanalyzer.engine.cost import rank
+
+    plan = Plan(
+        id="rtw_import", retailer="R", name="RTW", term_months=12,
+        energy_rates=[EnergyRate(label="", rtw=RtwRate(multiplier=1.0, adder_ckwh=3.0), window=None)],
+    )
+    intervals = make_intervals("2024-03-01", 2, 0.5, 0.0)
+    prices = pd.Series(0.05, index=intervals.index)
+    results = rank([plan], intervals, flat_tdu(), prices)
+    assert [r.plan_id for r in results] == ["rtw_import"]
