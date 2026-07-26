@@ -249,3 +249,50 @@ def test_promoted_synthetic_is_flagged_when_only_a_real_draft_covers_it(tmp_path
     saved = _y.safe_load((plans / "mp_txu_energy_solar_buyback_12mo.yaml").read_text())
     assert saved["needs_review"] is True
     assert "awaiting review" in saved["notes"]
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic DRAFTS a promoted real plan already covers
+# --------------------------------------------------------------------------- #
+def _save(plan: Plan, directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{plan.id}.yaml"
+    raw = plan.model_dump(mode="json", exclude_none=True)
+    raw["needs_review"] = True  # index rows are flagged: no window/formula published
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    return path
+
+
+def test_supersede_removes_synthetic_drafts_covered_by_a_promoted_plan(tmp_path):
+    """A synthetic draft duplicating an already-promoted real plan is noise.
+
+    The meterplan importer dedups against promoted plans by an exact
+    (retailer, name, term) tuple, which misses the index's name variants --
+    "Chariot Energy Shine 36" against a promoted "Shine 36". Those synthetics
+    are flagged (the index publishes no free-hour window or RTW formula), so
+    they never promote and never leave the queue on their own.
+    """
+    plans, drafts = tmp_path / "plans", tmp_path / "drafts"
+    _save(_mk("Chariot Energy", "Shine 36", 36, "efl:CHARIOT_Shine_36.pdf", "chariot_shine_36"), plans)
+    synthetic = _save(
+        _mk("Chariot Energy", "Chariot Energy Shine", 36, "meterplan", "mp_chariot_energy_shine_36mo"),
+        drafts,
+    )
+    # An UNCOVERED synthetic must survive -- removing it would leave nothing in
+    # the rankings for that plan.
+    uncovered = _save(
+        _mk("Reliant Energy", "Truly Free Nights", 12, "meterplan", "mp_reliant_truly_free_nights_12mo"),
+        drafts,
+    )
+    # A real draft is not promoted coverage, so a synthetic it covers stays too.
+    _save(_mk("Gexa Energy", "Gexa Solar Buyback", 12, "efl:GEXA.pdf", "gexa_solar_buyback_12"), drafts)
+    only_draft_cover = _save(
+        _mk("Gexa Energy", "Gexa Solar Buyback", 12, "meterplan", "mp_gexa_solar_buyback_12mo"), drafts
+    )
+
+    removed = app_common.supersede_meterplan_plans(plans, drafts)
+
+    assert ("mp_chariot_energy_shine_36mo", "chariot_shine_36") in removed
+    assert not synthetic.exists()
+    assert uncovered.exists()
+    assert only_draft_cover.exists()

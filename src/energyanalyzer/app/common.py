@@ -341,6 +341,15 @@ def supersede_meterplan_plans(
     (PTC / REP discovery / Meter's own /plans page), a manual entry, or a report
     seed. Matching uses :func:`_plan_supersedes` (conservative token-subset).
     The `CURRENT_PLAN_ID` plan is never removed.
+
+    Synthetic DRAFTS are swept too. The meterplan importer dedups against
+    promoted plans by an exact (retailer, name, term) tuple, which misses the
+    name variants the index uses -- "Chariot Energy Shine 36" against a promoted
+    "Shine 36", Green Mountain's "Solar Max" against "Renewable Rewards Solar
+    Max 12". Those synthetics are pure noise: an unverifiable third-party rate
+    row for a plan whose real EFL is already in the database, and because they
+    are flagged (the index doesn't publish free-hour windows or RTW formulas)
+    they never promote and never leave the queue on their own.
     """
     try:
         current_plans = load_plans(plans_dir)
@@ -367,6 +376,24 @@ def supersede_meterplan_plans(
                 f"Third-party index row; a real EFL for this plan ({draft_match.id}) is "
                 "awaiting review in plans/drafts/. Promote that draft to replace this.",
             )
+
+    # Synthetic DRAFTS a promoted real plan already covers. Only promoted
+    # coverage counts: if the only cover were another draft, dropping the
+    # synthetic would leave nothing in the rankings for that plan.
+    for path in sorted(Path(drafts_dir).glob("*.yaml")):
+        try:
+            raw = yaml.safe_load(path.read_text()) or {}
+            if str(raw.get("source") or "") != "meterplan":
+                continue
+            draft_plan = Plan.model_validate(raw)
+        except Exception:  # noqa: BLE001 -- an unreadable draft is left alone
+            continue
+        if draft_plan.id == CURRENT_PLAN_ID:
+            continue
+        match = next((ap for ap in auth_plans if _plan_supersedes(draft_plan, ap)), None)
+        if match is not None:
+            path.unlink(missing_ok=True)
+            removed.append((draft_plan.id, match.id))
     return removed
 
 
