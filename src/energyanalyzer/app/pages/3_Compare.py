@@ -86,7 +86,7 @@ if n_hidden:
 excluded_plans = [p for p in usable_plans if getattr(p, "excludes_solar", False)]
 if excluded_plans:
     include_ineligible = st.toggle(
-        "Include plans this home can't enrol in (rooftop solar excluded by the REP)",
+        "Include plans this home can't enroll in (rooftop solar excluded by the REP)",
         value=False,
         key="compare_include_ineligible",
     )

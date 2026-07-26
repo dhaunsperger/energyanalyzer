@@ -1,0 +1,28 @@
+id: ambit_texas_llc_ambit_secure_savings_24sm_24mo
+retailer: Ambit Texas, LLC
+name: Ambit Secure Savings 24SM
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 16.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 199.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:Ambit_Energy_Secure_Savings_24.pdf
+retrieved: '2026-07-26'
+notes: multiple differing flat Energy Charge values found [13.4, 16.4]; used first
+  (16.4)
+needs_review: true
+excludes_solar: false

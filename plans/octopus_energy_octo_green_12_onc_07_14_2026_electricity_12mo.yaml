@@ -1,0 +1,27 @@
+id: octopus_energy_octo_green_12_onc_07_14_2026_electricity_12mo
+retailer: OCTOPUS ENERGY - Octo Green 12 - ONC - 07/14/2026
+name: ELECTRICITY
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 0.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Octopus_Energy_Octo_Green_12.pdf
+retrieved: '2026-07-26'
+notes: could not find an Energy Charge rate
+needs_review: true
+excludes_solar: false

@@ -306,7 +306,7 @@ def test_prune_drops_rows_a_fully_scraped_rep_does_not_offer(tmp_path):
 
     When we have driven the retailer's own site to completion and the plan is
     not among what it returned, the row is out of date or not something we could
-    enrol in -- and it can never be verified, because the index publishes no EFL.
+    enroll in -- and it can never be verified, because the index publishes no EFL.
     """
     drafts = tmp_path / "drafts"
     stale = _save(

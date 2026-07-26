@@ -478,7 +478,7 @@ def prune_stale_meterplan_drafts(
     driven that retailer's own site to completion -- a LIVE render (not a stale
     manual capture) in which every EFL it offered downloaded -- and the plan is
     not among what the site returned, the row is either out of date or not
-    something Doug could actually enrol in. Either way it is not worth a review,
+    something Doug could actually enroll in. Either way it is not worth a review,
     and it can never be verified: the index publishes no EFL.
 
     Deliberately narrow, because a REP's site legitimately shows different
