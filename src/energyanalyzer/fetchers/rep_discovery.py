@@ -238,6 +238,21 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def _is_visible(locator) -> bool:
+    """Is this element actually shown? Defaults to True.
+
+    Harvesters use this to skip cards a site keeps in the DOM but hidden (Direct
+    Energy's chart renders every plan twice, once per tab). Defaulting to True
+    keeps the fake-page doubles the harvester tests drive -- which implement only
+    the handful of methods each flow touches -- working unchanged, and errs
+    toward harvesting a plan rather than silently dropping one.
+    """
+    try:
+        return bool(locator.is_visible())
+    except Exception:  # noqa: BLE001 -- a detached node or a minimal test double
+        return True
+
+
 # Some REP sites require PII to render plans (e.g. Octopus needs an ESI ID when a
 # ZIP spans load zones). That never belongs in code or git -- it's read at render
 # time from a gitignored secrets file (data/* is ignored; only data/README.md is
@@ -2128,18 +2143,40 @@ CHAMPION = RepConfig(
 # --------------------------------------------------------------------------- #
 # Direct Energy interactive harvester (EFL blob is fetched from a backend URL)
 # --------------------------------------------------------------------------- #
-# Direct Energy's shop (shop.directenergy.com) is a React SPA. The plan list is
-# reached by navigating to the ZIP URL (note: ?zipCode=, capital C) then clicking
-# a residential/"not moving" prelude. Each plan's "Electricity Facts Label" link
-# opens a client-generated blob: PDF (popup.url is a useless per-session blob),
-# but the browser first fetches the PDF from a STABLE backend endpoint --
-# api-oam.directenergy.com/api/docs/files/<id>.pdf (plain application/pdf,
-# httpx-downloadable) -- which we capture from the network response and store as
-# the efl_url. Direct Energy's *solar* plans ("Direct Solar Unlimited ...") are
-# the buyback plans PTC/meterplan miss; the rest are standard PTC plans, so this
-# harvester targets the solar ones (widen the name filter to take them all).
-_DE_PLANS_URL = "https://shop.directenergy.com/tx/plan-selection?zipCode={zip}"
+# Direct Energy's shop (shop.directenergy.com) is a React SPA. Each plan's
+# "Electricity Facts Label" link opens a client-generated blob: PDF (popup.url is
+# a useless per-session blob), but the browser first fetches the PDF from a
+# STABLE backend endpoint -- api-oam.directenergy.com/api/docs/files/<id>.pdf
+# (plain application/pdf, httpx-downloadable) -- which we capture from the
+# network response and store as the efl_url. Direct Energy's *solar* plans
+# ("Direct Solar Unlimited ...") are the buyback plans PTC/meterplan miss; the
+# rest are standard PTC plans, so the name filter targets the solar ones unless
+# the config broadens it (ours does -- see DIRECT_ENERGY).
+#
+# Reworked 2026-07-26 after two consecutive refreshes reported "found 0 plan
+# card(s)" against a reachable site. Three separate things were wrong:
+#
+#  1. HEADLESS GETS NOTHING. Measured the same minute: headless Chromium loads
+#     1.37M chars of app shell and 0 plan cards; headful loads 1.99M chars and
+#     26. Same URL, same UA -- the sibling NRG/Akamai signature Tesla already
+#     hits. Hence force_headful on the config. This alone is why discovery
+#     returned nothing.
+#  2. THE PRELUDE IS AVOIDABLE. /tx/product-chart-tabs?zipCode=<zip> renders the
+#     plan chart directly -- no residential/"not moving" funnel to clear, and no
+#     tdspCode needed (verified: 26 cards with and without it). The old
+#     /tx/plan-selection flow's four best-effort prelude clicks were ~30s of
+#     timeouts against controls that no longer exist.
+#  3. THE LOAD-MORE LABEL IS NOT FIXED. Only the first SIX cards are visible;
+#     the rest are in the DOM but hidden behind a button reading "Load 7 More"
+#     -- the old code matched the literal string "Load 8 More", so it never
+#     expanded the list even when cards did render. Matched by pattern now.
+#
+# The chart also renders each plan TWICE (product-chart-*tabs*: a second,
+# hidden tab duplicates all 13). Harvesting only VISIBLE cards drops those --
+# name dedup would too, but not before spending a 6s click timeout on each.
+_DE_PLANS_URL = "https://shop.directenergy.com/tx/product-chart-tabs?zipCode={zip}"
 _DE_EFL_API_RE = re.compile(r"api-oam\.directenergy\.com/api/docs/files/", re.I)
+_DE_LOAD_MORE_RE = re.compile(r"load\s+\d+\s+more", re.I)
 
 
 def _direct_energy_harvest(
@@ -2147,8 +2184,8 @@ def _direct_energy_harvest(
 ) -> list[DiscoveredPlan]:
     """Interactive harvester for Direct Energy (see the section comment).
     ``harvest_live`` handles the initial goto()/browser lifecycle; this
-    re-navigates to the ZIP-specific plans URL, clears the prelude, loads every
-    plan, and for each solar plan captures its EFL's backend PDF URL."""
+    navigates to the ZIP-specific plan chart, expands the listing, and captures
+    each plan's EFL backend PDF URL."""
 
     def _try(action) -> bool:
         try:
@@ -2157,29 +2194,45 @@ def _direct_energy_harvest(
         except Exception:  # noqa: BLE001
             return False
 
-    _try(lambda: page.goto(_DE_PLANS_URL.format(zip=zip_code), wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(5000))  # type: ignore[attr-defined]
-    # Residential / "not moving" prelude -- all best-effort (session-dependent).
-    _try(lambda: page.get_by_role("button", name=" Home").click(timeout=8000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("radio", name="No").check(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="No").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_test_id("view-plans").click(timeout=10000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
-    # The listing paginates behind a "Load 8 More" button; click until it's gone.
-    for _ in range(10):
-        btn = page.get_by_role("button", name="Load 8 More")  # type: ignore[attr-defined]
-        if btn.count() == 0:
-            break
-        if not _try(lambda: btn.first.click(timeout=4000)):
-            break
-        _try(lambda: page.wait_for_timeout(1500))  # type: ignore[attr-defined]
-
+    _try(lambda: page.goto(_DE_PLANS_URL.format(zip=zip_code), wait_until="domcontentloaded", timeout=90000))  # type: ignore[attr-defined]
     cards = page.locator(".plan__wrapper")  # type: ignore[attr-defined]
-    count = cards.count()
-    logger.info("Direct Energy: found %d plan card(s); harvesting solar EFLs", count)
+    # This chart is slow -- the first card can take tens of seconds, and more
+    # keep arriving after it. Wait for the count to STOP GROWING rather than
+    # guessing a settle time; a fixed sleep here is what a half-rendered page
+    # (and a short plan list) looks like.
+    if not _try(lambda: page.wait_for_selector(".plan__wrapper", timeout=90000)):  # type: ignore[attr-defined]
+        logger.info("Direct Energy: no plan cards rendered -- site or flow changed")
+        return []
+    previous, stable = -1, 0
+    for _ in range(40):
+        _try(lambda: page.wait_for_timeout(1000))  # type: ignore[attr-defined]
+        current = cards.count()
+        stable = stable + 1 if current == previous else 0
+        previous = current
+        if stable >= 4 and current:
+            break
+
+    # Only the first six cards are shown; the rest hide behind "Load N More".
+    for _ in range(10):
+        more = page.get_by_role("button", name=_DE_LOAD_MORE_RE)  # type: ignore[attr-defined]
+        target = next(
+            (more.nth(i) for i in range(more.count()) if more.nth(i).is_visible()), None
+        )
+        if target is None:
+            break
+        if not _try(lambda t=target: t.click(timeout=8000)):
+            break
+        _try(lambda: page.wait_for_timeout(2500))  # type: ignore[attr-defined]
+
+    # Visible only: the hidden duplicates belong to the chart's second tab.
+    visible = [i for i in range(cards.count()) if _is_visible(cards.nth(i))]
+    logger.info(
+        "Direct Energy: %d plan card(s) visible of %d in the DOM; harvesting EFLs",
+        len(visible), cards.count(),
+    )
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
-    for i in range(count):
+    for i in visible:
         card = cards.nth(i)
         try:
             name = _clean_plan_name(card.locator(".rich-text-body h4").first.inner_text(timeout=3000))
@@ -2195,7 +2248,7 @@ def _direct_energy_harvest(
             continue
         seen.add(name)
         logger.info("Direct Energy: capturing EFL for %r", name)
-        if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=6000)):
+        if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=10000)):
             continue
         _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
         efl_url: Optional[str] = None
@@ -2216,14 +2269,23 @@ def _direct_energy_harvest(
         _try(lambda: page.keyboard.press("Escape"))  # type: ignore[attr-defined]
         if not efl_url:
             continue
+        # Only the "Direct Solar Unlimited" line buys back exports. This used to
+        # be hardcoded True, which was true enough while the name filter kept
+        # only solar plans -- but the config broadened to take all thirteen, and
+        # flagging Live Brighter 12 as a buyback plan would misreport the run's
+        # buyback count. The EFL parse is what settles the actual terms either way.
+        is_solar = "solar" in _normalize_name(name)
         plans.append(
             DiscoveredPlan(
                 retailer=config.retailer,
                 plan_name=name,
                 efl_url=efl_url,
-                is_buyback=True,  # DE solar plans; EFL parse confirms terms
+                is_buyback=is_solar,
                 extraction_method="harvest",
-                context="Direct Energy solar plan; EFL PDF via api-oam docs endpoint",
+                context=(
+                    f"Direct Energy {'solar buyback' if is_solar else 'standard'} plan; "
+                    "EFL PDF via api-oam docs endpoint"
+                ),
             )
         )
     return plans
@@ -2238,6 +2300,12 @@ DIRECT_ENERGY = RepConfig(
     # free-window plan whose real EFL beats meterplan's guess by ~$824/yr, and
     # it is one of the report's own benchmark plans.
     broaden=True,
+    # Required, not cosmetic: headless Chromium is served the app shell with
+    # ZERO plan cards (measured 2026-07-26 -- headless 0 cards, headful 26 on
+    # the same URL and UA), the same Akamai-shaped behaviour Tesla hits. Two
+    # refreshes reported "found 0 plan card(s)" against a perfectly healthy site
+    # before this was pinned down.
+    force_headful=True,
 )
 
 

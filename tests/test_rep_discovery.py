@@ -1211,6 +1211,238 @@ def test_failure_evidence_never_masks_the_real_error(tmp_path):
     rd._save_failure_evidence(_DeadPage(), rd.AMBIT, tmp_path)  # must not raise
 
 
+# --------------------------------------------------------------------------- #
+# Direct Energy harvester (fake page; no browser)
+# --------------------------------------------------------------------------- #
+class _DELocator:
+    """Minimal Playwright-Locator double over a list of fake DE plan cards."""
+
+    def __init__(self, cards, sub=None):
+        self._cards, self._sub = cards, sub
+
+    def count(self):
+        return len(self._cards)
+
+    def nth(self, i):
+        return _DECard(self._cards[i]) if self._sub is None else self._cards[i]
+
+    @property
+    def first(self):
+        return self.nth(0)
+
+
+class _DECard:
+    def __init__(self, data):
+        self.data = data
+
+    def is_visible(self):
+        return self.data["visible"]
+
+    def locator(self, selector):
+        if selector == ".rich-text-body h4":
+            return _DEText(self.data["name"])
+        if selector == ".plan-doc":
+            return _DEClickable(self.data)
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    def get_by_role(self, role, name=None):
+        return _DEClickable(self.data, efl=True)
+
+
+class _DEText:
+    def __init__(self, text):
+        self.text = text
+
+    @property
+    def first(self):
+        return self
+
+    def inner_text(self, timeout=None):
+        return self.text
+
+
+class _DEClickable:
+    def __init__(self, data, efl=False):
+        self.data, self.efl = data, efl
+
+    @property
+    def first(self):
+        return self
+
+    def count(self):
+        return 1
+
+    def click(self, timeout=None):
+        # Counted BEFORE the visibility check: the point of harvesting visible
+        # cards only is that we never spend a click timeout on a hidden one.
+        self.data["click_attempts"] = self.data.get("click_attempts", 0) + 1
+        if not self.data["visible"]:
+            raise TimeoutError("element is not visible")
+        self.data["efl_clicked" if self.efl else "doc_clicked"] = True
+
+
+class _DEButton:
+    def __init__(self, page, label):
+        self.page, self.label = page, label
+
+    def count(self):
+        return 1
+
+    def nth(self, i):
+        return self
+
+    @property
+    def first(self):
+        return self
+
+    def is_visible(self):
+        return not self.page.expanded
+
+    def inner_text(self, timeout=None):
+        return self.label
+
+    def click(self, timeout=None):
+        self.page.expanded = True
+        for card in self.page.cards:
+            if card["tab"] == 0:
+                card["visible"] = True
+
+
+class _DEResponseCtx:
+    def __init__(self, page):
+        self.page = page
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    @property
+    def value(self):
+        clicked = [c for c in self.page.cards if c.get("efl_clicked")]
+        if not clicked:
+            raise TimeoutError("no EFL response")
+        return type("R", (), {"url": clicked[-1]["efl"]})()
+
+
+class _DEPage:
+    """Models the real chart: two tabs' worth of cards, only six of the first
+    tab visible until "Load 7 More" is clicked, tab-two cards never visible."""
+
+    def __init__(self, names, load_more_label="Load 7 More"):
+        self.cards = []
+        for tab in (0, 1):
+            for i, name in enumerate(names):
+                self.cards.append(
+                    {
+                        "name": name,
+                        "tab": tab,
+                        "visible": tab == 0 and i < 6,
+                        "efl": f"https://api-oam.directenergy.com/api/docs/files/{tab}{i}.pdf",
+                    }
+                )
+        self.expanded = False
+        self.load_more_label = load_more_label
+        self.goto_urls = []
+        self.context = None
+
+    def goto(self, url, **kw):
+        self.goto_urls.append(url)
+
+    def wait_for_selector(self, selector, timeout=None):
+        return True
+
+    def wait_for_timeout(self, ms):
+        return None
+
+    def locator(self, selector):
+        assert selector == ".plan__wrapper"
+        return _DELocator(self.cards)
+
+    def get_by_role(self, role, name=None):
+        if hasattr(name, "search") and name.search(self.load_more_label):
+            return _DEButton(self, self.load_more_label)
+        return _DEButton(self, "nope")  # never matches -> is_visible via expanded
+
+    def expect_response(self, predicate, timeout=None):
+        return _DEResponseCtx(self)
+
+    @property
+    def keyboard(self):
+        return type("K", (), {"press": staticmethod(lambda k: None)})()
+
+
+_DE_NAMES = [
+    "Twelve Hour Power 24", "Free Days 12", "Live Brighter 18 Auto Pay",
+    "Live Brighter 12 Auto Pay", "Power More Savings 12", "Power More Savings 24",
+    "Direct Apartment 12", "Twelve Hour Power 18 Auto Pay",
+    "Free Power Weekends 24 Auto Pay", "Live Brighter 24 Auto Pay",
+    "Power Balance 12", "Green Texas 36 Auto Pay", "Direct Solar Unlimited 12",
+]
+
+
+def test_direct_energy_goes_straight_to_the_plan_chart():
+    """The old /tx/plan-selection flow opened on a residential/"not moving"
+    prelude; /tx/product-chart-tabs renders the chart directly, so those four
+    best-effort clicks were ~30s of timeouts against controls that are gone.
+    No tdspCode -- verified unnecessary, and hardcoding a TDU code would be
+    silently wrong if the ZIP ever moved."""
+    page = _DEPage(_DE_NAMES)
+    rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert page.goto_urls == ["https://shop.directenergy.com/tx/product-chart-tabs?zipCode=78665"]
+    assert "tdspCode" not in page.goto_urls[0]
+
+
+def test_direct_energy_expands_the_listing_whatever_the_count_says():
+    """Only six cards are shown; the rest hide behind a button whose label
+    carries a COUNT. The old code matched the literal "Load 8 More" and the
+    live site now says "Load 7 More", so it silently harvested six of thirteen
+    plans -- Direct Solar Unlimited among the seven it never saw."""
+    page = _DEPage(_DE_NAMES, load_more_label="Load 7 More")
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert page.expanded is True
+    assert [p.plan_name for p in plans] == _DE_NAMES
+    assert "Direct Solar Unlimited 12" in [p.plan_name for p in plans]
+
+
+def test_direct_energy_skips_the_hidden_duplicate_tab():
+    """product-chart-*tabs* renders all thirteen plans twice, the second tab
+    hidden. Name dedup would drop them too -- but only after burning a click
+    timeout on each, and every one of those clicks fails."""
+    page = _DEPage(_DE_NAMES)
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert len(plans) == len(_DE_NAMES)  # 13, not 26
+    # Not merely deduped afterwards -- never clicked at all.
+    assert not any(c.get("click_attempts") for c in page.cards if c["tab"] == 1)
+
+
+def test_direct_energy_flags_only_the_solar_plan_as_buyback():
+    """is_buyback was hardcoded True back when the name filter kept solar plans
+    only. The config now broadens to all thirteen, so that would report twelve
+    conventional plans as buyback offers."""
+    page = _DEPage(_DE_NAMES)
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    buyback = [p.plan_name for p in plans if p.is_buyback]
+    assert buyback == ["Direct Solar Unlimited 12"]
+
+
+def test_direct_energy_returns_empty_when_no_cards_render():
+    """Headless gets the app shell with zero cards. Returning [] (rather than
+    hanging or raising) is what makes the run report say `empty` -- the signal
+    that a scrape ran clean and still learned nothing."""
+
+    class _ShellPage(_DEPage):
+        def wait_for_selector(self, selector, timeout=None):
+            raise TimeoutError("no .plan__wrapper ever appeared")
+
+    assert rd._direct_energy_harvest(_ShellPage([]), "78665", rd.DIRECT_ENERGY) == []
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 
@@ -1402,21 +1634,26 @@ def test_tesla_plans_are_all_flagged_buyback():
 
 def test_headful_stays_opt_in_per_rep():
     """Headful pops a real window and is slower, so it is never a default --
-    only two REPs ask for it, for two different reasons.
+    three REPs ask for it, for two different reasons.
 
-    Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
-    page (verified 2026-07-25: headless 403, headful 200 on the same URL/UA), so
-    for Tesla it is a requirement. Ambit's is diagnostic: its funnel fails
-    intermittently (2026-07-26 -- all 14 plans at 12:05, a plan-card timeout at
-    12:50, no code change between) and a visible window is the only way to see
-    which interstitial it actually stopped on."""
+    REQUIRED for Tesla and Direct Energy: both sit behind Akamai, which serves
+    headless Chromium something useless. Tesla gets a 403 "Access Denied"
+    (verified 2026-07-25: headless 403, headful 200 on the same URL/UA); Direct
+    Energy gets the app shell with ZERO plan cards (2026-07-26: headless 0
+    cards, headful 26), which is why two refreshes reported "found 0 plan
+    card(s)" against a healthy site.
+
+    DIAGNOSTIC for Ambit: its funnel fails intermittently (2026-07-26 -- all 14
+    plans at 12:05, a plan-card timeout at 12:50, no code change between) and a
+    visible window is the only way to see which interstitial it stopped on."""
     assert rd.REP_CONFIGS["tesla"] is rd.TESLA
     assert rd.TESLA.force_headful is True
+    assert rd.DIRECT_ENERGY.force_headful is True
     assert rd.AMBIT.force_headful is True
     assert all(
         c.force_headful is False
         for k, c in rd.REP_CONFIGS.items()
-        if k not in ("tesla", "ambit")
+        if k not in ("tesla", "ambit", "direct_energy")
     ), "headful must stay opt-in"
 
 
