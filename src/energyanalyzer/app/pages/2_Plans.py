@@ -774,6 +774,16 @@ if refresh_summary is not None:
             f"downloaded {len(disc_dl.get('downloaded', []))} EFL(s), "
             f"parsed {len(disc_parsed.get('parsed', []))} into draft(s)."
         )
+        # An empty scrape is the quiet failure mode: the retailer's plans simply
+        # vanish from this run, and any real plans it used to supply were already
+        # deleted before discovery ran. Worth a warning, not just a table row.
+        _empty = [r.get("retailer", k) for k, r in disc_reps.items() if r.get("status") == "empty"]
+        if _empty:
+            st.warning(
+                f"Scraped but found no plans: {', '.join(_empty)}. Their site was reachable "
+                "yet returned nothing -- a maintenance page or a funnel that changed. Any plans "
+                "they normally supply are missing from this refresh; re-run discovery to recover them."
+            )
         if disc_reps:
             st.dataframe(
                 [

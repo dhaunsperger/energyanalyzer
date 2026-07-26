@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: variable
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_Variable_Advantage.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

@@ -23,6 +23,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Bill_Credit_Bundle_13.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

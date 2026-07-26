@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_15.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

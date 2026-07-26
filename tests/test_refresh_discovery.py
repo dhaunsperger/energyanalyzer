@@ -347,7 +347,7 @@ def test_no_plans_found_skips_download_and_parse(discovery_dirs, monkeypatch):
     )
 
     for key in ("champion", "gexa"):
-        assert result["reps"][key]["status"] == "ok"
+        assert result["reps"][key]["status"] == "empty"
         assert result["reps"][key]["plans_found"] == 0
     assert result["downloaded"] == {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0}
     assert result["parsed"] == {"parsed": [], "skipped": [], "failed": []}
@@ -576,3 +576,30 @@ def test_rep_whose_downloads_were_blocked_is_not_coverage(discovery_dirs, monkey
 
     assert result["reps"]["ambit"]["plans_found"] == 1
     assert "Ambit Energy" not in result.get("coverage", {})
+
+
+def test_zero_plan_live_scrape_is_reported_as_empty_not_ok(discovery_dirs, monkeypatch):
+    """A clean scrape that found nothing must not read as success.
+
+    Direct Energy, 2026-07-26: the harvester dropped out mid-funnel and returned
+    0 plans with status "ok". The refresh had already deleted its two real solar
+    plans, so they were silently replaced by a stale meterplan synthetic. Re-run
+    live the same day, the harvester found 28 cards and both plans -- nothing
+    was actually gone from the market, only from our data.
+    """
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    monkeypatch.setattr(
+        rd_module, "REP_CONFIGS", {"direct_energy": _harvester_config("direct_energy", "Direct Energy")}
+    )
+    monkeypatch.setattr(rd_module, "harvest_live", lambda cfg, z, headless=True, check_robots=True: [])
+    monkeypatch.setattr(rd_module, "download_discovered", _fail_if_called)
+    monkeypatch.setattr(app_common, "parse_downloaded_efls", _fail_if_called)
+
+    result = app_common._run_rep_discovery(
+        "78665", efl_dir=efl_dir, drafts_dir=drafts_dir, plans_dir=plans_dir, snapshot_dir=snapshot_dir
+    )
+
+    rep = result["reps"]["direct_energy"]
+    assert rep["status"] == "empty"
+    assert rep["plans_found"] == 0
+    assert result.get("coverage", {}) == {}

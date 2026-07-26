@@ -26,6 +26,6 @@ etf_per_month_remaining: true
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_Shine_36.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

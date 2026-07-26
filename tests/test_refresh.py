@@ -573,7 +573,10 @@ def test_discovery_falls_back_to_manual_capture_when_a_live_render_fails(tmp_pat
         snapshot_dir=snapshot_dir,
     )
     rep = out["reps"]["ambit"]
-    assert rep["status"] == "ok", rep
+    # "empty": the capture was read but yielded no plans (the fake discover
+    # returns []). What this test pins is the fallback itself -- the saved
+    # capture was used instead of the failed live render.
+    assert rep["status"] == "empty", rep
     assert "ambit_20260101T000000Z.html" in rep["detail"]
     assert seen["html"] == "<html>saved capture</html>"
 

@@ -1015,7 +1015,14 @@ def _run_rep_discovery(
         )
         result["reps"][key] = {
             "retailer": label,
-            "status": "ok",
+            # A scrape that ran cleanly but came back empty is NOT "ok": the
+            # site was up and we still learned nothing. Both known causes are
+            # invisible otherwise -- TXU served a maintenance page, and Direct
+            # Energy's funnel dropped out mid-harvest (2026-07-26), the latter
+            # costing two real plans that a refresh had already deleted. Empty
+            # is already excluded from coverage so it can't authorise pruning;
+            # this just stops it reading as success in the run report.
+            "status": "ok" if found else "empty",
             "plans_found": found,
             "buyback": buyback,
             "detail": detail,

@@ -5,6 +5,20 @@ term_months: 5
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays: []
+    hours:
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+  label: free
+  tdu_exempt: false
 - rate_ckwh: 7.3
   label: ''
   tdu_exempt: false
@@ -21,7 +35,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Sustainable_Simply_Days_-_5.pdf
-retrieved: '2026-07-25'
-notes: 'base charge not found; defaulting to 0.0 LLM suggested: base_charge (needs
-  human confirmation).'
-needs_review: true
+retrieved: '2026-07-26'
+notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
+  no recurring REP monthly charge (only the TDSP''s)'
+needs_review: false

@@ -21,6 +21,6 @@ etf_per_month_remaining: false
 rate_type: variable
 renewable_pct: 100.0
 source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_Choice.pdf
-retrieved: '2026-07-25'
+retrieved: '2026-07-26'
 notes: ''
 needs_review: false

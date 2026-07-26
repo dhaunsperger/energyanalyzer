@@ -6,7 +6,7 @@ tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
 - rate_ckwh: 7.5
-  label: 7.5¢/kWh
+  label: ''
   tdu_exempt: false
 buyback:
   kind: rtw
@@ -14,6 +14,7 @@ buyback:
     multiplier: 1.0
     adder_ckwh: 0.0
     floor_ckwh: 0.0
+  rates: []
   offset_scope: all_charges
   rollover: true
   cash_out: false
@@ -24,10 +25,7 @@ etf_per_month_remaining: false
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Champ_Silver-24.pdf
-retrieved: '2026-07-25'
-notes: 'energy rate derived from a split 4-column Energy/Base/TDU charge row; base
-  charge derived from the same split 4-column Energy/Base/TDU charge row LLM suggested:
-  base_charge, energy_charge (needs human confirmation). Solar buyback from Champion''s
-  addendum (not the EFL): ERCOT real-time settlement point price for the meter''s
-  load zone, no modifiers.'
-needs_review: true
+retrieved: '2026-07-26'
+notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
+  charge derived from the same split 4-column Energy/Base/TDU charge row
+needs_review: false
