@@ -86,6 +86,15 @@ _RETAILER_NOISE_TOKENS = frozenset(
 )
 
 
+# Abbreviations one source uses where another spells the word out. meterplan.com
+# writes "Solar BB System Flex" for what TXU calls "Solar Buyback System Flex",
+# and {bb, flex, solar, system} is not a subset of {buyback, flexsm, solar,
+# system}, so the synthetic row was never superseded by the real EFL -- leaving
+# a stale meterplan rate ranked ABOVE the plan it stands in for. Keep this list
+# tiny and unambiguous: a wrong synonym silently merges two different plans.
+_TOKEN_SYNONYMS = {"bb": "buyback"}
+
+
 def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
     """Lowercased alphanumeric tokens with corporate/industry noise, term
     numbers, and `<n>mo` term tokens removed (plus any `extra_drop`).
@@ -101,6 +110,20 @@ def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
     drop = _RETAILER_NOISE_TOKENS | extra_drop
     out = set()
     for tok in cleaned.split():
+        # Strip a service mark fused to the word by the (R)/(TM) glyph being
+        # dropped above: "FlexSM" -> "flex", "Pollution FreeTM" -> "free",
+        # "12SM" -> "12". `_NAME_FILLER_TOKENS` already drops a STANDALONE "sm",
+        # which never helped here because the mark is not a separate token.
+        #
+        # The stem must be >=4 chars, or a digit run. Both guards are needed:
+        # plenty of ordinary words end in -sm/-tm, and a looser rule turned
+        # "Prism" into "pri". Audited over every plan name and retailer on disk,
+        # this touches only 12sm, 24sm, flexsm, forwardsm and freetm.
+        if re.fullmatch(r"\d+(?:sm|tm)", tok) or (
+            len(tok) >= 6 and tok.endswith(("sm", "tm")) and tok[:-2].isalpha()
+        ):
+            tok = tok[:-2]
+        tok = _TOKEN_SYNONYMS.get(tok, tok)
         if tok in drop or re.fullmatch(r"\d+mo", tok):
             continue
         if tok.isdigit() and int(tok) <= 60:  # a term, not a product number

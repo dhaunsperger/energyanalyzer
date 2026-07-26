@@ -353,3 +353,45 @@ def test_prune_leaves_real_drafts_alone(tmp_path):
     real = _save(_mk("TXU Energy", "Something Discontinued", 12, "efl:txu.pdf", "txu_real_12"), drafts)
     assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert real.exists(), "only meterplan-sourced drafts are ever pruned"
+
+
+def test_service_mark_fused_to_a_word_is_stripped():
+    """"FlexSM" must tokenize to "flex".
+
+    The (R)/(TM) glyph is removed before tokenizing, which fuses the mark onto
+    the preceding word. `_NAME_FILLER_TOKENS` already drops a STANDALONE "sm",
+    which never helped: the mark is not a separate token. Audited over every
+    plan name and retailer on disk -- the only tokens this touches are 12sm,
+    24sm, flexsm, forwardsm and freetm, all real service marks.
+    """
+    assert "flex" in app_common._significant_tokens("TXU Energy Solar Buyback System FlexSM")
+    assert "flexsm" not in app_common._significant_tokens("Solar Buyback System FlexSM")
+    assert "forward" in app_common._significant_tokens("TXU Energy Flex ForwardSM")
+    # Green Mountain's "Pollution FreeTM e-Plus" must match the unmarked spelling.
+    assert app_common._significant_tokens("Pollution FreeTM e-Plus 12") == app_common._significant_tokens(
+        "Pollution Free e-Plus 12"
+    )
+    # A short token is never truncated -- "sm" alone is filler, not a suffix.
+    assert app_common._significant_tokens("Prism") == {"prism"}
+
+
+def test_meterplan_bb_abbreviation_supersedes_the_spelled_out_plan():
+    """meterplan's "Solar BB System Flex" IS TXU's "Solar Buyback System FlexSM".
+
+    Real miss found 2026-07-26: the synthetic ranked #2 overall, ABOVE the real
+    plan it stands in for, carrying a stale 15.6c rate against the EFL's 15.8c.
+    Two independent mismatches had to fall for it -- "bb" vs "buyback" and
+    "flex" vs "flexsm".
+    """
+    synthetic = _mk("TXU Energy", "Solar BB System Flex", 1, "meterplan", "mp_txu_solar_bb_flex")
+    real = _mk(
+        "TXU Energy Retail Company LLC",
+        "TXU Energy Solar Buyback System FlexSM",
+        1,
+        "efl:TXU_Solar_Buyback_System_Flex.pdf",
+        "txu_solar_buyback_system_flexsm_1mo",
+    )
+    assert app_common._plan_supersedes(synthetic, real)
+    # Still term-sensitive, and still not a licence to merge different products.
+    other = _mk("TXU Energy", "TXU Energy Solar Buyback Saver 12", 12, "efl:x.pdf", "txu_saver")
+    assert not app_common._plan_supersedes(synthetic, other)
