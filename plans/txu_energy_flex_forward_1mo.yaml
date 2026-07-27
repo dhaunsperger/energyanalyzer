@@ -1,0 +1,29 @@
+id: txu_energy_flex_forward_1mo
+retailer: TXU Energy
+name: Flex Forward
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 12.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: variable
+renewable_pct: 3.0
+source: efl:TXU_Energy_Flex_Forward.pdf
+retrieved: '2026-07-26'
+source_sha256: 654d169dfa49cdc0627931fcf9b457d76e18cbe4a705b9d9185b9c5fa7e5b302
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: false
+excludes_solar: false

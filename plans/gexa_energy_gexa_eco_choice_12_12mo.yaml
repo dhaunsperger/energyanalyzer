@@ -1,0 +1,31 @@
+id: gexa_energy_gexa_eco_choice_12_12mo
+retailer: Gexa Energy
+name: Gexa Eco Choice 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.71
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:GEXA_ENERGY_Gexa_Eco_Choice_12.pdf
+retrieved: '2026-07-26'
+source_sha256: e15e4353419e81afbfb3cd346d14f4df8fb956c7a9991d13461892e1e813690b
+enroll_url: https://newenroll.gexaenergy.com/?refid=PTC_EcoChoice12&ul=1000&tdsp=AEP_CENT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

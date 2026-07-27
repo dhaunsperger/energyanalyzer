@@ -1,5 +1,5 @@
 id: champion_energy_services_llc_champ_saver_24_24mo
-retailer: Champion Energy Services, LLC
+retailer: Champion Energy Services LLC
 name: Champ Saver-24
 term_months: 24
 tdu: ONCOR
@@ -22,10 +22,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 250.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CHAMPION_ENERGY_SERVICES_LLC_Champ_Saver-24.pdf
 retrieved: '2026-07-26'
+source_sha256: 12b55a92fe15180ec62f910905036a10634716e2ef248defb87a6afd692dfe2e
+enroll_url: https://www.championenergyservices.com/Residential/Sign-Up?promo=powertochoose
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
+excludes_solar: false

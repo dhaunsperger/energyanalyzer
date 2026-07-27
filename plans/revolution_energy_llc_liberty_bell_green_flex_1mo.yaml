@@ -1,0 +1,30 @@
+id: revolution_energy_llc_liberty_bell_green_flex_1mo
+retailer: Revolution Energy LLC
+name: Liberty Bell Green Flex
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 2.95
+energy_rates:
+- rate_ckwh: 7.046
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: variable
+renewable_pct: 100.0
+source: efl:REVOLUTION_ENERGY_LLC_Liberty_Bell_Green_Flex.pdf
+retrieved: '2026-07-26'
+source_sha256: 78e24e1a94b4d1e55b53a19c2318d58515eb154649f9bf6351ee69e48f5cf696
+enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370237&promotion=NONE&valid=N&referral=&landingpage=ptc
+notes: ''
+needs_review: false
+excludes_solar: false

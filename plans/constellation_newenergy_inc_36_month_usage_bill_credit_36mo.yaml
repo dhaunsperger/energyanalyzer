@@ -1,0 +1,34 @@
+id: constellation_newenergy_inc_36_month_usage_bill_credit_36mo
+retailer: Constellation Newenergy INC
+name: 36 Month Usage Bill Credit
+term_months: 36
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 10.67
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 35.0
+- min_kwh: 2000.0
+  credit_usd: 15.0
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 24.7
+source: efl:CONSTELLATION_NEWENERGY_INC_36_Month_Usage_Bill_Credit.pdf
+retrieved: '2026-07-26'
+source_sha256: 3d413b9c9cef0ac56f154fb20d68ba9c6a6f594fd9d0422d8045caed050da6e0
+enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
+notes: ''
+needs_review: false
+excludes_solar: false

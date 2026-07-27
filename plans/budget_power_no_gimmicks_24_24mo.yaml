@@ -1,0 +1,30 @@
+id: budget_power_no_gimmicks_24_24mo
+retailer: Budget Power
+name: No Gimmicks 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 6.112
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 23.8
+source: efl:Budget_Power_No_Gimmicks_24.pdf
+retrieved: '2026-07-26'
+source_sha256: af3bb5a9ef24876df446f75d42a8847abb471b06f6e2d976c720a60ec2e652ec
+enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN24000133&Promo=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

@@ -1,0 +1,32 @@
+id: ap_gas_electric_tx_llc_simplesaver_12_12mo
+retailer: Ap Gas & Electric (Tx) LLC
+name: SimpleSaver 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 13.074
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 5.85
+source: efl:AP_GAS_ELECTRIC_TX_LLC_SimpleSaver_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 65542fe3ab18ed2e598fea739dbedff5776f45eab4f19df325d11f662ed469c0
+enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBBUC_AEC_NA_NA_RES_F125M_SD0_T12_NEW&deploymentName=TX%20State%20Rate%20Board
+notes: ''
+needs_review: false
+excludes_solar: false

@@ -1,0 +1,34 @@
+id: amigo_energy_power_perks_12_12mo
+retailer: Amigo Energy
+name: Power Perks - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 17.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  max_kwh: null
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:AMIGO_ENERGY_Power_Perks_-_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 2319539a323d446a35a458a0a7378e7624bc5a91016a2775674788333e0dc36a
+enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=UP
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

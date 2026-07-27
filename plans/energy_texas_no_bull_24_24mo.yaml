@@ -1,0 +1,30 @@
+id: energy_texas_no_bull_24_24mo
+retailer: Energy Texas
+name: No Bull 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.124
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Energy_Texas_No_Bull_24.pdf
+retrieved: '2026-07-26'
+source_sha256: cba726ac96915732788662c965115319be286a0c97776e627782be1ef5ed81e4
+enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=NB24
+notes: ''
+needs_review: false
+excludes_solar: false

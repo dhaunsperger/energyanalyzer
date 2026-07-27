@@ -20,9 +20,10 @@ from energyanalyzer.app.common import (  # noqa: E402
     EFL_DIR,
     METERPLAN_DIR,
     PTC_DIR,
+    _carry_source_hash,
     commit_and_push_plan_db,
     default_plan_db_commit_message,
-    draft_summary_row,
+    draft_summary_rows,
     efl_pdf_health,
     finish_refresh,
     get_draft_plans,
@@ -763,6 +764,11 @@ if refresh_summary is not None:
             f"{_quar.get('efls_restored', 0)} EFL(s) this refresh could not rebuild -- their "
             "source still lists them, so the previous copies were put back."
         )
+    if _quar.get("kept_pending_review"):
+        st.caption(
+            f"{len(_quar['kept_pending_review'])} plan(s) were re-parsed into review, so their "
+            "previous verified copy still stands in the ranking until you accept the new reading."
+        )
     if _quar.get("delisted"):
         st.warning(
             f"{len(_quar['delisted'])} plan(s) are no longer listed by the source that "
@@ -1133,8 +1139,10 @@ st.caption(
 )
 
 current_draft_paths = get_draft_plans()
+# A refresh clears the draft queue from a background thread, so a draft listed
+# a moment ago may already be gone; drop those rather than crash the page.
+draft_rows, current_draft_paths = draft_summary_rows(current_draft_paths)
 if current_draft_paths:
-    draft_rows = [draft_summary_row(p) for p in current_draft_paths]
     draft_table = pd.DataFrame(draft_rows)
     st.dataframe(draft_table.drop(columns=["file"]), width="stretch", hide_index=True)
 
@@ -1183,6 +1191,9 @@ if current_draft_paths:
     }
     draft_label = st.selectbox("Select a draft", list(draft_labels.keys()), key="draft_select")
     selected_draft_path = draft_labels[draft_label]
+    if not selected_draft_path.exists():
+        st.info("That draft was just promoted or cleared by a refresh. Rerun to see the current queue.")
+        st.stop()
     raw_draft = load_draft_raw(selected_draft_path)
     parse_meta = raw_draft.get("_parse") or {}
     draft_confidence = parse_meta.get("confidence") or {}
@@ -1242,6 +1253,10 @@ if current_draft_paths:
                 try:
                     edited_dict = yaml.safe_load(edited_draft_yaml)
                     edited_dict["retrieved"] = dt.date.today()  # promotion (re)stamps freshness
+                    # Record WHICH document this reading was checked against, so
+                    # the next refresh can tell a changed EFL from the same one
+                    # re-read; without it your correction gets re-queued forever.
+                    _carry_source_hash(edited_dict, raw_draft)
                     plan = Plan.model_validate(edited_dict)
                     promoted_path = save_plan(plan, directory=PLANS_DIR)
                     selected_draft_path.unlink(missing_ok=True)

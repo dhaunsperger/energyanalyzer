@@ -1,5 +1,5 @@
 id: southern_federal_power_llc_sofed_better_rate_5_5mo
-retailer: Southern Federal Power, LLC
+retailer: Southern Federal Power LLC
 name: SoFed Better Rate - 5
 term_months: 5
 tdu: ONCOR
@@ -18,9 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 249.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Better_Rate_-_5.pdf
 retrieved: '2026-07-26'
+source_sha256: dc3ddd1aa29b367574159d83a476f31e606952031217787593d53da57ced679b
+enroll_url: https://southernfederal.com/
 notes: ''
 needs_review: false
+excludes_solar: false

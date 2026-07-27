@@ -579,3 +579,105 @@ def test_integration_report_benchmarks():
 
     if failures:
         pytest.fail("core engine benchmark mismatch:\n" + "\n".join(failures))
+
+
+def test_rank_refuses_a_plan_whose_every_rate_is_zero():
+    """0c/kWh is a failed parse, and it is the one wrong answer that always
+    sorts first.
+
+    The EFL parser defaults to 0.0 when it cannot find an Energy Charge, which
+    is what happens on usage-tiered plans (TXU e-Saver, Saver's Choice, Ambit
+    Lone Star Plus) since the schema cannot express tiers. Promoted, those took
+    the top 6 slots of the ranking as free electricity. needs_review cannot
+    catch it -- "Promote all drafts" deliberately bypasses that gate -- so the
+    refusal lives here.
+    """
+    from energyanalyzer.core.models import EnergyRate, Plan
+    from energyanalyzer.engine.cost import rank
+
+    def mk(pid, rate):
+        return Plan(
+            id=pid, retailer="R", name=pid, term_months=12,
+            energy_rates=[EnergyRate(label="", rate_ckwh=rate, window=None)],
+        )
+
+    intervals = make_intervals("2024-03-01", 2, 0.5, 0.0)
+    results = rank([mk("free", 0.0), mk("real", 12.0)], intervals, flat_tdu(), None)
+
+    assert [r.plan_id for r in results] == ["real"]
+    assert any("0c/kWh" in w and "free" in w for w in results.warnings)
+
+
+def test_rank_still_simulates_an_rtw_indexed_import_rate():
+    """An RTW import rate leaves rate_ckwh unset, which must not read as zero."""
+    from energyanalyzer.core.models import EnergyRate, Plan, RtwRate
+    from energyanalyzer.engine.cost import rank
+
+    plan = Plan(
+        id="rtw_import", retailer="R", name="RTW", term_months=12,
+        energy_rates=[EnergyRate(label="", rtw=RtwRate(multiplier=1.0, adder_ckwh=3.0), window=None)],
+    )
+    intervals = make_intervals("2024-03-01", 2, 0.5, 0.0)
+    prices = pd.Series(0.05, index=intervals.index)
+    results = rank([plan], intervals, flat_tdu(), prices)
+    assert [r.plan_id for r in results] == ["rtw_import"]
+
+
+def test_a_mandatory_signup_fee_lands_in_the_first_year_total_once():
+    """Just Energy's family sells six 5-month "Sustainable/Bundle" plans whose
+    EFL requires a one-time $49.99 GoodBundle carbon-offset purchase to enroll.
+    They price energy at 4.9c/kWh and ranked #7 and #8 on that alone, so leaving
+    a mandatory fee out flattered them against plans that have none.
+
+    It belongs in the first-year total exactly once, and never in a monthly
+    bill -- the monthly frame has to stay a faithful picture of the recurring
+    charge.
+    """
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    base = dict(
+        id="p", retailer="R", name="N", term_months=5,
+        energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False,
+    )
+    free = simulate(Plan(**base), intervals, tdu)
+    paid = simulate(Plan(**base, signup_fee_usd=49.99), intervals, tdu)
+
+    assert paid.first_year_net == pytest.approx(free.first_year_net + 49.99)
+    assert paid.monthly["bill"].sum() == pytest.approx(free.monthly["bill"].sum()), (
+        "a one-off must not be smeared across the monthly bills"
+    )
+
+
+def test_no_signup_fee_changes_nothing():
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    plan = Plan(id="p", retailer="R", name="N", term_months=12,
+                energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False)
+    assert plan.signup_fee_usd == 0.0
+    assert simulate(plan, intervals, tdu).first_year_net == pytest.approx(
+        float(simulate(plan, intervals, tdu).monthly["bill"].sum())
+    )
+
+
+def test_an_unpriceable_plan_is_refused_rather_than_guessed_at():
+    """A plan whose shape the schema cannot hold must not be ranked at all.
+
+    needs_review is not enough on its own: "Promote all drafts" bypasses it
+    deliberately. Direct Apartment 12 is usage-tiered (8.8798c to 1000 kWh,
+    10.8798c above) and kept its FIRST tier -- a rate that looks cheap and ranks
+    high. Whether the parser happens to grab the cheap tier or the dear one is
+    luck; a wrong number that sorts well is worse than no number.
+    """
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    ok = Plan(id="ok", retailer="R", name="Fine", term_months=12,
+              energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False)
+    tiered = Plan(id="tiered", retailer="R", name="Tiered", term_months=12,
+                  energy_rates=[EnergyRate(rate_ckwh=8.8798)], tdu_passthrough=False,
+                  unpriceable_reason="usage-tiered energy charge (0-1000 kWh @ 8.8798c, "
+                                     ">1000 kWh @ 10.8798c)")
+
+    results = rank([ok, tiered], intervals, tdu)
+
+    assert [r.plan_id for r in results] == ["ok"]
+    assert any("tiered" in w and "usage-tiered" in w for w in results.warnings)

@@ -11,6 +11,8 @@ import pathlib
 
 import pytest
 
+from energyanalyzer.app import common as app_common
+
 _SRC = pathlib.Path(__file__).parent.parent / "src/energyanalyzer/app/pages/2_Plans.py"
 _ns: dict = {}
 _text = _SRC.read_text()
@@ -78,3 +80,27 @@ def test_draft_field_value_marks_parse_only_fields():
 def test_rtw_buyback_shows_multiplier_and_cap():
     raw = {"buyback": {"kind": "rtw", "rtw": {"multiplier": 1.0, "cap_ckwh": 25.0}}}
     assert draft_field_value(raw, "buyback") == "rtw x1.0, cap 25.0c"
+
+
+def test_draft_summary_rows_skips_drafts_that_vanish_mid_render(tmp_path):
+    """A refresh clears the draft queue from a BACKGROUND thread.
+
+    The Plans page lists drafts, then reads each one to build its table; a
+    refresh kicked off in between deletes them, and the read raised
+    FileNotFoundError straight out of the page render. Rows and surviving paths
+    are returned together because the caller zips them to build its selector,
+    so they must stay aligned.
+    """
+    keep = tmp_path / "kept_12mo.yaml"
+    keep.write_text("id: kept_12mo\nretailer: R\nname: Kept\nterm_months: 12\n")
+    gone = tmp_path / "gone_12mo.yaml"
+
+    rows, paths = app_common.draft_summary_rows([keep, gone])
+
+    assert [r["id"] for r in rows] == ["kept_12mo"]
+    assert paths == [keep]
+    assert len(rows) == len(paths), "rows and paths are zipped by the caller"
+
+
+def test_draft_summary_rows_handles_an_empty_queue(tmp_path):
+    assert app_common.draft_summary_rows([]) == ([], [])

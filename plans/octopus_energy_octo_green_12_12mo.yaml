@@ -1,0 +1,37 @@
+id: octopus_energy_octo_green_12_12mo
+retailer: Octopus Energy
+name: Octo Green 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.0485
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: rtw
+  rtw:
+    multiplier: 1.0
+    adder_ckwh: 0.0
+    floor_ckwh: 0.0
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Octopus_Energy_Octo_Green_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 199a1b98d09f26b12215f4a944a36fc8d3f2c73b15bafd1923e7899d93e4275a
+notes: 'Buyback is RTW-indexed: the EFL''s PUCT disclosure answers "Yes (at the Real
+  Time Settlement Price Point)", which fully specifies the export credit -- it had
+  been modeled as no buyback at all, costing ~$215/yr against 9,803 kWh of exports.
+  Energy charge 8.0485c is the smart-thermostat/EV column (this home has both); the
+  plain column is 8.0685c. Base charge $0.00, ETF $150, LZ_SOUTH version of the EFL.'
+needs_review: true
+excludes_solar: false

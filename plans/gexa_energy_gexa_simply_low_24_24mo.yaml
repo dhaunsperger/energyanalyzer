@@ -1,0 +1,32 @@
+id: gexa_energy_gexa_simply_low_24_24mo
+retailer: Gexa Energy
+name: Gexa Simply Low 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 15.59
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Gexa_Energy_Gexa_Simply_Low_24.pdf
+retrieved: '2026-07-26'
+source_sha256: c4ac07b92a8f20da6d53fd2202b12221bbc836537363bf8723d235651ab0c1c4
+notes: 'base charge inferred as $0.00: the EFL states its price components in prose
+  and names only an energy charge and TDU delivery charges'
+needs_review: false
+excludes_solar: false

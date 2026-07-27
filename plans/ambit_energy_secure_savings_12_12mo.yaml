@@ -1,0 +1,36 @@
+id: ambit_energy_secure_savings_12_12mo
+retailer: Ambit Energy
+name: Secure Savings 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 16.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 199.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:Ambit_Energy_Secure_Savings_12.pdf
+retrieved: '2026-07-26'
+source_sha256: a32ac304780c2e0e48522fddb27bf44fe3d61f176a066831b2af8369bc79ce7f
+notes: usage-tiered energy charge (0-999 kWh @ 16.4c, >999 kWh @ 13.4c) -- the schema
+  models one rate per window, so any single rate here would misprice the plan; multiple
+  differing flat Energy Charge values found [13.4, 16.4]; used first (16.4) Not listed
+  by its source on 2026-07-26 -- the source was reached and did not offer this plan.
+  It may have left the market. Not listed by its source on 2026-07-26 -- the source
+  was reached and did not offer this plan. It may have left the market.
+needs_review: true
+excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-999 kWh @ 16.4c, >999 kWh @ 13.4c)
+  -- the schema models one rate per window, so any single rate here would misprice
+  the plan

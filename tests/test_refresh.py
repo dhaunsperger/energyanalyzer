@@ -9,6 +9,7 @@ fetch/download/parse internals -- no live network, deterministic outcomes.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import time
@@ -717,20 +718,46 @@ def test_parse_restores_identity_and_rebuilds_the_id(refresh_dirs, monkeypatch):
     assert not (drafts_dir / "unknown_retailer_unnamed_plan_12mo.yaml").exists()
 
 
-def test_parse_does_not_override_an_identity_the_parser_read(refresh_dirs, monkeypatch):
-    """Only the placeholders are replaced -- a retailer the parser read from the
-    document itself is more trustworthy than a download-time label."""
+def test_the_row_that_fetched_the_efl_decides_who_the_plan_is(refresh_dirs, monkeypatch):
+    """Identity comes from the row, not the PDF -- always, not just as a rescue.
+
+    Power to Choose and the discovery manifest both carry retailer and plan name
+    as DATA. The parser can only guess at them from a header whose layout
+    differs per REP and whose font is sometimes broken, and guessing is what put
+    "For Service Area: Oncor" in the name field of 20 plans -- two of them in
+    the top ten -- with the retailer field swallowing the real plan name.
+
+    The parser stays authoritative for what is actually in the document: rates,
+    windows, charges, terms.
+    """
     plans_dir, drafts_dir, efl_dir, ptc_dir, _ = refresh_dirs
     pdf = efl_dir / "Some_Retailer_Some_Plan.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
     (efl_dir / "rep_discovery_manifest.jsonl").write_text(
-        f'{{"file": "{pdf}", "retailer": "WRONG", "plan_name": "WRONG"}}\n'
+        f'{{"file": "{pdf}", "retailer": "GEXA ENERGY", "plan_name": "Gexa Eco Choice 12"}}\n'
     )
     monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
     out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
-    assert out["identified"] == []
+
+    saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
+    assert saved["retailer"] == "Gexa Energy", "shouted PTC names are tidied for the UI"
+    assert saved["name"] == "Gexa Eco Choice 12"
+    assert saved["energy_rates"][0]["rate_ckwh"] == 11.0, "rates still come from the PDF"
+
+
+def test_a_manual_efl_keeps_the_name_the_parser_read(refresh_dirs, monkeypatch):
+    """An EFL saved by hand into data/efl/manual/ has no row behind it -- no PTC
+    listing, no discovery manifest entry -- so the parser's read is all there is
+    and must stand."""
+    plans_dir, drafts_dir, efl_dir, _ptc, _ = refresh_dirs
+    pdf = efl_dir / "Hand_Saved_Plan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(eflparser, "parse_efl", _fake_parse_efl)
+    out = app_common.parse_downloaded_efls([pdf], drafts_dir=drafts_dir, plans_dir=plans_dir)
+
     saved = yaml.safe_load((drafts_dir / f"{out['parsed'][0]}.yaml").read_text())
     assert saved["retailer"] == "Test Retailer"
+    assert out["identified"] == []
 
 
 def test_manual_efls_survive_the_refresh_wipe(tmp_path):
@@ -878,7 +905,7 @@ def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
     """Discovery coverage publishes plan names only -- no term column.
 
     A term of None must be read as "this source didn't say", not as a mismatch
-    against every plan (which would flag a fully-scraped REP's whole catalogue
+    against every plan (which would flag a fully-scraped REP's whole catalog
     as delisted).
     """
     plans_dir, q = _setup_quarantine(tmp_path, [["Champion Energy", "Champ Saver-24", None]])
@@ -888,3 +915,307 @@ def test_discovery_coverage_listing_without_a_term_still_matches(tmp_path):
 
     assert out["restored"] == ["champ_24"]
     assert out["delisted"] == []
+
+
+def test_precedence_confident_old_copy_outranks_an_unverified_new_draft(tmp_path):
+    """Precedence is confidence first, then freshness.
+
+    A verified reading must not be displaced by an unverified one: it stays
+    rankable while its replacement waits in review. The alternative -- dropping
+    it because a draft exists -- removes the plan from the ranking entirely and
+    loses the value for good, since the quarantine is wiped next run.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _q_plan(q / "plans" / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)  # verified
+    _q_plan(drafts_dir / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)   # new, in review
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["delisted"] == []
+    assert (plans_dir / "gexa_12.yaml").exists(), "the verified copy must stay rankable"
+    assert (drafts_dir / "gexa_12.yaml").exists(), "its replacement must stay in review"
+
+
+def _hashed_pair(tmp_path, plan_sha, draft_sha, plan_source="efl:x.pdf", draft_source="efl:x.pdf"):
+    """A verified quarantined plan + the draft this run re-parsed, each stamped
+    with the EFL hash it was read from."""
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    verified = q / "plans" / "gexa_12.yaml"
+    _q_plan(verified, "gexa_12", "Gexa Energy", "Gexa 12", 12, source=plan_source)
+    if plan_sha:
+        verified.write_text(verified.read_text() + f"source_sha256: {plan_sha}\n")
+    draft = drafts_dir / "gexa_12.yaml"
+    _q_plan(draft, "gexa_12", "Gexa Energy", "Gexa 12", 12, source=draft_source)
+    draft.write_text(
+        draft.read_text()
+        + "needs_review: true\n_parse:\n  confidence: {}\n"
+        + (f"  source_sha256: {draft_sha}\n" if draft_sha else "")
+    )
+    return plans_dir, q, drafts_dir
+
+
+def test_a_reparse_of_an_unchanged_efl_is_not_re_queued_for_review(tmp_path):
+    """The treadmill this exists to stop.
+
+    A refresh re-parses every EFL, so a plan the user hand-corrected gets read
+    again by the same parser that failed on it, producing the identical failed
+    draft and re-queuing it. Ambit Lone Star Plus 12 was verified at 12.3c/kWh
+    and the re-parse put 0.0 back in the queue -- seventeen drafts were in that
+    state on 2026-07-26. Same document + same reading = nothing to review.
+    """
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", "abc123")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["already_reviewed"] == ["gexa_12"]
+    assert out["kept_pending_review"] == []
+    assert (plans_dir / "gexa_12.yaml").exists(), "the verified reading still ranks"
+    assert not (drafts_dir / "gexa_12.yaml").exists(), "nothing new -- don't ask again"
+
+
+def test_a_republished_efl_reopens_review(tmp_path):
+    """The case that must NOT be suppressed. A stale verified price is the one
+    failure worse than a noisy queue, so a changed document always comes back."""
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", "def456")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["already_reviewed"] == []
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
+def test_a_different_source_file_reopens_review(tmp_path):
+    """Same hash would be a coincidence, but the plan is now backed by another
+    document entirely -- that is a new reading whatever the bytes say."""
+    plans_dir, q, drafts_dir = _hashed_pair(
+        tmp_path, "abc123", "abc123", plan_source="efl:old.pdf", draft_source="efl:new.pdf"
+    )
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
+def test_an_unstamped_plan_is_backfilled_but_still_shown_once(tmp_path):
+    """Plans verified before hash stamping have nothing to compare against.
+
+    Stamping them from the draft that just re-read the file is safe enough to
+    make the NEXT refresh quiet, but suppressing on the strength of a hash we
+    only just invented is not -- so the user sees this one a final time.
+    """
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, None, "abc123")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert out["already_reviewed"] == []
+    assert (drafts_dir / "gexa_12.yaml").exists(), "shown once more"
+    restored = yaml.safe_load((plans_dir / "gexa_12.yaml").read_text())
+    assert restored["source_sha256"] == "abc123", "stamped, so next refresh is quiet"
+
+
+def test_a_draft_with_no_hash_at_all_is_still_shown(tmp_path):
+    """A draft that didn't come from a file (hand-entered, or an older draft
+    written before stamping) can't be proved redundant -- show it."""
+    plans_dir, q, drafts_dir = _hashed_pair(tmp_path, "abc123", None)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["kept_pending_review"] == ["gexa_12"]
+    assert (drafts_dir / "gexa_12.yaml").exists()
+
+
+def test_precedence_unreviewed_old_copy_loses_to_the_fresher_draft(tmp_path):
+    """An old copy that was never verified is just an older guess -- drop it."""
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    stale = q / "plans" / "gexa_12.yaml"
+    _q_plan(stale, "gexa_12", "Gexa Energy", "Gexa 12", 12)
+    stale.write_text(stale.read_text() + "needs_review: true\n")
+    _q_plan(drafts_dir / "gexa_12.yaml", "gexa_12", "Gexa Energy", "Gexa 12", 12)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["dropped"] == 1
+    assert out["kept_pending_review"] == [] and out["restored"] == []
+    assert not (plans_dir / "gexa_12.yaml").exists()
+
+
+def test_a_rebuilt_plan_is_never_flagged_delisted(tmp_path):
+    """Whatever the run rebuilt is still sold, however the name parses.
+
+    Five Just Energy plans were flagged as gone from a PTC snapshot that still
+    listed all five: the parser reads their EFL header as retailer "Just Energy
+    - Fixed Rate Product: Basics PTC - 24" and name "For Service Area: Oncor",
+    so the name carries no product identity to match a listing with.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    stale = q / "plans" / "je_24.yaml"
+    _q_plan(stale, "je_24", "Just Energy - Fixed Rate Product: Basics PTC - 24",
+            "For Service Area: Oncor", 24)
+    stale.write_text(stale.read_text() + "needs_review: true\n")
+    _q_plan(drafts_dir / "je_24.yaml", "je_24", "Just Energy", "Basics PTC - 24", 24)
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+
+    assert out["delisted"] == []
+    assert (drafts_dir / "je_24.yaml").exists()
+
+
+def test_the_efl_hash_survives_parse_then_promote(tmp_path):
+    """End to end for the stamp: a real PDF's content hash has to reach the
+    promoted plan, or the suppression above never has anything to compare.
+
+    Three promote paths write plans (auto-promote inside the refresh,
+    promote_all_drafts, and the Plans page form); this covers the shared helper
+    they all now call, plus the parser end that produces the value.
+    """
+    from energyanalyzer.eflparse import parser as efl_parser
+
+    pdf = tmp_path / "sample.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not really a pdf, but bytes are bytes")
+    expected = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    assert efl_parser.efl_sha256(pdf) == expected
+    assert efl_parser.efl_sha256(tmp_path / "missing.pdf") is None
+
+    # save_draft writes it into the _parse block...
+    draft = efl_parser.DraftPlan(
+        plan_dict={"id": "x_12mo", "retailer": "R", "name": "N", "term_months": 12},
+        source_sha256=expected,
+    )
+    drafts = tmp_path / "drafts"
+    raw = yaml.safe_load(efl_parser.save_draft(draft, drafts_dir=drafts).read_text())
+    assert raw["_parse"]["source_sha256"] == expected
+
+    # ...and promotion carries it onto the plan, where reconcile can read it.
+    plan_dict: dict = {"id": "x_12mo"}
+    app_common._carry_source_hash(plan_dict, raw)
+    assert plan_dict["source_sha256"] == expected
+
+
+def test_a_hand_edited_hash_is_not_overwritten_on_promote():
+    """The promote form is editable YAML; if a value is already there it stands."""
+    plan_dict = {"source_sha256": "mine"}
+    app_common._carry_source_hash(plan_dict, {"_parse": {"source_sha256": "parsers"}})
+    assert plan_dict["source_sha256"] == "mine"
+
+
+def test_a_deliberately_retired_plan_is_not_resurrected(tmp_path):
+    """Supersede/prune remove a plan; the quarantine must not put it back.
+
+    From the quarantine's point of view "no plan file with this id" is
+    indistinguishable from "the run never rebuilt it". On 2026-07-26 that undid
+    a retirement inside the same run: the summary said both "Superseded
+    synthetic meterplan plan mp_direct_energy_direct_solar_unlimited_12mo" and
+    "Kept existing plan mp_direct_energy_direct_solar_unlimited_12mo".
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [["Direct Energy", "Direct Solar Unlimited", 12]])
+    _q_plan(q / "plans" / "mp_de_solar_12.yaml", "mp_de_solar_12", "Direct Energy",
+            "Direct Solar Unlimited", 12, source="meterplan")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q,
+        retired_ids={"mp_de_solar_12"},
+    )
+
+    assert out["restored"] == [] and out["delisted"] == []
+    assert not (plans_dir / "mp_de_solar_12.yaml").exists()
+
+
+def test_without_the_retired_set_the_same_plan_comes_back(tmp_path):
+    """The control: this is exactly the resurrection the parameter prevents."""
+    plans_dir, q = _setup_quarantine(tmp_path, [["Direct Energy", "Direct Solar Unlimited", 12]])
+    _q_plan(q / "plans" / "mp_de_solar_12.yaml", "mp_de_solar_12", "Direct Energy",
+            "Direct Solar Unlimited", 12, source="meterplan")
+
+    out = app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q
+    )
+
+    assert out["restored"] == ["mp_de_solar_12"]
+
+
+def test_a_certificate_line_is_not_a_plan_name():
+    """Tesla's Drive 12M entered the database as "PUCT Certificate Number:
+    10296" -- the parser's name regex caught EFL boilerplate. Unreadable in the
+    UI, and unmatchable, so the synthetic meterplan row for the same plan could
+    never be superseded and ranked beside it. Treated as a failed read so
+    discovery's name (off the REP's own plan card) is used instead."""
+    for boilerplate in (
+        "PUCT Certificate Number: 10296",
+        "PUCT Certificate No. 10296",
+        "REP Certification Number 10296",
+        "Certificate Number 10296",
+        "Unnamed Plan",
+        "",
+        None,
+    ):
+        assert app_common._is_not_a_plan_name(boilerplate), boilerplate
+
+    # ...without swallowing real product names that merely look similar.
+    for real in (
+        "Drive 12M",
+        "Certificate 12",
+        "Certified Green 12",
+        "Gexa Solar Buyback 12",
+        "Pollution Free e-Plus 24",
+    ):
+        assert not app_common._is_not_a_plan_name(real), real
+
+
+def test_restore_runs_before_retire_so_a_restored_plan_can_supersede(tmp_path):
+    """Ordering, asserted end to end because both directions bite.
+
+    Ambit's EFLs were WAF-blocked on 2026-07-26, so its real Free & Clear
+    Nights 12 was quarantined and only came back via reconcile. Retiring
+    synthetics BEFORE that restore meant the real plan did not exist yet, and
+    mp_ambit_energy_free_clear_nights_12mo sat in the review queue beside it.
+    Retiring AFTER, meanwhile, is what stopped the quarantine resurrecting a
+    synthetic it had just superseded. Restore first, then retire.
+    """
+    plans_dir, q = _setup_quarantine(tmp_path, [], ptc_ok=True, meterplan_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    # The real plan this run could not rebuild (its EFL was blocked).
+    _q_plan(q / "plans" / "ambit_free_clear_12.yaml", "ambit_free_clear_12",
+            "Ambit Texas, LLC", "Ambit Free & Clear Nights 12SM", 12, source="efl:a.pdf")
+    # ...and the synthetic that stands in for it.
+    _q_plan(drafts_dir / "mp_ambit_free_clear_12mo.yaml", "mp_ambit_free_clear_12mo",
+            "Ambit Energy", "Free & Clear Nights", 12, source="meterplan")
+
+    app_common.reconcile_quarantine(
+        plans_dir=plans_dir, efl_dir=tmp_path / "efl", quarantine_dir=q, drafts_dir=drafts_dir
+    )
+    assert (plans_dir / "ambit_free_clear_12.yaml").exists(), "restored first"
+
+    retired = app_common.supersede_meterplan_plans(plans_dir, drafts_dir)
+
+    assert [mp for mp, _ in retired] == ["mp_ambit_free_clear_12mo"]
+    assert not (drafts_dir / "mp_ambit_free_clear_12mo.yaml").exists()

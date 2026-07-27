@@ -1,6 +1,6 @@
 id: frontier_utilities_frontier_12_12mo
 retailer: Frontier Utilities
-name: Frontier 12+
+name: Frontier 12
 term_months: 12
 tdu: ONCOR
 base_charge_usd: 5.95
@@ -18,9 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_12.pdf
 retrieved: '2026-07-26'
+source_sha256: df12ceefdbe322ffbd20ff4ab07c3cf285a79ebcdaf7abc46b82912ef9991438
 notes: ''
 needs_review: false
+excludes_solar: false

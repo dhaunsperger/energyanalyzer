@@ -1,0 +1,31 @@
+id: amigo_energy_basics_ptc_24_24mo
+retailer: Amigo Energy
+name: Basics PTC - 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 9.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:AMIGO_ENERGY_Basics_PTC_-_24.pdf
+retrieved: '2026-07-26'
+source_sha256: a30e3de79fdd4a9479a34ab63b7bbcc2180fd89d47f430de0b19766810188a8f
+enroll_url: https://amigoenergy.com/lp/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

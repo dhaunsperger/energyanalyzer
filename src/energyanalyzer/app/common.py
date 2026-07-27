@@ -50,6 +50,13 @@ QUARANTINE_DIR = DATA_DIR / "refresh_quarantine"
 REP_DISCOVERY_DIR = DATA_DIR / "rep_discovery"
 CONFIG_PATH = DATA_DIR / "config.yaml"
 
+# How many REP sites discovery queries at the same time. Each worker may drive
+# its own Chromium, so the ceiling here is this box's memory (~7 GB under WSL),
+# not politeness -- fetchers/hostpool.py already guarantees no single site is
+# ever hit by two workers at once. Discovery was 7m56s of the 15m54s refresh on
+# 2026-07-26, nearly all of it spent waiting on other people's JavaScript.
+DISCOVERY_MAX_WORKERS = 3
+
 # The premise's real zone, confirmed 2026-07-25 via the ESID lookup at
 # electricityplans.com and Tesla's plan page (both report "south"); the ERCOT
 # map splits Williamson County across SOUTH / NORTH / AEN / LCRA, so the county
@@ -86,6 +93,15 @@ _RETAILER_NOISE_TOKENS = frozenset(
 )
 
 
+# Abbreviations one source uses where another spells the word out. meterplan.com
+# writes "Solar BB System Flex" for what TXU calls "Solar Buyback System Flex",
+# and {bb, flex, solar, system} is not a subset of {buyback, flexsm, solar,
+# system}, so the synthetic row was never superseded by the real EFL -- leaving
+# a stale meterplan rate ranked ABOVE the plan it stands in for. Keep this list
+# tiny and unambiguous: a wrong synonym silently merges two different plans.
+_TOKEN_SYNONYMS = {"bb": "buyback"}
+
+
 def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
     """Lowercased alphanumeric tokens with corporate/industry noise, term
     numbers, and `<n>mo` term tokens removed (plus any `extra_drop`).
@@ -101,6 +117,20 @@ def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
     drop = _RETAILER_NOISE_TOKENS | extra_drop
     out = set()
     for tok in cleaned.split():
+        # Strip a service mark fused to the word by the (R)/(TM) glyph being
+        # dropped above: "FlexSM" -> "flex", "Pollution FreeTM" -> "free",
+        # "12SM" -> "12". `_NAME_FILLER_TOKENS` already drops a STANDALONE "sm",
+        # which never helped here because the mark is not a separate token.
+        #
+        # The stem must be >=4 chars, or a digit run. Both guards are needed:
+        # plenty of ordinary words end in -sm/-tm, and a looser rule turned
+        # "Prism" into "pri". Audited over every plan name and retailer on disk,
+        # this touches only 12sm, 24sm, flexsm, forwardsm and freetm.
+        if re.fullmatch(r"\d+(?:sm|tm)", tok) or (
+            len(tok) >= 6 and tok.endswith(("sm", "tm")) and tok[:-2].isalpha()
+        ):
+            tok = tok[:-2]
+        tok = _TOKEN_SYNONYMS.get(tok, tok)
         if tok in drop or re.fullmatch(r"\d+mo", tok):
             continue
         if tok.isdigit() and int(tok) <= 60:  # a term, not a product number
@@ -177,7 +207,7 @@ def _llm_same_plan(
     ``a``/``b`` are ``{"retailer", "plan_name", "term"}``. Returns True/False, or
     **None** when the LLM is unavailable, returns junk, or isn't confident enough
     -- callers must treat None as "no opinion" and fall back to deterministic
-    behaviour (keep the plan).
+    behavior (keep the plan).
     """
     user = (
         f"Listing A: retailer={a.get('retailer')!r}, plan={a.get('plan_name')!r}, "
@@ -421,7 +451,7 @@ DISCOVERY_COVERAGE_FILE = "discovery_coverage.json"
 def _write_discovery_coverage(snapshot_dir: Path, coverage: dict) -> None:
     """Persist {retailer: [plan names]} for REPs whose site we scraped in full.
 
-    Written so :func:`prune_stale_meterplan_drafts` still works when
+    Written so :func:`prune_stale_meterplan_rows` still works when
     `finish_refresh` is re-run on its own (the "Finish incomplete refresh"
     path), which has no discovery result in hand. Best-effort.
     """
@@ -445,30 +475,61 @@ def _read_discovery_coverage(snapshot_dir: Path = REP_DISCOVERY_DIR) -> dict:
         return {}
 
 
-def prune_stale_meterplan_drafts(
-    drafts_dir: Path = DRAFTS_DIR, coverage: Optional[dict] = None
+# Contract lengths a REP actually sells. A trailing number outside this set is
+# something else in the product name -- "Gexa 55+" is a seniors plan, "Smart
+# 2000 Select 12" counts kWh -- so only these are read as a term.
+_PLAUSIBLE_TERMS = frozenset({1, 3, 5, 6, 9, 10, 11, 12, 13, 14, 18, 24, 36, 48, 60})
+_TRAILING_TERM_RE = re.compile(r"(\d{1,2})\s*$")
+
+
+def _term_from_plan_name(name: str) -> Optional[int]:
+    """The contract term a listed plan name carries, if any.
+
+    Discovery coverage is plan names only -- no term column -- but REPs almost
+    always put the term in the name ("Solar All Nighter 12", "Champ Saver-24").
+    Reading it back is what lets a 24-month synthetic be told apart from the
+    12-month plan the retailer actually sells. Returns None when the name has no
+    term ("Pollution Free e-Plus", "Gexa Flex Plan"), where the caller stays
+    permissive rather than guessing.
+    """
+    match = _TRAILING_TERM_RE.search(str(name or ""))
+    if not match:
+        return None
+    term = int(match.group(1))
+    return term if term in _PLAUSIBLE_TERMS else None
+
+
+def prune_stale_meterplan_rows(
+    directory: Path = DRAFTS_DIR, coverage: Optional[dict] = None
 ) -> list[tuple]:
-    """Drop synthetic meterplan drafts for plans a fully-scraped REP doesn't sell.
+    """Drop synthetic meterplan rows for plans a fully-scraped REP doesn't sell.
+
+    Runs over BOTH `plans/` and `plans/drafts/`. It used to see drafts only,
+    which left a blind spot with a long half-life: a synthetic promoted before
+    we started surveying its REP directly was never re-examined and simply
+    stayed in the ranking forever. Four such rows survived the 2026-07-26 run --
+    Chariot Fusion, Reliant Solar Payback Plus, TXU Solar Buyback Plus and
+    Saver -- none of which their retailer still sells.
 
     meterplan.com is a third-party index published by a competing REP, and its
     rows go stale: it lists plans the retailer no longer offers. When we have
     driven that retailer's own site to completion -- a LIVE render (not a stale
     manual capture) in which every EFL it offered downloaded -- and the plan is
     not among what the site returned, the row is either out of date or not
-    something Doug could actually enrol in. Either way it is not worth a review,
+    something Doug could actually enroll in. Either way it is not worth a review,
     and it can never be verified: the index publishes no EFL.
 
     Deliberately narrow, because a REP's site legitimately shows different
     subsets through different funnels (Champion's website-only plans versus its
     PTC listing are precedent). So this fires ONLY where the scrape was live and
     complete, and only against that same retailer's rows -- never as a general
-    "not seen lately" sweep. Returns ``(removed_draft_id, retailer)`` tuples.
+    "not seen lately" sweep. Returns ``(removed_id, retailer)`` tuples.
     """
     coverage = _read_discovery_coverage() if coverage is None else coverage
     if not coverage:
         return []
     removed: list[tuple] = []
-    for path in sorted(Path(drafts_dir).glob("*.yaml")):
+    for path in sorted(Path(directory).glob("*.yaml")):
         try:
             raw = yaml.safe_load(path.read_text()) or {}
             if str(raw.get("source") or "") != "meterplan":
@@ -489,9 +550,20 @@ def prune_stale_meterplan_drafts(
             # with the same conservative token rule supersede uses, so a naming
             # variant ("Truly Free Nights" vs "Reliant Truly Free Nights 12")
             # counts as a match rather than a deletion.
+            #
+            # The candidate's term comes from the listed NAME where it carries
+            # one, and only falls back to the draft's term when it doesn't.
+            # Passing the draft's term unconditionally made the term a
+            # non-discriminator by construction, which is how a synthetic "All
+            # Nighter" 24mo counted as offered because Green Mountain sells
+            # "Solar All Nighter 12" -- the token comparison drops the trailing
+            # number, so the only thing separating them was the term.
             offered = any(
                 _plan_supersedes(
-                    draft, _CoverageCandidate("site", retailer, name, draft.term_months)
+                    draft,
+                    _CoverageCandidate(
+                        "site", retailer, name, _term_from_plan_name(name) or draft.term_months
+                    ),
                 )
                 for name in names
             )
@@ -609,6 +681,91 @@ def draft_energy_rate_summary(plan_dict: dict) -> str:
     return f"{label} ({len(rates)} rate{'s' if len(rates) != 1 else ''})"
 
 
+# Boilerplate every Texas EFL carries that a name-hunting regex can mistake for
+# the plan's name. Two families seen in the wild, both of which left plans
+# unreadable in the UI and unmatchable for dedup:
+#
+#   * a certificate line -- Tesla's Drive 12M landed as "PUCT Certificate
+#     Number: 10296", so the synthetic meterplan row for the same plan could
+#     never be superseded and sat in the ranking beside it;
+#   * a service-area line -- 20 plans across Amigo, Tara, Just Energy,
+#     Constellation and Payless were named "For Service Area: Oncor" or "Oncor
+#     Electric Company Service Area", two of them in the top ten.
+#
+# Both are treated like "Unnamed Plan": a failed read, so the name PTC or
+# discovery already knows for that EFL is used instead. Each pattern needs a
+# qualifier so it cannot swallow a real product name -- "Certificate 12" and
+# "Free Nights 12" both survive.
+_NOT_A_PLAN_NAME_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:puct|rep)\s*certificat(?:e|ion)(?:\s*(?:no\.?|number|#))?[\s:#.]*\d*"
+    r"|certificat(?:e|ion)\s*(?:no\.?|number|#)[\s:#.]*\d*"
+    # "For Service Area: Oncor", "Oncor Electric Company Service Area",
+    # "Oncor Electric Delivery Service Area effective as of July 10, 2026".
+    r"|(?:for\s+)?[\w .,'-]*?service\s+area\b.*"
+    r")\s*$",
+    re.I,
+)
+
+
+def _tidy_retailer(name: str) -> str:
+    """Make a PTC retailer readable. Power to Choose shouts every retailer name
+    ("AMIGO ENERGY"), which is fine as data and ugly in a ranking table."""
+    text = str(name or "").strip()
+    if not text or text != text.upper():
+        return text  # already mixed case -- leave it alone
+    keep = {"LLC", "LP", "LLP", "INC", "TX", "US", "PUCT", "PTC", "AC", "DBA"}
+    words = []
+    for word in text.split():
+        bare = word.strip(".,")
+        words.append(word if bare.upper() in keep else word.title())
+    return " ".join(words)
+
+
+def _is_not_a_plan_name(name) -> bool:
+    """Did the parser fail to find a plan name, whatever it put in the field?"""
+    text = str(name or "").strip()
+    return (
+        not text
+        or text == "Unnamed Plan"
+        or bool(_NOT_A_PLAN_NAME_RE.match(text))
+    )
+
+
+def _carry_source_hash(plan_dict: dict, raw: dict) -> dict:
+    """Copy a draft's parse-time EFL hash onto the plan being promoted.
+
+    `plan_fields` strips the `_parse` block (it is parser bookkeeping, not plan
+    data), but this one value has to survive: it is what lets a later refresh
+    tell "the EFL changed" from "the same EFL, read the same way again". Set
+    only when absent, so a hand-edited value in the promote form wins.
+    """
+    stamp = (raw.get("_parse") or {}).get("source_sha256")
+    if stamp and not plan_dict.get("source_sha256"):
+        plan_dict["source_sha256"] = str(stamp)
+    return plan_dict
+
+
+def draft_summary_rows(paths: list) -> tuple[list[dict], list[Path]]:
+    """Summary rows for `paths`, skipping drafts that vanished mid-render.
+
+    A refresh runs in a BACKGROUND THREAD (see refresh_state.RefreshRunner) and
+    its first act is to clear the draft queue, so the page can list a draft and
+    then have it deleted before the row is read -- which crashed the Plans page
+    on the very first render after a refresh was kicked off. Returns the rows
+    and the surviving paths together, because the caller zips the two to build
+    its selector and they must stay aligned.
+    """
+    rows, kept = [], []
+    for path in paths:
+        try:
+            rows.append(draft_summary_row(path))
+        except (FileNotFoundError, OSError):
+            continue  # promoted or cleared by a refresh since we listed it
+        kept.append(path)
+    return rows, kept
+
+
 def draft_summary_row(path: Path) -> dict:
     """One flattened row for the Draft plans overview table (ARCHITECTURE.md §9)."""
     raw = load_draft_raw(path)
@@ -625,6 +782,118 @@ def draft_summary_row(path: Path) -> dict:
         "Min confidence": f"{min_confidence:.2f}" if min_confidence is not None else "-",
         "Needs Review": "⚠️" if raw.get("needs_review") else "",
     }
+
+
+def plan_economics_fingerprint(plan) -> str:
+    """A stable key for "this is the same deal, whatever it is called".
+
+    Texas retail is full of white labels: one product sold under several brands
+    by the same parent. Measured across the 263-plan database, 263 plans are only
+    234 distinct products, and 18 clusters span more than one retailer --
+    Frontier Battery Awards 12, Frontier Sun Confidence 12, Gexa Battery
+    Benefits 12 and Gexa Solar Buyback 12 are one NRG product with four names,
+    same effective date and same 475 kWh outflow assumption in all four EFLs.
+
+    Every field that can move a bill is in the key, so two plans only collide
+    when the simulation genuinely cannot tell them apart. Eligibility is in it
+    too (`excludes_solar`): a plan this home cannot buy is not interchangeable
+    with one it can, however identical the arithmetic.
+
+    Deliberately NOT a dedup key for storage. These are separate contracts with
+    separate retailers and, as `enroll_url` shows, separate places to sign up;
+    collapsing them on disk would lose that and would hide the day one brand's
+    price drifts from its siblings. Grouping belongs in the view.
+    """
+    def _window(w):
+        if w is None:
+            return None
+        return (tuple(sorted(w.months)), tuple(sorted(w.weekdays)), tuple(sorted(w.hours)))
+
+    def _rtw(r):
+        if r is None:
+            return None
+        return (r.multiplier, r.adder_ckwh, r.cap_ckwh, r.floor_ckwh)
+
+    def _rates(rates):
+        return [(r.rate_ckwh, _rtw(r.rtw), _window(r.window), r.tdu_exempt) for r in rates]
+
+    ev = plan.ev_free_charging
+    payload = {
+        "tdu": plan.tdu,
+        "term": plan.term_months,
+        "base": round(float(plan.base_charge_usd or 0.0), 6),
+        "etf": (round(float(plan.etf_usd or 0.0), 4), bool(plan.etf_per_month_remaining)),
+        "signup": round(float(getattr(plan, "signup_fee_usd", 0.0) or 0.0), 4),
+        "passthrough": bool(plan.tdu_passthrough),
+        "rates": _rates(plan.energy_rates),
+        "buyback": (
+            plan.buyback.kind.value,
+            plan.buyback.rate_ckwh,
+            _rtw(plan.buyback.rtw),
+            _rates(plan.buyback.rates),
+            plan.buyback.offset_scope,
+            plan.buyback.monthly_credit_cap,
+            bool(plan.buyback.rollover),
+            bool(plan.buyback.cash_out),
+        ),
+        "credits": sorted((c.min_kwh, c.max_kwh, c.credit_usd) for c in plan.bill_credits),
+        "ev": None if ev is None else (_window(ev.window), ev.monthly_kwh_cap),
+        "excludes_solar": bool(getattr(plan, "excludes_solar", False)),
+    }
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def group_plan_siblings(ranked_ids: list, plans_by_id: dict) -> tuple[list, dict]:
+    """Collapse identical deals, keeping the first of each in ranked order.
+
+    Returns ``(kept_ids, siblings)`` where `siblings` maps a kept id to the other
+    plans it stands for. The current plan is never collapsed away -- it is the
+    baseline every other row is read against, so it always keeps its own row.
+    """
+    seen: dict = {}
+    kept: list = []
+    siblings: dict = {}
+    for plan_id in ranked_ids:
+        plan = plans_by_id.get(plan_id)
+        if plan is None:
+            continue
+        if plan_id == CURRENT_PLAN_ID:
+            kept.append(plan_id)
+            continue
+        key = plan_economics_fingerprint(plan)
+        leader = seen.get(key)
+        if leader is None:
+            seen[key] = plan_id
+            kept.append(plan_id)
+            siblings[plan_id] = []
+        else:
+            siblings[leader].append(plan)
+    return kept, {k: v for k, v in siblings.items() if v}
+
+
+def known_efl_enroll_urls(ptc_dir: Path = PTC_DIR) -> dict:
+    """Map ``<efl filename> -> enroll_url`` from the newest PTC snapshot.
+
+    Sibling of :func:`known_efl_identities`, and for the same reason: the row
+    that listed the plan knows things the PDF does not. Where to sign up is one
+    of them, and it matters -- several plans are sold only through a Power to
+    Choose referral landing page that the retailer's own site never links.
+    """
+    out: dict[str, str] = {}
+    try:
+        from energyanalyzer.fetchers.ptc import _efl_filename, load_ptc
+
+        snaps = sorted(Path(ptc_dir).glob("*.csv")) if Path(ptc_dir).exists() else []
+        if not snaps:
+            return out
+        df = load_ptc(max(snaps, key=lambda p: p.stat().st_mtime))
+        for _, row in df.iterrows():
+            url = str(row.get("enroll_url") or "").strip()
+            if url.lower().startswith("http"):
+                out.setdefault(_efl_filename(row), url)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, like the identities
+        logger.info("Could not read PTC enrollment links: %r", exc)
+    return out
 
 
 def known_efl_identities(efl_dir: Path = EFL_DIR, ptc_dir: Path = PTC_DIR) -> dict:
@@ -716,6 +985,7 @@ def parse_downloaded_efls(
     total = len(pdf_paths)
     summary: dict = {"parsed": [], "skipped": [], "failed": [], "llm_assisted": [], "identified": []}
     identities = known_efl_identities(efl_dir=Path(pdf_paths[0]).parent if pdf_paths else EFL_DIR)
+    enroll_urls = known_efl_enroll_urls()
 
     # One availability probe for the whole batch rather than a per-file timeout.
     use_llm = bool(llm_assist) and _llm.available()
@@ -734,12 +1004,23 @@ def parse_downloaded_efls(
             # each other's draft file. Restore the known identity and rebuild the id.
             known = identities.get(pdf_path.name)
             if known:
+                # WHO the plan is comes from the row that fetched it, never from
+                # the PDF. Power to Choose and the discovery manifest both carry
+                # retailer and plan name as data; the parser can only guess at
+                # them from a header whose layout differs per REP and whose font
+                # is sometimes broken. Guessing produced "For Service Area:
+                # Oncor" as the name of 20 plans -- two of them in the top ten --
+                # with the retailer field swallowing the real plan name
+                # ("Amigo Energy - Fixed Rate Product: Basics PTC - 24").
+                #
+                # The parser stays authoritative for everything that is actually
+                # IN the document: rates, windows, charges, terms.
                 retailer, plan_name = known
                 changed_identity = False
-                if retailer and draft.plan_dict.get("retailer") == "Unknown Retailer":
-                    draft.plan_dict["retailer"] = retailer
+                if retailer and draft.plan_dict.get("retailer") != _tidy_retailer(retailer):
+                    draft.plan_dict["retailer"] = _tidy_retailer(retailer)
                     changed_identity = True
-                if plan_name and draft.plan_dict.get("name") == "Unnamed Plan":
+                if plan_name and draft.plan_dict.get("name") != plan_name:
                     draft.plan_dict["name"] = plan_name
                     changed_identity = True
                 if changed_identity:
@@ -750,6 +1031,18 @@ def parse_downloaded_efls(
                     summary["identified"].append(
                         {"file": pdf_path.name, "id": draft.plan_dict["id"]}
                     )
+                # The parser's confidence in an identity it no longer supplies
+                # is noise, and it was the loudest thing in the review table:
+                # retailer 0.75 / plan_name 0.7 appeared on 20 of 22 drafts,
+                # burying the fields a human actually needs to check.
+                draft.confidence["retailer"] = 1.0
+                draft.confidence["plan_name"] = 1.0
+            # Where to sign up is row data too, and for some plans it is the only
+            # way in: Just Energy's GoodBundle plans live at a /ptcsl/ referral
+            # landing page their own site never links.
+            enroll = enroll_urls.get(pdf_path.name)
+            if enroll and not draft.plan_dict.get("enroll_url"):
+                draft.plan_dict["enroll_url"] = enroll
             plan_id = draft.plan_dict.get("id")
             already = (drafts_dir / f"{plan_id}.yaml").exists() or (plans_dir / f"{plan_id}.yaml").exists()
             if already:
@@ -858,17 +1151,84 @@ def _listing_covers(plan: Plan, retailer: str, name: str, term: Optional[int]) -
     return not distinctive
 
 
+def _draft_source_sha256(draft_path: Path) -> Optional[str]:
+    """The EFL hash a draft was parsed from, or None."""
+    try:
+        raw = yaml.safe_load(Path(draft_path).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    value = (raw.get("_parse") or {}).get("source_sha256")
+    return str(value) if value else None
+
+
+def _rerun_verdict(draft_path: Path, plan: Plan) -> str:
+    """Does this draft have anything new to say about an already-verified plan?
+
+    Returns ``"rerun"`` (same document, same parser -- nothing to review),
+    ``"new"`` (a different document, or a different source: worth a look), or
+    ``"unknown"`` (the plan predates hash stamping, so we can't tell).
+
+    The problem this exists for: a refresh re-parses every EFL, so a plan the
+    user hand-corrected gets re-read by the same parser that failed on it the
+    first time, producing the identical failed draft and re-queuing it for
+    review. Ambit Lone Star Plus 12 was verified at 12.3c/kWh and the re-parse
+    put 0.0 back in the queue -- forever, every refresh. Seventeen drafts were
+    in that state on 2026-07-26.
+
+    Identity is the PDF's CONTENT hash, not its name or mtime: every refresh
+    re-downloads the whole EFL directory, so timestamps always differ while the
+    bytes usually don't. If the REP republishes the EFL the hash moves and the
+    draft is surfaced again, which is the case that actually matters -- a stale
+    verified price is the one failure mode worse than a noisy queue.
+    """
+    stamped = getattr(plan, "source_sha256", None)
+    fresh = _draft_source_sha256(draft_path)
+    if not fresh:
+        return "new"  # not parsed from a file (or an older draft): show it
+    if not stamped:
+        return "unknown"
+    try:
+        draft_source = str((yaml.safe_load(Path(draft_path).read_text()) or {}).get("source") or "")
+    except (OSError, yaml.YAMLError):
+        return "new"
+    if draft_source != str(plan.source or ""):
+        return "new"  # a different EFL file now backs this plan
+    return "rerun" if fresh == stamped else "new"
+
+
 def reconcile_quarantine(
     plans_dir: Path = PLANS_DIR,
     efl_dir: Path = EFL_DIR,
     quarantine_dir: Path = QUARANTINE_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    retired_ids: Optional[set] = None,
 ) -> dict:
     """Restore whatever the run failed to re-derive, and flag what's truly gone.
 
+    `retired_ids` are ids this run deliberately removed (superseded or pruned).
+    Without them a retirement is indistinguishable from "never rebuilt" and gets
+    undone on the spot.
+
     Three outcomes per quarantined plan:
 
-    * **re-derived** -- a plan with that id exists again, so the quarantine copy
-      is dropped. The normal path.
+    Precedence for a given id, best first -- confidence, then freshness:
+
+      1. this run's parse, promoted (confident AND new)
+      2. the previous copy, if it was verified (needs_review False)
+      3. this run's parse, sitting in review as a draft
+      4. the previous copy, if it too was unreviewed -- dropped
+
+    So a verified reading is never displaced by an unverified one: it stays
+    rankable while its replacement waits for review (`kept_pending_review`).
+    An old copy that was itself unreviewed loses to the fresher draft, since
+    keeping it would only preserve an older guess.
+
+    * **re-derived** -- the id exists again, so the quarantine copy is dropped.
+      The normal path. A draft counts as rebuilt: the run DID parse the plan, it
+      just did not clear the confidence gate. Missing that produced two failures
+      at once on 2026-07-26 -- a stale promoted copy restored alongside its own
+      fresh draft (20 ids in both places), and five Just Energy plans flagged as
+      gone from a PTC snapshot that still listed all five.
     * **still listed** -- no plan file, but a source that ran this run still
       advertises it. Its EFL simply didn't make it (a WAF block, a download
       failure, a funnel that drifted). Restored untouched: the plan is real and
@@ -878,14 +1238,15 @@ def reconcile_quarantine(
       deleted, because a plan leaving the market is a fact worth seeing --
       especially if it is the one you are currently on.
 
-    Authority is deliberately narrow, mirroring `prune_stale_meterplan_drafts`:
+    Authority is deliberately narrow, mirroring `prune_stale_meterplan_rows`:
     absence only means something when the source that would have listed it
     actually completed. If PTC never downloaded, nothing is delisted, and a
     broken run costs nothing.
     """
     plans_dir, efl_dir = Path(plans_dir), Path(efl_dir)
     q = Path(quarantine_dir)
-    result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0}
+    result = {"restored": [], "delisted": [], "dropped": 0, "efls_restored": 0,
+              "kept_pending_review": [], "already_reviewed": []}
     _restored_plans: list = []
     if not q.exists():
         return result
@@ -897,13 +1258,21 @@ def reconcile_quarantine(
     # (retailer, name, term). A term of None means the source published no term
     # -- discovery coverage is plan names only -- so it is filled in from the
     # plan under test, making the term a non-discriminator rather than an
-    # automatic mismatch. Same conservative rule prune_stale_meterplan_drafts
+    # automatic mismatch. Same conservative rule prune_stale_meterplan_rows
     # uses: when comparing, err towards "still listed".
     listings = [(str(r), str(n), t) for r, n, t in (authority.get("listings") or [])]
 
+    drafts_dir = Path(drafts_dir)
+    retired = set(retired_ids or ())
     for path in sorted((q / "plans").glob("*.yaml")) if (q / "plans").exists() else []:
-        live = plans_dir / path.name
-        if live.exists():
+        # A confident promotion this run always wins: it is both newer and
+        # verified, and it already overwrote plans/<id>.
+        if (plans_dir / path.name).exists():
+            result["dropped"] += 1
+            continue
+        # Deliberately retired this run -- absent because we removed it, not
+        # because we failed to rebuild it.
+        if path.stem in retired:
             result["dropped"] += 1
             continue
         try:
@@ -912,6 +1281,43 @@ def reconcile_quarantine(
         except Exception:  # noqa: BLE001 -- unreadable: restore it and move on
             shutil.move(str(path), str(plans_dir / path.name))
             result["restored"].append(path.stem)
+            continue
+        if (drafts_dir / path.name).exists():
+            # The run rebuilt this plan but the parse landed in review. Rank
+            # order between the two copies is by CONFIDENCE, then freshness:
+            # a previously verified reading outranks an unverified new one, so
+            # it stays rankable while its replacement waits for review. An old
+            # copy that was itself unreviewed loses to the fresher draft and is
+            # dropped -- keeping it would only preserve an older guess.
+            if not plan.needs_review:
+                draft_path = drafts_dir / path.name
+                verdict = _rerun_verdict(draft_path, plan)
+                if verdict == "rerun":
+                    # Same document, read the same way again: this is the parse
+                    # the user already adjudicated, so there is nothing to
+                    # review. Dropping it is what keeps the queue from becoming
+                    # a treadmill of work already done.
+                    draft_path.unlink(missing_ok=True)
+                    shutil.move(str(path), str(plans_dir / path.name))
+                    _restored_plans.append(plan)
+                    result["already_reviewed"].append(plan.id)
+                    continue
+                if verdict == "unknown":
+                    # Verified before this plan recorded which document it came
+                    # from. Stamp it now, from the draft that just re-read the
+                    # same file, but DON'T suppress on the strength of a hash we
+                    # only just invented -- the user sees this one last time.
+                    plan.source_sha256 = _draft_source_sha256(draft_path)
+                    save_plan(plan, directory=plans_dir)
+                    path.unlink(missing_ok=True)
+                    _restored_plans.append(plan)
+                    result["kept_pending_review"].append(plan.id)
+                    continue
+                shutil.move(str(path), str(plans_dir / path.name))
+                _restored_plans.append(plan)
+                result["kept_pending_review"].append(plan.id)
+            else:
+                result["dropped"] += 1
             continue
         _restored_plans.append(plan)
 
@@ -957,7 +1363,7 @@ def reconcile_quarantine(
         shutil.move(str(path), str(efl_dir / path.name))
         result["efls_restored"] += 1
 
-    if result["restored"] or result["delisted"]:
+    if result["restored"] or result["delisted"] or result["kept_pending_review"]:
         invalidate_plans_cache()
     return result
 
@@ -1080,6 +1486,7 @@ def _run_rep_discovery(
     snapshot_dir: Path = REP_DISCOVERY_DIR,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ptc_df=None,
+    max_workers: int = DISCOVERY_MAX_WORKERS,
 ) -> dict:
     """Discover plan EFLs on individual REP marketing sites that Power to Choose
     and meterplan.com miss (ARCHITECTURE.md §7), download the EFLs into
@@ -1107,6 +1514,9 @@ def _run_rep_discovery(
     missing, robots.txt block, a WAF, a missing ESI-ID secret, a nav-flow drift)
     is recorded and the rest still run -- nothing here aborts the refresh.
 
+    Up to `max_workers` REPs are queried concurrently (one site per worker, never
+    two workers on one site); results are still reported in `reps` order.
+
     `reps` limits the run to those REP keys (default: all configured). PII some
     sites need to render (e.g. Octopus's ESI ID) is read by the fetcher from the
     gitignored `data/rep_discovery_secrets.yaml`, never passed in here.
@@ -1116,6 +1526,7 @@ def _run_rep_discovery(
     summary>, 'parsed': <parse_downloaded_efls() summary>}` where `status` is one
     of `'ok'`, `'error'`, or `'manual-needed'`.
     """
+    from energyanalyzer.fetchers import hostpool
     from energyanalyzer.fetchers import rep_discovery as rd
 
     efl_dir = Path(efl_dir)
@@ -1135,22 +1546,27 @@ def _run_rep_discovery(
     }
 
     keys = list(reps) if reps is not None else list(rd.REP_CONFIGS.keys())
-    all_plans: list = []
-    total = len(keys)
-    for i, key in enumerate(keys, start=1):
+
+    def _discover_one(key: str) -> tuple[dict, list]:
+        """Query one REP site. Returns its result row and the plans it yielded.
+
+        Everything is caught and reported here rather than raised: one site's
+        WAF, expired secret, or drifted nav flow must never cost the other
+        twelve. Runs on its own thread (see the pool below), so it touches no
+        shared state -- the caller stitches the rows back together in `keys`
+        order afterwards.
+        """
         config = rd.REP_CONFIGS.get(key)
         if config is None:
-            result["reps"][key] = {
+            return {
                 "retailer": key,
                 "status": "error",
                 "plans_found": 0,
                 "buyback": 0,
                 "detail": "unknown REP key (not in REP_CONFIGS)",
-            }
-            continue
+            }, []
         label = config.retailer
-        logger.info("=== Discovery %d/%d: %s ===", i, total, label)
-        _report("discovery", i, total, f"{label} (querying site)")
+        logger.info("=== Discovery: %s ===", label)
         try:
             if config.harvester is not None:
                 plans = rd.harvest_live(
@@ -1196,7 +1612,7 @@ def _run_rep_discovery(
                 # capture; if there's none, tell the user to run one by hand.
                 newest = _newest_capture(snapshot_dir, key)
                 if newest is None:
-                    result["reps"][key] = {
+                    return {
                         "retailer": label,
                         "status": "manual-needed",
                         "plans_found": 0,
@@ -1205,21 +1621,25 @@ def _run_rep_discovery(
                             f"no saved capture in {snapshot_dir}/ -- this site blocks "
                             f"automation; save its rendered plans page as {key}_<ts>.html"
                         ),
-                    }
-                    continue
+                    }, []
                 html = newest.read_text(encoding="utf-8")
                 plans = rd.discover(html, config)
                 detail = f"from manual capture {newest.name}"
         except Exception as exc:  # noqa: BLE001 -- one REP's failure mustn't abort the rest
             logger.info("%s: FAILED -- %r", label, exc)
-            result["reps"][key] = {
+            return {
                 "retailer": label,
                 "status": "error",
                 "plans_found": 0,
                 "buyback": 0,
                 "detail": repr(exc),
-            }
-            continue
+            }, []
+        # Some hosts guard their document endpoint (Ambit). Mark those plans so
+        # the download stage asks from a browser rather than approaching the
+        # site a second time as an anonymous httpx client.
+        if getattr(config, "efl_via_browser", False):
+            for p in plans:
+                p.fetch_via_browser = True
         found = len(plans)
         buyback = sum(1 for p in plans if p.is_buyback)
         # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
@@ -1231,7 +1651,7 @@ def _run_rep_discovery(
             "%s: %s -- %d plan(s) found, %d buyback, %d kept",
             label, detail, found, buyback, len(plans),
         )
-        result["reps"][key] = {
+        return {
             "retailer": label,
             # A scrape that ran cleanly but came back empty is NOT "ok": the
             # site was up and we still learned nothing. Both known causes are
@@ -1250,7 +1670,41 @@ def _run_rep_discovery(
             "plan_names": [p.plan_name for p in plans],
             "live": not str(detail).startswith("from manual capture")
             and "used capture" not in str(detail),
-        }
+        }, plans
+
+    # Query several REPs at once. `host_of` is the REP key, so each site gets its
+    # own single-threaded queue of exactly one job: thirteen different hosts run
+    # concurrently, but no host is ever touched twice at the same moment. This is
+    # the run's longest phase -- 7m56s of the 15m54s on 2026-07-26 -- and almost
+    # all of it is a browser waiting on someone else's JavaScript.
+    outcomes = hostpool.run_per_host(
+        keys,
+        host_of=lambda key: key,
+        work=_discover_one,
+        max_workers=max_workers,
+        # Reported as each site FINISHES -- with several in flight there is no
+        # single "currently querying" REP to name, and completions still count
+        # up cleanly for the progress bar.
+        on_done=lambda done, tot, key: _report(
+            "discovery",
+            done,
+            tot,
+            f"{rd.REP_CONFIGS[key].retailer if key in rd.REP_CONFIGS else key} (done)",
+        ),
+    )
+    all_plans: list = []
+    for outcome in outcomes:  # in `keys` order, whichever site finished first
+        if not outcome.ok:  # _discover_one catches its own; only a bug lands here
+            result["reps"][outcome.item] = {
+                "retailer": outcome.item,
+                "status": "error",
+                "plans_found": 0,
+                "buyback": 0,
+                "detail": repr(outcome.error),
+            }
+            continue
+        rep_row, plans = outcome.value
+        result["reps"][outcome.item] = rep_row
         all_plans.extend(plans)
 
     if not all_plans:
@@ -1274,6 +1728,13 @@ def _run_rep_discovery(
         dest=efl_dir,
         headless=headless,
         buyback_only=False,
+        # The browser used for guarded endpoints needs the same evasions as the
+        # discovery that earned the link, or it is just a slower stranger.
+        browser_stealth=any(
+            getattr(rd.REP_CONFIGS.get(k), "stealth", False)
+            and getattr(rd.REP_CONFIGS.get(k), "efl_via_browser", False)
+            for k in keys
+        ),
         progress_callback=lambda d, t, n: _report("discovery-download", d, t, n),
     )
 
@@ -1769,6 +2230,7 @@ def promote_all_drafts(
             plan_dict = plan_fields(raw)
             plan_dict.setdefault("source", "ptc")
             plan_dict["retrieved"] = dt.date.today()
+            _carry_source_hash(plan_dict, raw)
             # Preserve the parser's verdict rather than forcing it: a draft the
             # parser was confident about stays unflagged.
             plan_dict["needs_review"] = bool(raw.get("needs_review", True))
@@ -1868,6 +2330,7 @@ def finish_refresh(
                 plan_dict = plan_fields(raw)
                 plan_dict.setdefault("source", "ptc")
                 plan_dict["retrieved"] = dt.date.today()
+                _carry_source_hash(plan_dict, raw)
                 plan = Plan.model_validate(plan_dict)
                 save_plan(plan, directory=plans_dir)
                 draft_path.unlink(missing_ok=True)
@@ -1882,6 +2345,23 @@ def finish_refresh(
     if summary["promoted"]:
         invalidate_plans_cache()
 
+    # Last: restore anything this run quarantined but never rebuilt. Runs after
+    # promotion so "was it re-derived?" is asked of the finished database, and
+    # inside finish_refresh so the "Finish incomplete refresh" recovery path
+    # un-quarantines too -- an interrupted run must not strand the old plans.
+    reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
+
+    # Retiring synthetics runs AFTER the quarantine has put back whatever this
+    # run failed to rebuild, because both directions of the ordering bite:
+    #   * before restore, a real plan that only exists again after reconcile
+    #     cannot supersede its synthetic -- Ambit's EFLs were WAF-blocked on
+    #     2026-07-26, so mp_ambit_energy_free_clear_nights_12mo stayed in the
+    #     review queue beside the real Free & Clear Nights 12 plan;
+    #   * after retiring, "no plan file with this id" reads to the quarantine as
+    #     "never rebuilt", so it restored a synthetic in the same run that had
+    #     just superseded it -- the summary printed both statements.
+    # Restore first, then retire, and the final state is right either way.
+    #
     # meterplan.com rows carry no EFL PDF (source="meterplan", efl_url=None). If
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
@@ -1890,20 +2370,33 @@ def finish_refresh(
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
     # Rows for plans a fully-scraped REP doesn't actually sell (stale index).
-    for draft_id, retailer in prune_stale_meterplan_drafts(drafts_dir):
-        summary.setdefault("meterplan_pruned", []).append(draft_id)
-        notes.append(
-            f"Dropped synthetic meterplan draft {draft_id}: {retailer}'s own site was "
-            "scraped in full and does not offer this plan."
-        )
+    # Both directories: a synthetic promoted before we started surveying its REP
+    # directly is otherwise never re-examined and stays in the ranking forever.
+    for where, directory in (("plan", plans_dir), ("draft", drafts_dir)):
+        for row_id, retailer in prune_stale_meterplan_rows(directory):
+            summary.setdefault("meterplan_pruned", []).append(row_id)
+            notes.append(
+                f"Dropped synthetic meterplan {where} {row_id}: {retailer}'s own site was "
+                "scraped in full and does not offer this plan."
+            )
 
-    # Last: restore anything this run quarantined but never rebuilt. Runs after
-    # promotion so "was it re-derived?" is asked of the finished database, and
-    # inside finish_refresh so the "Finish incomplete refresh" recovery path
-    # un-quarantines too -- an interrupted run must not strand the old plans.
-    reconciled = reconcile_quarantine(plans_dir=plans_dir)
+
     if reconciled["restored"] or reconciled["delisted"] or reconciled["efls_restored"]:
         summary["quarantine"] = reconciled
+    for plan_id in reconciled.get("kept_pending_review", []):
+        notes.append(
+            f"Kept verified plan {plan_id} in the ranking: this refresh re-parsed it, but the "
+            "new reading needs review. The previous verified copy stands until you accept it."
+        )
+    _already = reconciled.get("already_reviewed", [])
+    if _already:
+        notes.append(
+            f"Dropped {len(_already)} re-parsed draft(s) with nothing new to review: the EFL "
+            "is unchanged since you verified the plan, so the parser produced the same reading "
+            f"you already corrected ({', '.join(_already[:6])}"
+            f"{f', +{len(_already) - 6} more' if len(_already) > 6 else ''}). "
+            "If a REP republishes one of these EFLs, its draft comes back."
+        )
     for plan_id in reconciled["restored"]:
         notes.append(
             f"Kept existing plan {plan_id}: this refresh did not rebuild it, but the "

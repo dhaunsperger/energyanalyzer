@@ -174,14 +174,44 @@ class Plan(BaseModel):
     tdu_passthrough: bool = True
     etf_usd: float = 0.0
     etf_per_month_remaining: bool = False
+    # A one-off charge you cannot avoid if you want the plan -- Just Energy's
+    # "One-time GoodBundle set up and carbon offset purchase: $49.99", which its
+    # own EFL calls "required to enroll on this product". Counted ONCE in
+    # first_year_net, which is what that number means: money out the door in
+    # year one. Deliberately not folded into base_charge_usd at 1/12 (the way
+    # the EFL amortizes it for its average-price table) -- these are 5-month
+    # contracts, so spreading a one-off over twelve months understates it for
+    # the term actually signed, and it would quietly distort every monthly view.
+    signup_fee_usd: float = 0.0
     rate_type: Literal["fixed", "variable", "indexed"] = "fixed"
     renewable_pct: Optional[float] = None
     source: str = "manual"  # manual | efl:<file> | ptc | report-2026-07
     retrieved: Optional[dt.date] = None  # when the rate data was obtained;
     #   stamped by the EFL parse/promote flow, used for staleness badges
+    # SHA-256 of the EFL PDF this reading was taken from, stamped at promote
+    # time. It answers one question a refresh cannot otherwise answer: when a
+    # re-parse of an already-verified plan lands back in review, is this a NEW
+    # reading of a CHANGED document, or the same failed parse of the same
+    # document the user already corrected by hand? Without it every refresh
+    # re-queues work that was already done (17 such drafts on 2026-07-26).
+    source_sha256: Optional[str] = None
     efl_url: Optional[str] = None
+    # Where you actually sign up. Several plans are sold ONLY through a Power to
+    # Choose referral landing page and are unreachable from the retailer's own
+    # navigation -- Just Energy's family sells its six GoodBundle plans at
+    # /ptcsl/ (Just Energy's is even /affiliatepartner/ptcsl/), which is why
+    # they cannot be found by browsing the site. Taken from the PTC row's
+    # enroll_url column, never guessed from the PDF.
+    enroll_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False
+    # Set when the EFL describes a structure this schema cannot express, so the
+    # plan must not be priced at all. `needs_review` is not enough on its own:
+    # "Promote all drafts" bypasses it deliberately, and a usage-tiered plan that
+    # kept its first tier (Direct Apartment 12: 8.8798c of 8.8798/10.8798) looks
+    # cheap and ranks high. rank() refuses these the same way it refuses an
+    # all-zero rate -- a wrong number that sorts well is worse than no number.
+    unpriceable_reason: Optional[str] = None
     # The REP will not sell this plan to a home with rooftop solar (TXU's Free
     # Nights & Cool Summer 12: "Customers with electric vehicles, batteries,
     # and/or solar panels are ineligible"). This premise HAS solar, so such a

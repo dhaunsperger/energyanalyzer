@@ -1,0 +1,30 @@
+id: good_charlie_co_llc_goodenergy_24_24mo
+retailer: Good Charlie & Co LLC
+name: GoodEnergy 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 6.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 24.7
+source: efl:GOOD_CHARLIE_CO_LLC_GoodEnergy_24.pdf
+retrieved: '2026-07-26'
+source_sha256: 1dd2fd215abc052c4cbc8744e77529ffd5ae56b8469d47b1a20fbb44fbf06281
+enroll_url: https://goodcharlie.com/?product_id=2047&utility_code=AEP_Central&utm_campaign=Corporate&utm_source=comparison-site&utm_medium=third-party&utm_content=power-to-choose-aepc
+notes: ''
+needs_review: false
+excludes_solar: false

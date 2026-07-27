@@ -18,9 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 0.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Freedom.pdf
 retrieved: '2026-07-26'
+source_sha256: 09f0c52d1d3b5b812acffec9afa8e66b98fa4075f7810d6f98cefb20fb05e1f6
+enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN01000001&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false
+excludes_solar: false

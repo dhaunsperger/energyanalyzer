@@ -1,18 +1,20 @@
-# User's current plan. EFL: Pulse Power / Oncor, 9/15/2023 (36mo term originally;
-# report models remaining term as 12). Energy 15.8c = 0.159 - 0.001 paperless.
 id: pulse_current
 retailer: Pulse Power
 name: Your Current Plan
 term_months: 12
 base_charge_usd: 4.95
 energy_rates:
-  - rate_ckwh: 15.8
+- rate_ckwh: 15.8
 buyback:
   kind: fixed
   rate_ckwh: 15.8
-  offset_scope: energy_only   # report: "+TDU*" = not offsettable by credits
+  offset_scope: energy_only
 etf_usd: 20.0
 etf_per_month_remaining: true
 renewable_pct: 100
 source: report-2026-07
-notes: 1:1 energy buyback at energy charge rate; TDU passthrough not offsettable.
+notes: 'BASELINE, NOT AN OPTION: Pulse Power was acquired by Reliant and this contract
+  will not be renewed when it ends (~Oct 2026). It is kept in the ranking as the ''what
+  I pay now'' comparison only -- the cheapest plan actually available is what the
+  next contract costs. 1:1 energy buyback at energy charge rate; TDU passthrough not
+  offsettable.'

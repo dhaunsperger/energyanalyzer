@@ -55,6 +55,7 @@ import datetime as dt
 import json
 import logging
 import re
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -62,6 +63,8 @@ from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
+
+from energyanalyzer.fetchers import hostpool
 
 # Discovery is slow (live browser per REP). These INFO logs narrate each step so
 # a caller can stream them into a live "console" (the Plans page attaches a
@@ -80,8 +83,13 @@ OLLAMA_MODEL = "lfm2.5"
 
 # Politeness: minimum seconds between successive live requests to the same
 # host (both browser navigations and EFL downloads share this throttle).
+# Downloads run several hosts at a time (see fetchers/hostpool.py), so the
+# bookkeeping is guarded and each caller *reserves* its slot before sleeping --
+# two threads that did land on one host queue behind each other rather than
+# both reading the same stale timestamp and firing together.
 _MIN_REQUEST_INTERVAL_S = 2.0
 _last_request_at: dict[str, float] = {}
+_rate_limit_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +113,14 @@ class DiscoveredPlan:
     # downloader renders these in a headless browser and print-to-PDFs them
     # instead of a plain httpx GET (which would only save the SPA shell).
     efl_is_html_viewer: bool = False
+    # Fetch this EFL through a real browser rather than httpx. Set from
+    # RepConfig.efl_via_browser at discovery time. For hosts that guard their
+    # document endpoint: we already walked their funnel in a (possibly stealthed)
+    # browser to LEARN this URL, so asking for it from that same stack -- same
+    # TLS fingerprint, same cookie jar, same headers -- is both likelier to
+    # succeed and a smaller ask than approaching the host a second time as an
+    # anonymous client.
+    fetch_via_browser: bool = False
 
 
 @dataclass
@@ -167,6 +183,14 @@ class RepConfig:
     # renders all 14 plans through the same funnel. Not a blanket default -- it
     # injects init scripts into every page, and the other REPs need none of it.
     stealth: bool = False
+    # Download this REP's EFLs through a browser instead of httpx. Ambit only:
+    # its Azure Front Door WAF guards shopping.ambitenergy.com probabilistically,
+    # and on 2026-07-26 it refused the very first httpx EFL request of a run
+    # whose discovery had just walked the same site successfully in a stealthed
+    # browser. Asking the document endpoint from the browser that was handed the
+    # link is the honest shape of the request, not a workaround: same session,
+    # same cookies, same fingerprint as the page that offered it.
+    efl_via_browser: bool = False
 
     @property
     def link_base(self) -> str:
@@ -228,6 +252,21 @@ def _normalize_name(name: str) -> str:
     name = _TRADEMARK_RE.sub("", name)
     name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _is_visible(locator) -> bool:
+    """Is this element actually shown? Defaults to True.
+
+    Harvesters use this to skip cards a site keeps in the DOM but hidden (Direct
+    Energy's chart renders every plan twice, once per tab). Defaulting to True
+    keeps the fake-page doubles the harvester tests drive -- which implement only
+    the handful of methods each flow touches -- working unchanged, and errs
+    toward harvesting a plan rather than silently dropping one.
+    """
+    try:
+        return bool(locator.is_visible())
+    except Exception:  # noqa: BLE001 -- a detached node or a minimal test double
+        return True
 
 
 # Some REP sites require PII to render plans (e.g. Octopus needs an ESI ID when a
@@ -1009,13 +1048,16 @@ def _llm_review_plans(
 # Live browser fetch (Playwright) -- optional, lazily imported
 # --------------------------------------------------------------------------- #
 def _respect_rate_limit(host: str) -> None:
-    now = time.monotonic()
-    last = _last_request_at.get(host)
-    if last is not None:
-        wait = _MIN_REQUEST_INTERVAL_S - (now - last)
-        if wait > 0:
-            time.sleep(wait)
-    _last_request_at[host] = time.monotonic()
+    with _rate_limit_lock:
+        now = time.monotonic()
+        last = _last_request_at.get(host)
+        wait = 0.0 if last is None else _MIN_REQUEST_INTERVAL_S - (now - last)
+        # Claim the slot for when this request will actually go out, then sleep
+        # OUTSIDE the lock -- holding it across the sleep would serialize every
+        # host behind the slowest one, which is the thing we're avoiding.
+        _last_request_at[host] = now + max(wait, 0.0)
+    if wait > 0:
+        time.sleep(wait)
 
 
 def robots_allows(url: str, user_agent: str = _USER_AGENT, timeout: float = 10.0) -> bool:
@@ -1065,6 +1107,38 @@ def _playwright_ctx(config: "RepConfig"):
             "served a 'Blocked by WAF' page). Install it with:  pip install playwright-stealth"
         ) from exc
     return Stealth().use_sync(sync_playwright())
+
+
+def _save_failure_evidence(page, config: RepConfig, snapshot_dir: Path) -> None:
+    """Best-effort screenshot + HTML of the page a render died on.
+
+    Kept in ``<snapshot_dir>/failures/`` rather than beside the good captures:
+    :func:`app.common._newest_capture` picks the newest ``<key>_*.html`` as the
+    fallback when a live render fails, so a dead-end page sitting in that
+    directory would become the thing discovery falls back TO -- turning a loud
+    failure into a silent zero-plan run.
+
+    Never raises. This runs while an exception is already propagating, and
+    losing the real error to a screenshot problem would be a bad trade.
+    """
+    try:
+        failures = Path(snapshot_dir) / "failures"
+        failures.mkdir(parents=True, exist_ok=True)
+        ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stem = failures / f"{config.key}_{ts}"
+        try:
+            page.screenshot(path=str(stem.with_suffix(".png")), full_page=True)
+        except Exception:  # noqa: BLE001 -- a dead page may not screenshot
+            pass
+        try:
+            stem.with_suffix(".html").write_text(page.content(), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        logger.info(
+            "%s: saved failure evidence to %s.{png,html}", config.retailer, stem
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("could not save failure evidence for %s", config.key, exc_info=True)
 
 
 def fetch_rendered_html(
@@ -1140,6 +1214,16 @@ def fetch_rendered_html(
                     page.wait_for_timeout(settle_ms)
                 html = page.content()
             logger.info("%s: captured %d chars of rendered HTML", config.retailer, len(html))
+        except Exception:
+            # Photograph the scene before the browser closes. A drifted nav flow
+            # reports only as "Timeout waiting for <selector>", which says
+            # nothing about WHERE the funnel stopped -- an interstitial, a
+            # changed button label, a maintenance page all look identical from
+            # here. Written under failures/ so `_newest_capture`'s
+            # `<key>_*.html` glob can never mistake a dead end for a good
+            # capture and quietly discover zero plans from it.
+            _save_failure_evidence(page, config, snapshot_dir)
+            raise
         finally:
             context.close()
             browser.close()
@@ -1258,6 +1342,75 @@ def _render_efl_pdf(
             browser.close()
 
 
+class _BrowserResponse:
+    """Just enough of an httpx response for the shared not-a-PDF diagnosis:
+    the content-type, read only when the body turns out not to be a PDF."""
+
+    def __init__(self, content_type: str) -> None:
+        self.headers = {"content-type": content_type}
+
+
+class _BrowserFetcher:
+    """A browser kept open for the run, used to GET EFLs that httpx can't have.
+
+    Playwright's `context.request` issues real requests from the browser stack:
+    its TLS fingerprint, its cookie jar, its header order. For a host that hands
+    out document links behind a WAF, that is simply the client the link was
+    given to -- where a bare httpx GET arrives as a stranger who happens to know
+    the URL.
+
+    One context, opened on first use and reused, because launching Chromium per
+    EFL would cost more than the downloads. Ambit is the only REP that needs it,
+    so in practice this is one browser for fourteen files.
+    """
+
+    def __init__(self, stealth: bool = False, headless: bool = True) -> None:
+        self.stealth, self.headless = stealth, headless
+        self._ctx = None
+        self._browser = None
+        self._pw = None
+        self._lock = threading.Lock()
+
+    def _ensure(self):
+        if self._ctx is not None:
+            return self._ctx
+        cfg = RepConfig(
+            key="_fetch", retailer="_fetch", homepage="", extractor=lambda h, c: [],
+            stealth=self.stealth,
+        )
+        self._pw = _playwright_ctx(cfg).__enter__()
+        self._browser = self._pw.chromium.launch(headless=self.headless)
+        self._ctx = self._browser.new_context(user_agent=_USER_AGENT)
+        logger.info("opened a browser for EFL downloads (stealth=%s)", self.stealth)
+        return self._ctx
+
+    def get(self, url: str, timeout_ms: int = 60_000) -> tuple[int, bytes, str]:
+        """(status, body, content-type). Rate-limited like any other request."""
+        _respect_rate_limit(urlparse(url).netloc)
+        with self._lock:
+            ctx = self._ensure()
+            resp = ctx.request.get(url, timeout=timeout_ms)
+            headers = resp.headers or {}
+            return resp.status, resp.body(), str(headers.get("content-type", "?"))
+
+    def close(self) -> None:
+        for closer in (
+            getattr(self._ctx, "close", None),
+            getattr(self._browser, "close", None),
+        ):
+            try:
+                if closer:
+                    closer()
+            except Exception:  # noqa: BLE001 -- teardown must not fail a refresh
+                pass
+        try:
+            if self._pw is not None:
+                self._pw.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self._ctx = self._browser = self._pw = None
+
+
 def _sanitize_filename_part(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", name.strip())
     return re.sub(r"_+", "_", cleaned).strip("_")
@@ -1287,6 +1440,16 @@ def _efl_filename(plan: DiscoveredPlan) -> str:
 # already answered. Handful of requests for one household's own shopping.
 _RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
 _DOWNLOAD_ATTEMPTS = 3
+# Attempts to spend on a URL a WAF has explicitly refused. Fewer than the
+# ordinary retry budget -- a site that means it should not be argued with -- but
+# not one, because Ambit's WAF is a measured coin flip rather than a policy.
+_BOT_BLOCK_ATTEMPTS = 3
+# Distinct URLs a host may refuse before we stop asking it anything else this
+# run. The breaker exists because one blanket-blocking host once cost ~42
+# pointless requests; tripping it on the FIRST refusal cost 14 EFLs on
+# 2026-07-26, which is the opposite failure. Three is enough to tell a policy
+# ("everything is refused") from a coin flip ("that one was unlucky").
+_BOT_BLOCK_TOLERANCE = 3
 
 # A 403 whose body carries one of these is a WAF/bot-detection verdict, not a
 # transient hiccup. Retrying it is both useless and rude, so it is exempted from
@@ -1309,17 +1472,24 @@ def _is_bot_block(resp) -> bool:
         # Only the first bytes: a block page is short, and a real PDF that
         # somehow 403s should not be decoded in full just to classify it.
         return bool(_BOT_BLOCK_RE.search(resp.content[:2048].decode("utf-8", "replace")))
-    except Exception:  # noqa: BLE001 -- unreadable body -> not a recognised block
+    except Exception:  # noqa: BLE001 -- unreadable body -> not a recognized block
         return False
 
 
 def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEMPTS):
     """GET `url`, retrying a transient status with linear backoff.
 
-    Honours the per-host rate limit before every attempt, so a retry can never
-    make us hit a site faster than the normal path does. An explicit bot block
-    (:func:`_is_bot_block`) is returned immediately rather than retried -- the
-    site has already answered, and asking twice more only makes us noisier.
+    Honors the per-host rate limit before every attempt, so a retry can never
+    make us hit a site faster than the normal path does.
+
+    A bot block IS retried, up to `_BOT_BLOCK_ATTEMPTS`. It used to return
+    immediately on the reasoning that the site had already answered -- true for
+    a host with a blanket policy, wrong for Ambit, whose Azure Front Door WAF is
+    measurably a coin flip (2026-07-24: plain httpx got through 3 times in 6;
+    2026-07-26: httpx, a cold browser context and a warm one all succeeded on
+    the same URL minutes after a refresh had been refused). Not retrying turned
+    one unlucky draw into a lost retailer: on 2026-07-26 the FIRST Ambit request
+    was blocked and all 14 of its EFLs were skipped without being attempted.
     """
     last_exc: Optional[Exception] = None
     resp = None
@@ -1333,8 +1503,16 @@ def _get_with_retry(client, url: str, host: str, attempts: int = _DOWNLOAD_ATTEM
             if getattr(resp, "status_code", None) not in _RETRY_STATUSES:
                 return resp
             if _is_bot_block(resp):
-                logger.info("download: %s returned an explicit bot block -- not retrying", host)
-                return resp
+                if attempt >= _BOT_BLOCK_ATTEMPTS:
+                    logger.info(
+                        "download: %s blocked %d attempt(s) -- giving up on this URL",
+                        host, attempt,
+                    )
+                    return resp
+                logger.info(
+                    "download: %s returned a bot block (attempt %d/%d), retrying",
+                    host, attempt, _BOT_BLOCK_ATTEMPTS,
+                )
             last_exc = None
         except Exception as exc:  # noqa: BLE001 -- transport hiccups are retryable too
             last_exc = exc
@@ -1361,6 +1539,8 @@ def download_discovered(
     timeout: float = 30.0,
     headless: bool = True,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    max_workers: int = hostpool.DEFAULT_MAX_WORKERS,
+    browser_stealth: bool = False,
 ) -> dict:
     """Download discovered plans' EFL PDFs into ``dest`` and append a manifest
     entry per download so downstream dedup/refresh can tell REP-discovered
@@ -1374,8 +1554,15 @@ def download_discovered(
     ``{retailer, plan_name, source_url, discovered_at, extraction_method,
     llm_confidence, is_buyback, buyback_ckwh, file}``.
 
+    Downloads run ``max_workers`` hosts at a time but never two requests to the
+    same host at once (:mod:`energyanalyzer.fetchers.hostpool`), so each REP sees
+    the identical one-at-a-time pattern with the same throttle as before -- the
+    2s spacing between Gexa's fifteen EFLs just no longer blocks Chariot's
+    eleven. Pass ``max_workers=1`` for the old strictly-serial behavior.
+
     Returns ``{"downloaded": [...], "skipped": [...], "failed": [...],
-    "filtered_out": int}``.
+    "filtered_out": int}``, each list in input-plan order regardless of which
+    host finished first.
     """
     import httpx
 
@@ -1414,106 +1601,171 @@ def download_discovered(
 
     logger.info("Downloading %d discovered EFL(s)", total)
     entries: list[dict] = []
-    # Hosts that have explicitly refused bots. Once a site says so we stop
-    # asking: the remaining URLs are recorded as failures without a request,
-    # which loses nothing (they would have failed anyway) and takes a refresh
-    # from ~42 requests against a blocking host down to one.
+    # Opened only if some plan actually needs it, and closed at the end.
+    _fetcher: list = []
+    _fetcher_lock = threading.Lock()
+
+    def _browser_fetcher() -> "_BrowserFetcher":
+        with _fetcher_lock:
+            if not _fetcher:
+                _fetcher.append(
+                    _BrowserFetcher(stealth=browser_stealth, headless=headless)
+                )
+            return _fetcher[0]
+
+    # Hosts that have explicitly refused bots. Once a site has refused
+    # `_BOT_BLOCK_TOLERANCE` DIFFERENT URLs we stop asking: the rest are
+    # recorded as failures without a request, which loses nothing and takes a
+    # refresh from ~42 pointless requests against a blanket-blocking host down
+    # to three. Counting rather than tripping on the first refusal is the whole
+    # point -- Ambit's WAF is a coin flip, and a single unlucky draw used to
+    # cost all 14 of its EFLs. Safe to share across the host queues below
+    # because only one queue ever touches a given host, in order, on one thread.
     blocked_hosts: set[str] = set()
+    block_counts: dict[str, int] = {}
+
+    def _host_of(plan: DiscoveredPlan) -> str:
+        return urlparse(str(plan.efl_url or "")).netloc
+
+    def _note_block(host: str) -> None:
+        """Count a refusal; trip the breaker once a host has refused enough."""
+        seen = block_counts[host] = block_counts.get(host, 0) + 1
+        if seen >= _BOT_BLOCK_TOLERANCE:
+            blocked_hosts.add(host)
+            logger.warning(
+                "%s refused automated access %d time(s); skipping its remaining "
+                "EFL downloads this run",
+                host, seen,
+            )
+
+    def _fetch_one(plan: DiscoveredPlan, client) -> dict:
+        """One EFL. Returns the outcome as a record instead of mutating the
+        summary, so the caller can assemble it in input order no matter which
+        host finished first."""
+        # Guard against a malformed/constructed EFL URL (missing scheme, etc.)
+        # so it's a clear failure line, not an opaque httpx ValueError.
+        if not re.match(r"^https?://", str(plan.efl_url or ""), re.I):
+            return {"kind": "failed", "error": "malformed or non-http EFL URL -- skipped"}
+        host = _host_of(plan)
+        if host in blocked_hosts:
+            return {
+                "kind": "failed",
+                "error": f"not requested -- {host} blocked automated access "
+                "earlier in this run (bot/WAF block)",
+            }
+        file_path = dest / _efl_filename(plan)
+        if file_path.exists():
+            return {"kind": "skipped", "path": file_path}
+        if plan.efl_is_html_viewer:
+            # An HTML EFL viewer (e.g. Octopus): render + print-to-PDF in a
+            # browser rather than a plain GET (which gets only the SPA shell).
+            # _render_efl_pdf handles its own rate limiting.
+            content = _render_efl_pdf(plan.efl_url, headless=headless)
+            resp = None
+        elif plan.fetch_via_browser:
+            # A guarded document endpoint (Ambit). httpx FIRST -- it is cheap and
+            # works whenever the WAF is in a normal mood -- then the browser as
+            # the recovery path, asking from the stack that was handed the link
+            # rather than as an anonymous second client.
+            #
+            # Measured 2026-07-26, and worth recording because it rules out the
+            # obvious theory: when Ambit's API is refusing, it refuses a cold
+            # browser context, a warm one (after loading /Path2Plans in the same
+            # session) and httpx alike -- all 14 bytes of "Blocked by WAF" --
+            # while the plans page on that same host renders normally. So the
+            # browser is not a way through a determined block; it is a second,
+            # better-credentialed attempt for the times the refusal is a coin
+            # flip.
+            resp = _get_with_retry(client, plan.efl_url, host)
+            if _is_bot_block(resp):
+                logger.info(
+                    "%s refused httpx for %r -- retrying through the browser",
+                    host, plan.plan_name,
+                )
+                status, content, ctype = _browser_fetcher().get(plan.efl_url)
+                if status >= 400:
+                    _note_block(host)
+                    return {
+                        "kind": "failed",
+                        "error": f"{host} blocked automated access "
+                        f"(httpx and the browser both refused; HTTP {status})",
+                    }
+                resp = _BrowserResponse(ctype)
+            else:
+                resp.raise_for_status()
+                content = resp.content
+        else:
+            resp = _get_with_retry(client, plan.efl_url, host)
+            if _is_bot_block(resp):
+                _note_block(host)
+                return {
+                    "kind": "failed",
+                    "error": f"{host} blocked automated access (bot/WAF block)",
+                }
+            resp.raise_for_status()
+            content = resp.content
+        # A direct-GET EFL URL can still resolve to an HTML viewer/SPA shell or
+        # error page; saving that as a .pdf would only fail the parser later, so
+        # reject anything without the "%PDF" signature.
+        if b"%PDF" not in content[:1024]:
+            # Read only in this branch: a print-to-PDF render has no response at
+            # all, and test doubles supply a minimal one without headers.
+            ctype = "(rendered page)" if resp is None else resp.headers.get("content-type", "?")
+            # An HTML body is a browser-rendered EFL viewer/SPA shell (the
+            # Vistra shopping.* PDFGenerator endpoint TXU/Ambit use returns
+            # the app shell to httpx) -- defer, don't count as a failure.
+            if "html" in ctype.lower():
+                return {
+                    "kind": "deferred",
+                    "reason": f"HTML response (content-type {ctype!r}) -- a "
+                    "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
+                }
+            return {
+                "kind": "failed",
+                "error": f"response was not a PDF (content-type {ctype!r}, "
+                f"{len(content)} bytes) -- likely a stale link or error page",
+            }
+        file_path.write_bytes(content)
+        return {"kind": "downloaded", "path": file_path}
+
+    def _on_done(done: int, tot: int, plan: DiscoveredPlan) -> None:
+        # Logged on COMPLETION, not on dispatch: with several host queues in
+        # flight there is no meaningful "next" item, but finishes still count up
+        # cleanly, so the refresh log keeps its readable N/total progress line.
+        logger.info("Download %d/%d: %s (%s)", done, tot, plan.plan_name, plan.retailer)
+        if progress_callback:
+            progress_callback(done, tot, plan.plan_name)
+
     with httpx.Client(
         timeout=timeout, headers=headers, follow_redirects=True, verify=_efl_ssl_context()
     ) as client:
-        for i, plan in enumerate(targets, start=1):
-            logger.info(
-                "Download %d/%d: %s (%s)", i, total, plan.plan_name, plan.retailer
-            )
-            # Guard against a malformed/constructed EFL URL (missing scheme, etc.)
-            # so it's a clear failure line, not an opaque httpx ValueError.
-            if not re.match(r"^https?://", str(plan.efl_url or ""), re.I):
-                summary["failed"].append(
-                    {"url": plan.efl_url, "error": "malformed or non-http EFL URL -- skipped"}
-                )
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            host = urlparse(plan.efl_url).netloc
-            if host in blocked_hosts:
-                summary["failed"].append(
-                    {
-                        "url": plan.efl_url,
-                        "error": f"not requested -- {host} blocked automated access "
-                        "earlier in this run (bot/WAF block)",
-                    }
-                )
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            file_path = dest / _efl_filename(plan)
-            if file_path.exists():
-                summary["skipped"].append(str(file_path))
-                entries.append(_manifest_entry(plan, file_path))
-                if progress_callback:
-                    progress_callback(i, total, plan.plan_name)
-                continue
-            try:
-                if plan.efl_is_html_viewer:
-                    # An HTML EFL viewer (e.g. Octopus): render + print-to-PDF in
-                    # a browser rather than a plain GET (which gets only the SPA
-                    # shell). _render_efl_pdf handles its own rate limiting.
-                    content = _render_efl_pdf(plan.efl_url, headless=headless)
-                else:
-                    resp = _get_with_retry(client, plan.efl_url, host)
-                    if _is_bot_block(resp):
-                        blocked_hosts.add(host)
-                        logger.warning(
-                            "%s refused automated access (bot/WAF block); skipping its "
-                            "remaining EFL downloads this run",
-                            host,
-                        )
-                        summary["failed"].append(
-                            {
-                                "url": plan.efl_url,
-                                "error": f"{host} blocked automated access (bot/WAF block)",
-                            }
-                        )
-                        if progress_callback:
-                            progress_callback(i, total, plan.plan_name)
-                        continue
-                    resp.raise_for_status()
-                    content = resp.content
-                # A direct-GET EFL URL can still resolve to an HTML viewer/SPA
-                # shell or error page; saving that as a .pdf would only fail the
-                # parser later, so reject anything without the "%PDF" signature.
-                if b"%PDF" not in content[:1024]:
-                    ctype = resp.headers.get("content-type", "?")
-                    # An HTML body is a browser-rendered EFL viewer/SPA shell (the
-                    # Vistra shopping.* PDFGenerator endpoint TXU/Ambit use returns
-                    # the app shell to httpx) -- defer, don't count as a failure.
-                    if "html" in ctype.lower():
-                        summary["deferred"].append(
-                            {
-                                "url": plan.efl_url,
-                                "reason": f"HTML response (content-type {ctype!r}) -- a "
-                                "browser-rendered EFL viewer/SPA, not an httpx-downloadable PDF",
-                            }
-                        )
-                    else:
-                        summary["failed"].append(
-                            {
-                                "url": plan.efl_url,
-                                "error": f"response was not a PDF (content-type {ctype!r}, "
-                                f"{len(content)} bytes) -- likely a stale link or error page",
-                            }
-                        )
-                    if progress_callback:
-                        progress_callback(i, total, plan.plan_name)
-                    continue
-                file_path.write_bytes(content)
-                summary["downloaded"].append(str(file_path))
-                entries.append(_manifest_entry(plan, file_path))
-            except Exception as exc:  # noqa: BLE001
-                summary["failed"].append({"url": plan.efl_url, "error": repr(exc)})
-            if progress_callback:
-                progress_callback(i, total, plan.plan_name)
+        outcomes = hostpool.run_per_host(
+            targets,
+            host_of=_host_of,
+            work=lambda plan: _fetch_one(plan, client),
+            max_workers=max_workers,
+            on_done=_on_done,
+        )
+    if _fetcher:
+        _fetcher[0].close()
+
+    for outcome in outcomes:
+        plan = outcome.item
+        if not outcome.ok:
+            summary["failed"].append({"url": plan.efl_url, "error": repr(outcome.error)})
+            continue
+        record = outcome.value
+        kind = record["kind"]
+        if kind == "downloaded":
+            summary["downloaded"].append(str(record["path"]))
+            entries.append(_manifest_entry(plan, record["path"]))
+        elif kind == "skipped":
+            summary["skipped"].append(str(record["path"]))
+            entries.append(_manifest_entry(plan, record["path"]))
+        elif kind == "deferred":
+            summary["deferred"].append({"url": plan.efl_url, "reason": record["reason"]})
+        else:
+            summary["failed"].append({"url": plan.efl_url, "error": record["error"]})
 
     if entries:
         with open(manifest_path, "a", encoding="utf-8") as f:
@@ -1774,6 +2026,18 @@ AMBIT = RepConfig(
     broaden=True,
     # Required: plain Playwright is served "Blocked by WAF" at /Path2Plans.
     stealth=True,
+    # Its EFL endpoint sits behind the same probabilistic WAF as the plans page,
+    # so fetch the documents from the browser that was handed the links rather
+    # than approaching shopping.ambitenergy.com again as an anonymous client.
+    efl_via_browser=True,
+    # Headful for OBSERVATION, not (like Tesla) because the edge demands it:
+    # this funnel is the flakiest of the thirteen and fails intermittently --
+    # 2026-07-26 it rendered all 14 plans at 12:05 and timed out on the
+    # plan-card wait at 12:50 with no code change in between, after two steps
+    # ("I already live here", the second "See Plans") reported not-present.
+    # A visible window is the only way to see which interstitial it actually
+    # stopped on; failures/ also gets a screenshot for unattended runs.
+    force_headful=True,
 )
 
 
@@ -2049,18 +2313,40 @@ CHAMPION = RepConfig(
 # --------------------------------------------------------------------------- #
 # Direct Energy interactive harvester (EFL blob is fetched from a backend URL)
 # --------------------------------------------------------------------------- #
-# Direct Energy's shop (shop.directenergy.com) is a React SPA. The plan list is
-# reached by navigating to the ZIP URL (note: ?zipCode=, capital C) then clicking
-# a residential/"not moving" prelude. Each plan's "Electricity Facts Label" link
-# opens a client-generated blob: PDF (popup.url is a useless per-session blob),
-# but the browser first fetches the PDF from a STABLE backend endpoint --
-# api-oam.directenergy.com/api/docs/files/<id>.pdf (plain application/pdf,
-# httpx-downloadable) -- which we capture from the network response and store as
-# the efl_url. Direct Energy's *solar* plans ("Direct Solar Unlimited ...") are
-# the buyback plans PTC/meterplan miss; the rest are standard PTC plans, so this
-# harvester targets the solar ones (widen the name filter to take them all).
-_DE_PLANS_URL = "https://shop.directenergy.com/tx/plan-selection?zipCode={zip}"
+# Direct Energy's shop (shop.directenergy.com) is a React SPA. Each plan's
+# "Electricity Facts Label" link opens a client-generated blob: PDF (popup.url is
+# a useless per-session blob), but the browser first fetches the PDF from a
+# STABLE backend endpoint -- api-oam.directenergy.com/api/docs/files/<id>.pdf
+# (plain application/pdf, httpx-downloadable) -- which we capture from the
+# network response and store as the efl_url. Direct Energy's *solar* plans
+# ("Direct Solar Unlimited ...") are the buyback plans PTC/meterplan miss; the
+# rest are standard PTC plans, so the name filter targets the solar ones unless
+# the config broadens it (ours does -- see DIRECT_ENERGY).
+#
+# Reworked 2026-07-26 after two consecutive refreshes reported "found 0 plan
+# card(s)" against a reachable site. Three separate things were wrong:
+#
+#  1. HEADLESS GETS NOTHING. Measured the same minute: headless Chromium loads
+#     1.37M chars of app shell and 0 plan cards; headful loads 1.99M chars and
+#     26. Same URL, same UA -- the sibling NRG/Akamai signature Tesla already
+#     hits. Hence force_headful on the config. This alone is why discovery
+#     returned nothing.
+#  2. THE PRELUDE IS AVOIDABLE. /tx/product-chart-tabs?zipCode=<zip> renders the
+#     plan chart directly -- no residential/"not moving" funnel to clear, and no
+#     tdspCode needed (verified: 26 cards with and without it). The old
+#     /tx/plan-selection flow's four best-effort prelude clicks were ~30s of
+#     timeouts against controls that no longer exist.
+#  3. THE LOAD-MORE LABEL IS NOT FIXED. Only the first SIX cards are visible;
+#     the rest are in the DOM but hidden behind a button reading "Load 7 More"
+#     -- the old code matched the literal string "Load 8 More", so it never
+#     expanded the list even when cards did render. Matched by pattern now.
+#
+# The chart also renders each plan TWICE (product-chart-*tabs*: a second,
+# hidden tab duplicates all 13). Harvesting only VISIBLE cards drops those --
+# name dedup would too, but not before spending a 6s click timeout on each.
+_DE_PLANS_URL = "https://shop.directenergy.com/tx/product-chart-tabs?zipCode={zip}"
 _DE_EFL_API_RE = re.compile(r"api-oam\.directenergy\.com/api/docs/files/", re.I)
+_DE_LOAD_MORE_RE = re.compile(r"load\s+\d+\s+more", re.I)
 
 
 def _direct_energy_harvest(
@@ -2068,8 +2354,8 @@ def _direct_energy_harvest(
 ) -> list[DiscoveredPlan]:
     """Interactive harvester for Direct Energy (see the section comment).
     ``harvest_live`` handles the initial goto()/browser lifecycle; this
-    re-navigates to the ZIP-specific plans URL, clears the prelude, loads every
-    plan, and for each solar plan captures its EFL's backend PDF URL."""
+    navigates to the ZIP-specific plan chart, expands the listing, and captures
+    each plan's EFL backend PDF URL."""
 
     def _try(action) -> bool:
         try:
@@ -2078,41 +2364,61 @@ def _direct_energy_harvest(
         except Exception:  # noqa: BLE001
             return False
 
-    _try(lambda: page.goto(_DE_PLANS_URL.format(zip=zip_code), wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(5000))  # type: ignore[attr-defined]
-    # Residential / "not moving" prelude -- all best-effort (session-dependent).
-    _try(lambda: page.get_by_role("button", name=" Home").click(timeout=8000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("radio", name="No").check(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="No").click(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_test_id("view-plans").click(timeout=10000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
-    # The listing paginates behind a "Load 8 More" button; click until it's gone.
-    for _ in range(10):
-        btn = page.get_by_role("button", name="Load 8 More")  # type: ignore[attr-defined]
-        if btn.count() == 0:
-            break
-        if not _try(lambda: btn.first.click(timeout=4000)):
-            break
-        _try(lambda: page.wait_for_timeout(1500))  # type: ignore[attr-defined]
-
+    _try(lambda: page.goto(_DE_PLANS_URL.format(zip=zip_code), wait_until="domcontentloaded", timeout=90000))  # type: ignore[attr-defined]
     cards = page.locator(".plan__wrapper")  # type: ignore[attr-defined]
-    count = cards.count()
-    logger.info("Direct Energy: found %d plan card(s); harvesting solar EFLs", count)
+    # This chart is slow -- the first card can take tens of seconds, and more
+    # keep arriving after it. Wait for the count to STOP GROWING rather than
+    # guessing a settle time; a fixed sleep here is what a half-rendered page
+    # (and a short plan list) looks like.
+    if not _try(lambda: page.wait_for_selector(".plan__wrapper", timeout=90000)):  # type: ignore[attr-defined]
+        logger.info("Direct Energy: no plan cards rendered -- site or flow changed")
+        return []
+    previous, stable = -1, 0
+    for _ in range(40):
+        _try(lambda: page.wait_for_timeout(1000))  # type: ignore[attr-defined]
+        current = cards.count()
+        stable = stable + 1 if current == previous else 0
+        previous = current
+        if stable >= 4 and current:
+            break
+
+    # Only the first six cards are shown; the rest hide behind "Load N More".
+    for _ in range(10):
+        more = page.get_by_role("button", name=_DE_LOAD_MORE_RE)  # type: ignore[attr-defined]
+        target = next(
+            (more.nth(i) for i in range(more.count()) if more.nth(i).is_visible()), None
+        )
+        if target is None:
+            break
+        if not _try(lambda t=target: t.click(timeout=8000)):
+            break
+        _try(lambda: page.wait_for_timeout(2500))  # type: ignore[attr-defined]
+
+    # Visible only: the hidden duplicates belong to the chart's second tab.
+    visible = [i for i in range(cards.count()) if _is_visible(cards.nth(i))]
+    logger.info(
+        "Direct Energy: %d plan card(s) visible of %d in the DOM; harvesting EFLs",
+        len(visible), cards.count(),
+    )
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
-    for i in range(count):
+    for i in visible:
         card = cards.nth(i)
         try:
             name = _clean_plan_name(card.locator(".rich-text-body h4").first.inner_text(timeout=3000))
         except Exception:  # noqa: BLE001
             continue
         # Discovery targets Direct Energy's solar (buyback) plans; the rest are
-        # standard PTC plans. Widen this to take every plan if ever needed.
-        if "solar" not in _normalize_name(name) or name in seen:
+        # standard PTC plans -- unless the config says broaden. Twelve Hour
+        # Power is why: it is a free-window plan, not a solar one, so this
+        # filter hid it, and the only other source (meterplan, which publishes
+        # no EFL) guessed a generic 9pm-6am window for a plan whose name says
+        # twelve hours, plus a day rate 2.3c off. It ranked ~$824 too high.
+        if name in seen or (not getattr(config, "broaden", False) and "solar" not in _normalize_name(name)):
             continue
         seen.add(name)
         logger.info("Direct Energy: capturing EFL for %r", name)
-        if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=6000)):
+        if not _try(lambda card=card: card.locator(".plan-doc").first.click(timeout=10000)):
             continue
         _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
         efl_url: Optional[str] = None
@@ -2133,14 +2439,23 @@ def _direct_energy_harvest(
         _try(lambda: page.keyboard.press("Escape"))  # type: ignore[attr-defined]
         if not efl_url:
             continue
+        # Only the "Direct Solar Unlimited" line buys back exports. This used to
+        # be hardcoded True, which was true enough while the name filter kept
+        # only solar plans -- but the config broadened to take all thirteen, and
+        # flagging Live Brighter 12 as a buyback plan would misreport the run's
+        # buyback count. The EFL parse is what settles the actual terms either way.
+        is_solar = "solar" in _normalize_name(name)
         plans.append(
             DiscoveredPlan(
                 retailer=config.retailer,
                 plan_name=name,
                 efl_url=efl_url,
-                is_buyback=True,  # DE solar plans; EFL parse confirms terms
+                is_buyback=is_solar,
                 extraction_method="harvest",
-                context="Direct Energy solar plan; EFL PDF via api-oam docs endpoint",
+                context=(
+                    f"Direct Energy {'solar buyback' if is_solar else 'standard'} plan; "
+                    "EFL PDF via api-oam docs endpoint"
+                ),
             )
         )
     return plans
@@ -2151,6 +2466,16 @@ DIRECT_ENERGY = RepConfig(
     retailer="Direct Energy",
     homepage="https://shop.directenergy.com/",
     harvester=_direct_energy_harvest,
+    # Take every plan, not just the solar ones: Twelve Hour Power is a
+    # free-window plan whose real EFL beats meterplan's guess by ~$824/yr, and
+    # it is one of the report's own benchmark plans.
+    broaden=True,
+    # Required, not cosmetic: headless Chromium is served the app shell with
+    # ZERO plan cards (measured 2026-07-26 -- headless 0 cards, headful 26 on
+    # the same URL and UA), the same Akamai-shaped behavior Tesla hits. Two
+    # refreshes reported "found 0 plan card(s)" against a perfectly healthy site
+    # before this was pinned down.
+    force_headful=True,
 )
 
 
@@ -2443,6 +2768,10 @@ TESLA = RepConfig(
 # context-level `application/pdf` response rather than from any anchor.
 _METER_PLANS_URL = "https://meterplan.com/plans?zipcode={zip}"
 _METER_EFL_NAME_RE = re.compile(r"/EFL_([A-Za-z0-9+]+)_", re.I)
+# The "page has finished rendering its plan cards" signal, waited on instead of
+# a flat sleep after every reload. Text-matched rather than by class: Meter's
+# markup is build-hashed, but this button label is user-facing copy.
+_METER_EFL_SELECTOR = "button:has-text('View Electricity Facts Label')"
 # Term filters to sweep. Meter shows one term at a time; the EFL parser reads the
 # actual term out of each PDF, so this is only about making every plan reachable.
 _METER_TERMS = ("12 months", "24 months", "36 months")
@@ -2540,7 +2869,7 @@ def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[Disco
     same document for all three terms. So the term tab is scoped to the card that
     owns the EFL button being clicked.
 
-    Two further behaviours, both measured:
+    Two further behaviors, both measured:
 
     * A profile chip ("No solar" / "Solar") changes which plans are listed;
       Standard only appears under some of them, so profiles are swept too.
@@ -2572,10 +2901,22 @@ def _meter_harvest(page: object, zip_code: str, config: RepConfig) -> list[Disco
         )
 
     def _load(profile: Optional[str]) -> int:
-        """Fresh load + optional profile chip; returns the EFL-button count."""
+        """Fresh load + optional profile chip; returns the EFL-button count.
+
+        This runs once per (card, term) -- fifteen times a sweep -- so the wait
+        after goto is the single biggest cost in Meter's harvest. It used to be
+        a flat 6s sleep; waiting for the EFL buttons to actually appear does the
+        same job in a fraction of it (Meter was 2m38s of a 6m40s refresh, at a
+        steady 11s per plan). Timing out here means the page really has no plan
+        cards, which is the same answer a count() would have given.
+        """
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)  # type: ignore[attr-defined]
-            page.wait_for_timeout(6000)  # type: ignore[attr-defined]
+            page.wait_for_selector(_METER_EFL_SELECTOR, timeout=45_000)  # type: ignore[attr-defined]
+            # Short settle anyway: the buttons render slightly before React
+            # attaches their handlers, and a click that lands in that gap is
+            # silently swallowed.
+            page.wait_for_timeout(800)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             return 0
         if profile and not _click_any_matching(page, profile, 8000):

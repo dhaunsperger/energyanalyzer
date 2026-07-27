@@ -20,6 +20,7 @@ from energyanalyzer.app.common import (  # noqa: E402
     get_intervals,
     get_plans,
     get_tdu,
+    group_plan_siblings,
     interval_staleness_warning,
     plan_is_stale,
     price_coverage_warning,
@@ -86,7 +87,7 @@ if n_hidden:
 excluded_plans = [p for p in usable_plans if getattr(p, "excludes_solar", False)]
 if excluded_plans:
     include_ineligible = st.toggle(
-        "Include plans this home can't enrol in (rooftop solar excluded by the REP)",
+        "Include plans this home can't enroll in (rooftop solar excluded by the REP)",
         value=False,
         key="compare_include_ineligible",
     )
@@ -109,6 +110,30 @@ if not results:
 plans_by_id = {p.id: p for p in usable_plans}
 cheapest_id = min(results, key=lambda r: r.first_year_net).plan_id
 
+# One product, several brands. Texas retail is full of white labels -- Frontier
+# Battery Awards 12, Frontier Sun Confidence 12, Gexa Battery Benefits 12 and
+# Gexa Solar Buyback 12 are one NRG product with four names -- and three copies
+# of the same deal crowding the top ten hides the actual alternatives. Grouped
+# in the VIEW only: every plan stays in the database, because these are separate
+# contracts with separate enrollment links, and one brand's price may drift from
+# its siblings' later.
+group_siblings = st.toggle(
+    "Group identical plans sold under sibling brands",
+    value=True,
+    key="compare_group_siblings",
+)
+siblings: dict = {}
+if group_siblings:
+    kept_ids, siblings = group_plan_siblings([r.plan_id for r in results], plans_by_id)
+    keep = set(kept_ids)
+    n_collapsed = len(results) - len(keep)
+    results = [r for r in results if r.plan_id in keep]
+    if n_collapsed:
+        st.caption(
+            f"{n_collapsed} row(s) folded into the identical plan above them -- see "
+            "'Also sold as'. Untoggle to list every brand separately."
+        )
+
 st.caption(
     f"Oncor TDU (effective {tdu.effective}): ${tdu.fixed_usd_month:.2f}/mo + "
     f"{tdu.volumetric_ckwh:.4f}¢/kWh. '*' = import rate not offsettable by export credits "
@@ -130,6 +155,9 @@ for r in results:
             "Export ¢/kWh": plan_export_label(plan),
             "Other Details": plan_other_details(plan),
             "ETF": plan_etf_label(plan),
+            "Also sold as": ", ".join(
+                f"{s.retailer} {s.name}" for s in siblings.get(r.plan_id, [])
+            ),
             "1st-Year Net Bill": r.first_year_net,
             "Stale?": "⚠️" if plan_is_stale(plan) else "",
         }

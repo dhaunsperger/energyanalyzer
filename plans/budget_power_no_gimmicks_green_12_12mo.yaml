@@ -1,0 +1,30 @@
+id: budget_power_no_gimmicks_green_12_12mo
+retailer: Budget Power
+name: No Gimmicks Green 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.412
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 100.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Budget_Power_No_Gimmicks_Green_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 7110a182be47eef818e96b864ff19174662fa36a293faec6a706403757121630
+enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN12000949&Promo=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

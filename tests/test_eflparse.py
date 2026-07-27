@@ -368,7 +368,7 @@ class TestCorpusAeTexasSmartSecure36:
         assist-only policy pinned them in the queue permanently.
 
         The label is now matched as a subsequence, so "\\ue001nerg\\ue006 Charge"
-        is recognised as an Energy Charge and the read is scored on its merits.
+        is recognized as an Energy Charge and the read is scored on its merits.
         Audited across all 232 EFLs on disk: the matcher accepts only genuine
         Base/Energy/Monthly Base labels and the PUA-mangled "ae"/"nerg" forms --
         no false matches.
@@ -1359,8 +1359,8 @@ def test_usage_credit_table_row_form_is_parsed():
 
 
 def test_retailer_brand_alias_maps_the_licence_entity_to_the_brand():
-    """Meter's EFLs are issued by "Light Energy, LLC" -- a licence-holding entity
-    that appears nowhere a shopper would recognise, while the plan names on the
+    """Meter's EFLs are issued by "Light Energy, LLC" -- a license-holding entity
+    that appears nowhere a shopper would recognize, while the plan names on the
     same document read "Meter Saver Plan".
 
     Left unaliased it is not just confusing: `_plan_supersedes` compares retailer
@@ -1647,7 +1647,7 @@ def test_broken_font_bill_unit_is_a_monthly_basis():
 def test_base_charge_amount_may_follow_the_unit():
     """"a monthly Base Electricity Charge per ESI-ID of $0.00" (Constellation).
 
-    Every labelled reader expects "<label> ... $X per <unit>", so an amount that
+    Every labeled reader expects "<label> ... $X per <unit>", so an amount that
     trails the unit was never found and the charge defaulted to $0.00 -- right
     by luck here, but unread, and wrong for any REP that charges one.
     """
@@ -1704,7 +1704,7 @@ def test_unmodelled_bonus_credit_is_flagged_but_plain_free_nights_is_not():
     shape a confidence gate cannot see.
 
     The discrimination matters: an ordinary free-nights plan says "100% credit
-    on all Energy Charges", which IS modelled (a 0.0 rate over the window) and
+    on all Energy Charges", which IS modeled (a 0.0 rate over the window) and
     must stay unflagged, or every free-nights plan lands in review.
     """
     from energyanalyzer.eflparse.parser import _BONUS_CREDIT_RE
@@ -1763,3 +1763,189 @@ def test_excludes_solar_defaults_false_and_round_trips():
     )
     assert Plan(**base).excludes_solar is False
     assert Plan(**base, excludes_solar=True).excludes_solar is True
+
+
+# --------------------------------------------------------------------------- #
+# Free-window TDU relief
+# --------------------------------------------------------------------------- #
+def test_free_window_tdu_waiver_reads_all_four_real_phrasings():
+    """Whether TDU delivery is waived inside a free window is the single biggest
+    lever on what these plans cost, and it is plan-specific.
+
+    Missing it charged Oncor's 6.1196c/kWh across every free-window hour and
+    put Green Mountain Pollution Free Nights 24 at $1,648 against the report's
+    $1,265 -- ranked #140 instead of #3.
+    """
+    from energyanalyzer.eflparse.parser import _free_window_waives_tdu
+
+    # Green Mountain: an explicit per-period delivery row priced at zero.
+    assert _free_window_waives_tdu(
+        "Oncor Electric Delivery Daytime Delivery Charges 6.1196c per kWh "
+        "Oncor Electric Delivery Nighttime Delivery Charges $0.00"
+    )[0]
+    # Frontier/Gexa: the period trails the amount instead of leading it.
+    assert _free_window_waives_tdu("TDU Delivery Charges 0.0000 ¢ per kWh - Weekends")[0]
+    # Ambit: prose.
+    assert _free_window_waives_tdu(
+        "*TDU Per kWh Delivery Charges will be credited for usage during the nighttime hours"
+    )[0]
+    # Direct Energy: the same promise as a negative, about a NAMED period.
+    assert _free_window_waives_tdu(
+        "*All delivery charges will be prorated and the customer will not be billed for any "
+        "TDU delivery charges during the Designated Free Period."
+    )[0]
+
+
+def test_free_window_tdu_waiver_respects_an_explicit_denial():
+    """A REP that spells out that delivery charges still apply is answering
+    exactly this question, and must beat every positive signal."""
+    from energyanalyzer.eflparse.parser import _free_window_waives_tdu
+
+    assert not _free_window_waives_tdu(
+        "Free Lunch Hour is 12:00 PM to 1:00 PM. Note - Transmission and Distribution Utility "
+        "(TDU) delivery charges apply to all electricity usage, including electricity used "
+        "during the Free Lunch Hour."
+    )[0]
+    # And a clock time inside an average-price formula is not a zero rate --
+    # this matched before the amount had to carry a currency unit.
+    assert not _free_window_waives_tdu(
+        "Delivery Charge per kWh)] / Monthly Usage. EV charging hours are from 10:00 PM to "
+        "4:00 AM every night."
+    )[0]
+
+
+def test_named_free_period_window_survives_an_interleaved_column():
+    """"Designated Free Period (9:00 PM until 9:00 AM)" -> 12 hours.
+
+    Direct Energy renders that phrase with the rate cell from the OTHER column
+    dropped inside the parentheses: "(9:00 <newline> 0c <newline> PM until 9:00
+    AM)". Without stripping the amount the range is unparseable, and the plan
+    -- named Twelve Hour Power -- silently kept meterplan's generic 9-hour
+    guess.
+    """
+    from energyanalyzer.eflparse.parser import _find_night_hours
+
+    interleaved = (
+        "                     per kWh - Designated Free Period (9:00\n"
+        "            0¢\n"
+        "                     PM until 9:00 AM)\n"
+    )
+    assert _find_night_hours(interleaved) == [21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8]
+
+
+def test_bare_base_charge_is_read_but_never_the_delivery_utilitys():
+    """"Base Charge: $9.95" with no unit is still a base charge.
+
+    Direct Energy prints the unit on some EFLs and omits it on others; every
+    labeled reader required it, so Twelve Hour Power defaulted to $0.00.
+    But "Oncor Base Charge: $4.06 /month" is the TDU's own charge and must not
+    be adopted as the plan's -- Tesla Drive 12M prints it right above the
+    energy rates.
+    """
+    from energyanalyzer.eflparse.parser import _extract_base_charge_bare_amount
+
+    got = _extract_base_charge_bare_amount("Base Charge: $9.95")
+    assert got is not None and got[0] == 9.95
+    assert _extract_base_charge_bare_amount(
+        "Oncor Delivery Charges: 6.1196 ¢/kWh\nOncor Base Charge: $4.06 /month"
+    ) is None
+
+
+def test_a_branded_bill_credit_is_read():
+    """Just Energy's family names the credit after the plan and inverts the
+    comparator, which defeated every existing pattern at once:
+
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or
+         greater than 500 kWh per bill cycle."
+
+    The others say "credit of $125 ... usage is at least 1,000 kWh". Simple
+    Value 12 therefore modeled at 15c/kWh with NO credit -- overstating it by
+    $50 every single month, $600 a year.
+    """
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    got = _extract_bill_credits(
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or "
+        "greater than 500 kWh per bill cycle."
+    )
+    assert got == [{"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}]
+
+    got = _extract_bill_credits(
+        "Power Perks Credit: $125.00 if your usage on this plan is equal or "
+        "greater than 1000 kWh per bill cycle."
+    )
+    assert got == [{"min_kwh": 1000.0, "max_kwh": None, "credit_usd": 125.0}]
+
+    # ...and the prose restatement of the same credit must not double it up.
+    both = _extract_bill_credits(
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or "
+        "greater than 500 kWh per bill cycle. The Simple Value Credit applies "
+        "when billed usage meets or exceeds 500 kWh during a billing cycle."
+    )
+    assert both == [{"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}]
+
+
+def test_the_branded_pattern_does_not_invent_credits():
+    """It needs a labelled credit, an amount, AND a kWh threshold -- prose about
+    credits in general must not become a bill credit."""
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    for text in (
+        "Your bill will contain a credit for Energy Charges consumed during Night Hours.",
+        "Buyback Energy Credit: 6.0c/kWh.",
+        "A Minimum Usage Fee of $4.99 will apply to billing cycles less than 400 kWh.",
+        "One-time GoodBundle set up and carbon offset purchase: $49.99.",
+    ):
+        assert _extract_bill_credits(text) == [], text
+
+
+def test_a_settlement_point_disclosure_is_an_rtw_buyback():
+    """Octopus answers the PUCT excess-generation question with the MECHANISM,
+    not just "Yes":
+
+        "Does Octopus Energy purchase excess distributed renewable generation?
+         Yes (at the Real Time Settlement Price Point)"
+
+    That fully specifies an RTW buyback -- the export credit is the ERCOT
+    real-time price for the interval. Reading it as `kind: none` cost Octo Green
+    12 its entire export credit: $1,646.59 modeled against $1,431.88 once the
+    buyback is there, on 9,803 kWh/yr of exports.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, conf, ev = _extract_buyback(
+        "Does Octopus Energy purchase excess distributed renewable generation? "
+        "Yes (at the Real Time Settlement Price Point) Renewable Content 100%",
+        None,
+    )
+    assert bb["kind"] == "rtw"
+    assert bb["rtw"] == {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
+    assert conf < 0.8, "multiplier/adder are not stated -- a human should confirm"
+    assert "Settlement Price Point" in ev
+
+
+def test_a_bare_yes_still_only_vetoes_confidence():
+    """Without a named mechanism the rate really is unread: the value stays
+    "none" and only the confidence drops, so the draft lands in review rather
+    than entering the ranking as a non-buyback plan."""
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, conf, _ = _extract_buyback(
+        "Does the REP purchase excess distributed renewable generation? Yes "
+        "Renewable Content 22%",
+        None,
+    )
+    assert bb["kind"] == "none" and conf == 0.3
+
+
+def test_unrelated_real_time_prose_is_not_a_buyback():
+    """"Real-time" and "market" appear in EFL boilerplate about price changes;
+    only the ERCOT settlement-point terms may promote a disclosure to RTW."""
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, _conf, _ = _extract_buyback(
+        "Does the REP purchase excess distributed renewable generation? Yes. "
+        "Your price may change to reflect real-time changes in market conditions.",
+        None,
+    )
+    assert bb["kind"] == "none"

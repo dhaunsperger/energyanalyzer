@@ -1,0 +1,30 @@
+id: ironhorse_power_services_llc_giddy_up_24_24mo
+retailer: Ironhorse Power Services LLC
+name: Giddy Up 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.4108
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 250.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 5.85
+source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_24.pdf
+retrieved: '2026-07-26'
+source_sha256: d7e34f293b26ca5b45ec80a5cefc201e5ea01e226c41a9864df2cd848ac34b93
+enroll_url: https://signup.ironhorsepowerservices.com/ironhorse-ptc/CTP-24-PC-0-100279
+notes: ''
+needs_review: false
+excludes_solar: false

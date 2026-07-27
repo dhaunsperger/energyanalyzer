@@ -1,0 +1,29 @@
+id: txu_energy_simple_rate_12_12mo
+retailer: TXU Energy
+name: Simple Rate 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 9.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_Simple_Rate_12.pdf
+retrieved: '2026-07-26'
+source_sha256: e17f17e010e2c9fd369966ad4321e2092d120127145fee2cbb61b5f15a692aea
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: false
+excludes_solar: false

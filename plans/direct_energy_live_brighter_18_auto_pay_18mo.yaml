@@ -1,0 +1,29 @@
+id: direct_energy_live_brighter_18_auto_pay_18mo
+retailer: Direct Energy
+name: Live Brighter 18 Auto Pay
+term_months: 18
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 9.4798
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 180.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:Direct_Energy_Live_Brighter_18_Auto_Pay.pdf
+retrieved: '2026-07-26'
+source_sha256: 9032342da7fd1fc9359d990327f00ec7d153dcfbdbc654cb40aeb9a201f19ef5
+notes: ''
+needs_review: false
+excludes_solar: false

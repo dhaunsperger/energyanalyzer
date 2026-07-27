@@ -1,0 +1,29 @@
+id: txu_energy_smart_2000_select_12_12mo
+retailer: TXU Energy
+name: Smart 2000 Select 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 9.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_Smart_2000_Select_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 9254821f8d85d14327d98aed89e0b80fb56a73beefb6ec1ea8bdb4850bbf07ce
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: false
+excludes_solar: false

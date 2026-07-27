@@ -1,0 +1,34 @@
+id: tara_energy_value_choice_12_12mo
+retailer: Tara Energy
+name: Value Choice - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 17.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  max_kwh: null
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:TARA_ENERGY_Value_Choice_-_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 6e54b310d8eef5e947cb72c2a948febb9b78c69f27ee736ee9246442a71cb3a2
+enroll_url: https://taraenergy.com/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=UP
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

@@ -1,0 +1,36 @@
+id: just_energy_fixed_rate_product_sustainable_living_bundle_5_for_service_area_oncor_5mo
+retailer: Just Energy
+name: Sustainable Living Bundle - 5
+term_months: 5
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.9
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:JUST_ENERGY_Sustainable_Living_Bundle_-_5.pdf
+retrieved: '2026-07-26'
+source_sha256: 1dee199bde37ce1d8a441988658b0fb5f2937268ab19597aa8602ecaf65ef0f4
+notes: 'Enrolling REQUIRES a one-time $49.99 GoodBundle setup and carbon-offset purchase
+  (2000 lbs of carbon credits); the EFL folds 1/12 of it into its average-price table.
+  Modeled as signup_fee_usd, counted once in the first-year total. NOTE the 5-month
+  term: the 4.9c/kWh energy rate is only held for five months, but the ranking prices
+  a full twelve at it, so this plan''s first-year figure is optimistic beyond the
+  fee. base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false
+signup_fee_usd: 49.99
+enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST

@@ -44,7 +44,7 @@ STATE_PATH = REPO_ROOT / "data" / "refresh_state.json"
 # The discovery console. A background thread has no ScriptRunContext and so
 # cannot stream into an `st.empty()` the way the old in-script version did, so
 # the fetchers' INFO logs go to a file and the UI tails it. Bonus over the old
-# behaviour: the log outlives the run, so you can read what discovery did on a
+# behavior: the log outlives the run, so you can read what discovery did on a
 # sweep that was interrupted.
 LOG_PATH = REPO_ROOT / "data" / "refresh_log.txt"
 _MAX_LOG_BYTES = 2_000_000

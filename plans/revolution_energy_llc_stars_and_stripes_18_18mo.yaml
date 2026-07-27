@@ -1,0 +1,30 @@
+id: revolution_energy_llc_stars_and_stripes_18_18mo
+retailer: Revolution Energy LLC
+name: Stars and Stripes 18
+term_months: 18
+tdu: ONCOR
+base_charge_usd: 4.0
+energy_rates:
+- rate_ckwh: 6.982
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 250.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 24.7
+source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_18.pdf
+retrieved: '2026-07-26'
+source_sha256: 958519279de8060de8508d302338a38129c3cf4b88489d8ad5985e8d667a6631
+enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370257&promotion=NONE&valid=N&referral=&landingpage=ptc
+notes: ''
+needs_review: false
+excludes_solar: false

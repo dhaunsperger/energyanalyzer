@@ -19,9 +19,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_GreenVolt_36.pdf
 retrieved: '2026-07-26'
+source_sha256: b2b8b5056d1f18b76058773f1fd5c302058168ab5e6ec8a48e2c79d523e0438c
 notes: ''
 needs_review: false
+excludes_solar: false

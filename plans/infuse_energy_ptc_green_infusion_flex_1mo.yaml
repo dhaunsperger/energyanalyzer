@@ -1,0 +1,30 @@
+id: infuse_energy_ptc_green_infusion_flex_1mo
+retailer: Infuse Energy
+name: PTC Green Infusion Flex
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 5.0
+energy_rates:
+- rate_ckwh: 6.846
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: variable
+renewable_pct: 100.0
+source: efl:INFUSE_ENERGY_PTC_Green_Infusion_Flex.pdf
+retrieved: '2026-07-26'
+source_sha256: c1212a2484526f2857ffe393e359e3bcac54f3e1a7c45d11e98ea58209375a9c
+enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1668669&promotion=NONE&valid=N&referral=&landingpage=ptc
+notes: ''
+needs_review: false
+excludes_solar: false

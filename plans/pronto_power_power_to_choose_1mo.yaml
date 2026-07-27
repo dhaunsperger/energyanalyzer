@@ -1,0 +1,31 @@
+id: pronto_power_power_to_choose_1mo
+retailer: Pronto Power
+name: Power To Choose
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 11.86
+energy_rates:
+- rate_ckwh: 17.9
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: false
+etf_usd: 50.0
+etf_per_month_remaining: false
+rate_type: variable
+renewable_pct: 25.0
+source: efl:PRONTO_POWER_Power_To_Choose.pdf
+retrieved: '2026-07-26'
+source_sha256: f4582694c643216673781017d3f7d4ee02aa1e87cd363f8d3f9dcbd67d523d7d
+notes: energy rate derived from a 'variable rate of X cents' statement; base_charge_usd
+  ($11.86/mo) derived from a per-day customer fee (fee * 365 / 12, rounded to cents);
+  TDU delivery charges appear bundled into the Energy Charge (tdu_passthrough=False)
+needs_review: false
+excludes_solar: false
+enroll_url: https://pronto-enroll.smartgridcis.net/?aid=PowertoChoose&?lang=es

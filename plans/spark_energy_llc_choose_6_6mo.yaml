@@ -1,5 +1,5 @@
 id: spark_energy_llc_choose_6_6mo
-retailer: Spark Energy, LLC
+retailer: Spark Energy LLC
 name: Choose 6
 term_months: 6
 tdu: ONCOR
@@ -18,9 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 100.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_6.pdf
 retrieved: '2026-07-26'
+source_sha256: 95be41d692ffb2ce9999364adcdf53017a4796b299214df5e25c513b3bebfccf
+enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
 notes: ''
 needs_review: false
+excludes_solar: false

@@ -1,0 +1,33 @@
+id: txu_energy_e_saver_12_12mo
+retailer: TXU Energy
+name: e-Saver 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 6.95
+energy_rates:
+- rate_ckwh: 13.4
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_e-Saver_12.pdf
+retrieved: '2026-07-26'
+source_sha256: 43d2ff91c5397b44f88755a9fca2389008ff72c6b9d27ca405ef20a4fe7e1366
+notes: usage-tiered energy charge (0-1000 kWh @ 13.4c, >1000 kWh @ 8.7c) -- the schema
+  models one rate per window, so any single rate here would misprice the plan; could
+  not find an Energy Charge rate
+needs_review: true
+excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 13.4c, >1000 kWh @ 8.7c)
+  -- the schema models one rate per window, so any single rate here would misprice
+  the plan

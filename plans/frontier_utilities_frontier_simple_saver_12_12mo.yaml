@@ -20,10 +20,13 @@ bill_credits:
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Simple_Saver_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 4ad3e5b6b7000a200848e879600fe66bd7788b11cf005b45f529aa6c3da8f4c4
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false
+excludes_solar: false

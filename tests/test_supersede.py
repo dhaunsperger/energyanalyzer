@@ -306,7 +306,7 @@ def test_prune_drops_rows_a_fully_scraped_rep_does_not_offer(tmp_path):
 
     When we have driven the retailer's own site to completion and the plan is
     not among what it returned, the row is out of date or not something we could
-    enrol in -- and it can never be verified, because the index publishes no EFL.
+    enroll in -- and it can never be verified, because the index publishes no EFL.
     """
     drafts = tmp_path / "drafts"
     stale = _save(
@@ -319,7 +319,7 @@ def test_prune_drops_rows_a_fully_scraped_rep_does_not_offer(tmp_path):
     )
     coverage = {"TXU Energy": ["Free Nights & Cool Summer 12", "Simple Rate 12", "e-Saver 12"]}
 
-    removed = prune = app_common.prune_stale_meterplan_drafts(drafts, coverage)
+    removed = prune = app_common.prune_stale_meterplan_rows(drafts, coverage)
 
     assert [d for d, _ in removed] == ["mp_txu_free_nights_solar_days_12mo"]
     assert not stale.exists()
@@ -341,15 +341,197 @@ def test_prune_never_touches_a_rep_we_did_not_fully_scrape(tmp_path):
         drafts,
     )
     # Coverage names a DIFFERENT retailer; Ambit isn't in it at all.
-    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert ambit.exists()
     # Empty coverage (no discovery run, or none completed) prunes nothing.
-    assert app_common.prune_stale_meterplan_drafts(drafts, {}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {}) == []
     assert ambit.exists()
 
 
 def test_prune_leaves_real_drafts_alone(tmp_path):
     drafts = tmp_path / "drafts"
     real = _save(_mk("TXU Energy", "Something Discontinued", 12, "efl:txu.pdf", "txu_real_12"), drafts)
-    assert app_common.prune_stale_meterplan_drafts(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert app_common.prune_stale_meterplan_rows(drafts, {"TXU Energy": ["Simple Rate 12"]}) == []
     assert real.exists(), "only meterplan-sourced drafts are ever pruned"
+
+
+def test_service_mark_fused_to_a_word_is_stripped():
+    """"FlexSM" must tokenize to "flex".
+
+    The (R)/(TM) glyph is removed before tokenizing, which fuses the mark onto
+    the preceding word. `_NAME_FILLER_TOKENS` already drops a STANDALONE "sm",
+    which never helped: the mark is not a separate token. Audited over every
+    plan name and retailer on disk -- the only tokens this touches are 12sm,
+    24sm, flexsm, forwardsm and freetm, all real service marks.
+    """
+    assert "flex" in app_common._significant_tokens("TXU Energy Solar Buyback System FlexSM")
+    assert "flexsm" not in app_common._significant_tokens("Solar Buyback System FlexSM")
+    assert "forward" in app_common._significant_tokens("TXU Energy Flex ForwardSM")
+    # Green Mountain's "Pollution FreeTM e-Plus" must match the unmarked spelling.
+    assert app_common._significant_tokens("Pollution FreeTM e-Plus 12") == app_common._significant_tokens(
+        "Pollution Free e-Plus 12"
+    )
+    # A short token is never truncated -- "sm" alone is filler, not a suffix.
+    assert app_common._significant_tokens("Prism") == {"prism"}
+
+
+def test_meterplan_bb_abbreviation_supersedes_the_spelled_out_plan():
+    """meterplan's "Solar BB System Flex" IS TXU's "Solar Buyback System FlexSM".
+
+    Real miss found 2026-07-26: the synthetic ranked #2 overall, ABOVE the real
+    plan it stands in for, carrying a stale 15.6c rate against the EFL's 15.8c.
+    Two independent mismatches had to fall for it -- "bb" vs "buyback" and
+    "flex" vs "flexsm".
+    """
+    synthetic = _mk("TXU Energy", "Solar BB System Flex", 1, "meterplan", "mp_txu_solar_bb_flex")
+    real = _mk(
+        "TXU Energy Retail Company LLC",
+        "TXU Energy Solar Buyback System FlexSM",
+        1,
+        "efl:TXU_Solar_Buyback_System_Flex.pdf",
+        "txu_solar_buyback_system_flexsm_1mo",
+    )
+    assert app_common._plan_supersedes(synthetic, real)
+    # Still term-sensitive, and still not a license to merge different products.
+    other = _mk("TXU Energy", "TXU Energy Solar Buyback Saver 12", 12, "efl:x.pdf", "txu_saver")
+    assert not app_common._plan_supersedes(synthetic, other)
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic meterplan rows that outlived their usefulness
+# --------------------------------------------------------------------------- #
+def test_prune_reaches_promoted_plans_not_just_drafts(tmp_path):
+    """The blind spot with the long half-life.
+
+    A synthetic promoted BEFORE we started surveying its REP directly was never
+    re-examined, so it sat in the ranking forever. Four such rows survived the
+    2026-07-26 run -- Chariot Fusion, Reliant Solar Payback Plus, TXU Solar
+    Buyback Plus and Saver -- none of them still sold by their retailer.
+    """
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("TXU Energy", "Solar Buyback Plus", 12, "meterplan", "mp_txu_solar_buyback_plus_12mo"), plans)
+    _save(_mk("TXU Energy", "Simple Rate 12", 12, "meterplan", "mp_txu_simple_rate_12mo"), plans)
+
+    removed = app_common.prune_stale_meterplan_rows(plans, {"TXU Energy": ["Simple Rate 12"]})
+
+    assert [r for r, _ in removed] == ["mp_txu_solar_buyback_plus_12mo"]
+    assert not (plans / "mp_txu_solar_buyback_plus_12mo.yaml").exists()
+    assert (plans / "mp_txu_simple_rate_12mo.yaml").exists(), "still offered -- keep it"
+
+
+def test_prune_spares_a_rep_we_do_not_survey(tmp_path):
+    """Almika is not in REP_CONFIGS, so nothing ever testifies that it stopped
+    selling a plan. Absence of evidence must not retire its row."""
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Almika Solar", "60 Energy Plus Buyback", 60, "meterplan", "mp_almika_60mo"), plans)
+
+    assert app_common.prune_stale_meterplan_rows(plans, {"TXU Energy": ["Simple Rate 12"]}) == []
+    assert (plans / "mp_almika_60mo.yaml").exists()
+
+
+def test_prune_reads_the_term_out_of_the_listed_plan_name(tmp_path):
+    """Discovery coverage is plan names only -- no term column -- and the old
+    code handed the candidate the DRAFT's own term, making the term a
+    non-discriminator by construction.
+
+    So a synthetic "All Nighter" 24mo counted as offered because Green Mountain
+    sells "Solar All Nighter 12": the token comparison drops the trailing
+    number, and the term was the only thing left to tell them apart.
+    """
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Green Mountain", "All Nighter", 24, "meterplan", "mp_gm_all_nighter_24mo"), plans)
+    _save(_mk("Green Mountain", "All Nighter", 12, "meterplan", "mp_gm_all_nighter_12mo"), plans)
+
+    removed = app_common.prune_stale_meterplan_rows(
+        plans, {"Green Mountain Energy": ["Solar All Nighter 12"]}
+    )
+
+    assert [r for r, _ in removed] == ["mp_gm_all_nighter_24mo"]
+    assert (plans / "mp_gm_all_nighter_12mo.yaml").exists(), "the 12mo IS sold"
+
+
+def test_a_listing_without_a_term_stays_permissive(tmp_path):
+    """"Pollution Free e-Plus", "Gexa Flex Plan", "Octopus Flex" carry no term.
+    Guessing one there would prune real plans, so the draft's term is used and
+    the match falls back to names alone."""
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    _save(_mk("Octopus Energy", "Octopus Flex", 24, "meterplan", "mp_octopus_flex_24mo"), plans)
+
+    assert app_common.prune_stale_meterplan_rows(plans, {"Octopus Energy": ["Octopus Flex"]}) == []
+
+
+def test_a_trailing_number_that_is_not_a_term_is_ignored():
+    """"Gexa 55+" is a seniors plan and "Smart 2000 Select" counts kWh -- only
+    plausible contract lengths are read back as a term."""
+    assert app_common._term_from_plan_name("Solar All Nighter 12") == 12
+    assert app_common._term_from_plan_name("Champ Saver-24") == 24
+    assert app_common._term_from_plan_name("Gexa 55+") is None
+    assert app_common._term_from_plan_name("Smart 2000 Select") is None
+    assert app_common._term_from_plan_name("Pollution Free e-Plus") is None
+    assert app_common._term_from_plan_name("Free 3 Day Weekends 12") == 12
+
+
+# --------------------------------------------------------------------------- #
+# Sibling grouping (one product, several brands)
+# --------------------------------------------------------------------------- #
+def _p(pid, retailer, name, **kw):
+    from energyanalyzer.core.models import EnergyRate, Plan
+    base = dict(id=pid, retailer=retailer, name=name, term_months=12,
+                energy_rates=[EnergyRate(rate_ckwh=9.3)])
+    base.update(kw)
+    return Plan(**base)
+
+
+def test_identical_deals_under_different_brands_collapse_to_one_row():
+    """Frontier Battery Awards 12, Frontier Sun Confidence 12, Gexa Battery
+    Benefits 12 and Gexa Solar Buyback 12 are one NRG product with four names --
+    same effective date, same 475 kWh outflow assumption in all four EFLs. Three
+    copies of the same deal crowding the top ten hide the real alternatives."""
+    plans = [
+        _p("a", "Frontier Utilities", "Frontier Battery Awards 12"),
+        _p("b", "Frontier Utilities", "Frontier Sun Confidence 12"),
+        _p("c", "Gexa Energy", "Gexa Battery Benefits 12"),
+        _p("d", "Gexa Energy", "Gexa Solar Buyback 12"),
+    ]
+    by_id = {p.id: p for p in plans}
+
+    kept, siblings = app_common.group_plan_siblings(["a", "b", "c", "d"], by_id)
+
+    assert kept == ["a"], "the best-ranked one represents the group"
+    assert [p.id for p in siblings["a"]] == ["b", "c", "d"]
+
+
+def test_a_cheaper_sibling_is_not_hidden_behind_a_dearer_one():
+    """Anything that can move a bill keeps plans apart -- only a genuinely
+    indistinguishable deal is folded away."""
+    by_id = {p.id: p for p in (
+        _p("cheap", "Gexa Energy", "Gexa 12"),
+        _p("dear", "Frontier Utilities", "Frontier 12", base_charge_usd=9.95),
+    )}
+    kept, siblings = app_common.group_plan_siblings(["cheap", "dear"], by_id)
+    assert kept == ["cheap", "dear"] and siblings == {}
+
+
+def test_eligibility_keeps_plans_apart():
+    """A plan this home cannot buy is not interchangeable with one it can,
+    however identical the arithmetic."""
+    by_id = {p.id: p for p in (
+        _p("ok", "Gexa Energy", "Gexa 12"),
+        _p("no", "TXU Energy", "Free Nights 12", excludes_solar=True),
+    )}
+    kept, _ = app_common.group_plan_siblings(["ok", "no"], by_id)
+    assert kept == ["ok", "no"]
+
+
+def test_the_current_plan_always_keeps_its_own_row():
+    """It is the baseline every other row is read against."""
+    by_id = {p.id: p for p in (
+        _p("rival", "Gexa Energy", "Gexa 12"),
+        _p(app_common.CURRENT_PLAN_ID, "Pulse Power", "Your Current Plan"),
+    )}
+    kept, _ = app_common.group_plan_siblings(["rival", app_common.CURRENT_PLAN_ID], by_id)
+    assert app_common.CURRENT_PLAN_ID in kept

@@ -23,9 +23,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 15.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_Shine_12.pdf
 retrieved: '2026-07-26'
+source_sha256: 199b29a6dbdd27adb2d343129aec08e10abf2614bd121d6b0e3188c88741be3a
 notes: ''
 needs_review: false
+excludes_solar: false

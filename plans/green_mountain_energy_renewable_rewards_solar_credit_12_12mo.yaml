@@ -1,0 +1,30 @@
+id: green_mountain_energy_renewable_rewards_solar_credit_12_12mo
+retailer: Green Mountain Energy
+name: Renewable Rewards Solar Credit 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 29.95
+energy_rates:
+- rate_ckwh: 11.3
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 6.3
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
+retrieved: '2026-07-26'
+source_sha256: de7bb5f088d48a43c6b793fd3dbd2041461fc46cb001062b2a4211f21cc40a64
+notes: ''
+needs_review: false
+excludes_solar: false

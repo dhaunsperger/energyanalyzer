@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -375,7 +376,7 @@ def test_ambit_has_a_render_flow_with_manual_capture_as_backstop():
 
     The render must not become a single point of failure -- `_run_rep_discovery`
     falls back to the newest manual capture when a live render raises, so a
-    blocked night degrades to the old behaviour instead of dropping every
+    blocked night degrades to the old behavior instead of dropping every
     buyback plan (which PTC and meterplan both miss).
     """
     assert rd.REP_CONFIGS["ambit"].retailer == "Ambit Energy"
@@ -1079,6 +1080,369 @@ def test_download_discovered_logs_progress(tmp_path, monkeypatch, caplog):
     assert any("Download 1/" in m for m in messages)
 
 
+def test_download_discovered_never_hits_one_host_twice_at_once(tmp_path, monkeypatch):
+    """Downloads run several hosts in parallel, but a REP must still see exactly
+    one request at a time -- that is the whole politeness budget for a site whose
+    EFLs we fetch once a year."""
+    import threading
+
+    import httpx
+
+    lock = threading.Lock()
+    live: dict[str, int] = {}
+    peak: dict[str, int] = {}
+
+    class _ConcurrencyProbeClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            host = url.split("/")[2]
+            with lock:
+                live[host] = live.get(host, 0) + 1
+                peak[host] = max(peak.get(host, 0), live[host])
+            time.sleep(0.01)
+            with lock:
+                live[host] -= 1
+            return _FakeResponse(b"%PDF-1.4 fake efl content")
+
+    plans = [
+        rd.DiscoveredPlan(
+            retailer="Gexa Energy",
+            plan_name=f"Gexa {n}",
+            efl_url=f"https://gexa.example/{n}.pdf",
+            is_buyback=True,
+        )
+        for n in range(4)
+    ]
+    monkeypatch.setattr(httpx, "Client", _ConcurrencyProbeClient)
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    rd.download_discovered(plans, dest=tmp_path / "efl", max_workers=4)
+
+    assert peak == {"gexa.example": 1}
+
+
+def test_download_discovered_summary_stays_in_plan_order(tmp_path, monkeypatch):
+    """Hosts finish out of order; the summary must not. A refresh's manifest and
+    its "downloaded N" lists are diffed run to run, so completion order leaking
+    into them would make every run look different."""
+    import httpx
+
+    class _UnevenClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            if "slow" in url:
+                time.sleep(0.05)
+            return _FakeResponse(b"%PDF-1.4 fake efl content")
+
+    plans = [
+        rd.DiscoveredPlan(retailer="Slow REP", plan_name="Slow A",
+                          efl_url="https://slow.example/a.pdf", is_buyback=True),
+        rd.DiscoveredPlan(retailer="Fast REP", plan_name="Fast B",
+                          efl_url="https://fast.example/b.pdf", is_buyback=True),
+        rd.DiscoveredPlan(retailer="Slow REP", plan_name="Slow C",
+                          efl_url="https://slow.example/c.pdf", is_buyback=True),
+    ]
+    monkeypatch.setattr(httpx, "Client", _UnevenClient)
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    summary = rd.download_discovered(plans, dest=tmp_path / "efl", max_workers=3)
+
+    assert [Path(p).name for p in summary["downloaded"]] == [
+        "Slow_REP_Slow_A.pdf",
+        "Fast_REP_Fast_B.pdf",
+        "Slow_REP_Slow_C.pdf",
+    ]
+
+
+def test_rate_limit_reserves_its_slot_before_sleeping(monkeypatch):
+    """Two threads landing on one host must queue, not both read the same stale
+    timestamp and fire together. The slot is claimed under the lock; only the
+    sleep happens outside it."""
+    import threading
+
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.05)
+    monkeypatch.setattr(rd, "_last_request_at", {})
+    stamps: list[float] = []
+    lock = threading.Lock()
+
+    def hit() -> None:
+        rd._respect_rate_limit("one.example")
+        with lock:
+            stamps.append(time.monotonic())
+
+    threads = [threading.Thread(target=hit) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    stamps.sort()
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    assert all(g >= 0.04 for g in gaps), gaps
+
+
+def test_render_failure_saves_evidence_outside_the_capture_glob(tmp_path):
+    """A failed render photographs the page it died on -- but into failures/,
+    never beside the good captures: `_newest_capture` globs `<key>_*.html` for
+    the fallback, so a dead-end page parked there would become the thing
+    discovery falls back TO, turning a loud failure into a silent zero."""
+
+    class _FakePage:
+        def screenshot(self, path, full_page=False):
+            Path(path).write_bytes(b"\x89PNG fake")
+
+        def content(self):
+            return "<html>stuck on the moving-house question</html>"
+
+    rd._save_failure_evidence(_FakePage(), rd.AMBIT, tmp_path)
+
+    failures = sorted((tmp_path / "failures").iterdir())
+    assert [p.suffix for p in failures] == [".html", ".png"]
+    assert not list(tmp_path.glob("ambit_*.html"))
+
+
+def test_failure_evidence_never_masks_the_real_error(tmp_path):
+    """It runs while an exception is already propagating; a screenshot problem
+    must not become the error the user sees."""
+
+    class _DeadPage:
+        def screenshot(self, path, full_page=False):
+            raise RuntimeError("target page closed")
+
+        def content(self):
+            raise RuntimeError("target page closed")
+
+    rd._save_failure_evidence(_DeadPage(), rd.AMBIT, tmp_path)  # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Direct Energy harvester (fake page; no browser)
+# --------------------------------------------------------------------------- #
+class _DELocator:
+    """Minimal Playwright-Locator double over a list of fake DE plan cards."""
+
+    def __init__(self, cards, sub=None):
+        self._cards, self._sub = cards, sub
+
+    def count(self):
+        return len(self._cards)
+
+    def nth(self, i):
+        return _DECard(self._cards[i]) if self._sub is None else self._cards[i]
+
+    @property
+    def first(self):
+        return self.nth(0)
+
+
+class _DECard:
+    def __init__(self, data):
+        self.data = data
+
+    def is_visible(self):
+        return self.data["visible"]
+
+    def locator(self, selector):
+        if selector == ".rich-text-body h4":
+            return _DEText(self.data["name"])
+        if selector == ".plan-doc":
+            return _DEClickable(self.data)
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    def get_by_role(self, role, name=None):
+        return _DEClickable(self.data, efl=True)
+
+
+class _DEText:
+    def __init__(self, text):
+        self.text = text
+
+    @property
+    def first(self):
+        return self
+
+    def inner_text(self, timeout=None):
+        return self.text
+
+
+class _DEClickable:
+    def __init__(self, data, efl=False):
+        self.data, self.efl = data, efl
+
+    @property
+    def first(self):
+        return self
+
+    def count(self):
+        return 1
+
+    def click(self, timeout=None):
+        # Counted BEFORE the visibility check: the point of harvesting visible
+        # cards only is that we never spend a click timeout on a hidden one.
+        self.data["click_attempts"] = self.data.get("click_attempts", 0) + 1
+        if not self.data["visible"]:
+            raise TimeoutError("element is not visible")
+        self.data["efl_clicked" if self.efl else "doc_clicked"] = True
+
+
+class _DEButton:
+    def __init__(self, page, label):
+        self.page, self.label = page, label
+
+    def count(self):
+        return 1
+
+    def nth(self, i):
+        return self
+
+    @property
+    def first(self):
+        return self
+
+    def is_visible(self):
+        return not self.page.expanded
+
+    def inner_text(self, timeout=None):
+        return self.label
+
+    def click(self, timeout=None):
+        self.page.expanded = True
+        for card in self.page.cards:
+            if card["tab"] == 0:
+                card["visible"] = True
+
+
+class _DEResponseCtx:
+    def __init__(self, page):
+        self.page = page
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    @property
+    def value(self):
+        clicked = [c for c in self.page.cards if c.get("efl_clicked")]
+        if not clicked:
+            raise TimeoutError("no EFL response")
+        return type("R", (), {"url": clicked[-1]["efl"]})()
+
+
+class _DEPage:
+    """Models the real chart: two tabs' worth of cards, only six of the first
+    tab visible until "Load 7 More" is clicked, tab-two cards never visible."""
+
+    def __init__(self, names, load_more_label="Load 7 More"):
+        self.cards = []
+        for tab in (0, 1):
+            for i, name in enumerate(names):
+                self.cards.append(
+                    {
+                        "name": name,
+                        "tab": tab,
+                        "visible": tab == 0 and i < 6,
+                        "efl": f"https://api-oam.directenergy.com/api/docs/files/{tab}{i}.pdf",
+                    }
+                )
+        self.expanded = False
+        self.load_more_label = load_more_label
+        self.goto_urls = []
+        self.context = None
+
+    def goto(self, url, **kw):
+        self.goto_urls.append(url)
+
+    def wait_for_selector(self, selector, timeout=None):
+        return True
+
+    def wait_for_timeout(self, ms):
+        return None
+
+    def locator(self, selector):
+        assert selector == ".plan__wrapper"
+        return _DELocator(self.cards)
+
+    def get_by_role(self, role, name=None):
+        if hasattr(name, "search") and name.search(self.load_more_label):
+            return _DEButton(self, self.load_more_label)
+        return _DEButton(self, "nope")  # never matches -> is_visible via expanded
+
+    def expect_response(self, predicate, timeout=None):
+        return _DEResponseCtx(self)
+
+    @property
+    def keyboard(self):
+        return type("K", (), {"press": staticmethod(lambda k: None)})()
+
+
+_DE_NAMES = [
+    "Twelve Hour Power 24", "Free Days 12", "Live Brighter 18 Auto Pay",
+    "Live Brighter 12 Auto Pay", "Power More Savings 12", "Power More Savings 24",
+    "Direct Apartment 12", "Twelve Hour Power 18 Auto Pay",
+    "Free Power Weekends 24 Auto Pay", "Live Brighter 24 Auto Pay",
+    "Power Balance 12", "Green Texas 36 Auto Pay", "Direct Solar Unlimited 12",
+]
+
+
+def test_direct_energy_goes_straight_to_the_plan_chart():
+    """The old /tx/plan-selection flow opened on a residential/"not moving"
+    prelude; /tx/product-chart-tabs renders the chart directly, so those four
+    best-effort clicks were ~30s of timeouts against controls that are gone.
+    No tdspCode -- verified unnecessary, and hardcoding a TDU code would be
+    silently wrong if the ZIP ever moved."""
+    page = _DEPage(_DE_NAMES)
+    rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert page.goto_urls == ["https://shop.directenergy.com/tx/product-chart-tabs?zipCode=78665"]
+    assert "tdspCode" not in page.goto_urls[0]
+
+
+def test_direct_energy_expands_the_listing_whatever_the_count_says():
+    """Only six cards are shown; the rest hide behind a button whose label
+    carries a COUNT. The old code matched the literal "Load 8 More" and the
+    live site now says "Load 7 More", so it silently harvested six of thirteen
+    plans -- Direct Solar Unlimited among the seven it never saw."""
+    page = _DEPage(_DE_NAMES, load_more_label="Load 7 More")
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert page.expanded is True
+    assert [p.plan_name for p in plans] == _DE_NAMES
+    assert "Direct Solar Unlimited 12" in [p.plan_name for p in plans]
+
+
+def test_direct_energy_skips_the_hidden_duplicate_tab():
+    """product-chart-*tabs* renders all thirteen plans twice, the second tab
+    hidden. Name dedup would drop them too -- but only after burning a click
+    timeout on each, and every one of those clicks fails."""
+    page = _DEPage(_DE_NAMES)
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    assert len(plans) == len(_DE_NAMES)  # 13, not 26
+    # Not merely deduped afterwards -- never clicked at all.
+    assert not any(c.get("click_attempts") for c in page.cards if c["tab"] == 1)
+
+
+def test_direct_energy_flags_only_the_solar_plan_as_buyback():
+    """is_buyback was hardcoded True back when the name filter kept solar plans
+    only. The config now broadens to all thirteen, so that would report twelve
+    conventional plans as buyback offers."""
+    page = _DEPage(_DE_NAMES)
+    plans = rd._direct_energy_harvest(page, "78665", rd.DIRECT_ENERGY)
+
+    buyback = [p.plan_name for p in plans if p.is_buyback]
+    assert buyback == ["Direct Solar Unlimited 12"]
+
+
+def test_direct_energy_returns_empty_when_no_cards_render():
+    """Headless gets the app shell with zero cards. Returning [] (rather than
+    hanging or raising) is what makes the run report say `empty` -- the signal
+    that a scrape ran clean and still learned nothing."""
+
+    class _ShellPage(_DEPage):
+        def wait_for_selector(self, selector, timeout=None):
+            raise TimeoutError("no .plan__wrapper ever appeared")
+
+    assert rd._direct_energy_harvest(_ShellPage([]), "78665", rd.DIRECT_ENERGY) == []
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 
@@ -1268,14 +1632,28 @@ def test_tesla_plans_are_all_flagged_buyback():
     assert all(p.is_buyback for p in _extract_tesla())
 
 
-def test_tesla_is_registered_and_forces_a_headful_browser():
-    """Tesla's Akamai edge answers headless Chromium with a 403 "Access Denied"
-    page (verified 2026-07-25: headless 403, headful 200 on the same URL/UA), so
-    this REP opts into a real window. Per-REP, never a blanket default."""
+def test_headful_stays_opt_in_per_rep():
+    """Headful pops a real window and is slower, so it is never a default --
+    three REPs ask for it, for two different reasons.
+
+    REQUIRED for Tesla and Direct Energy: both sit behind Akamai, which serves
+    headless Chromium something useless. Tesla gets a 403 "Access Denied"
+    (verified 2026-07-25: headless 403, headful 200 on the same URL/UA); Direct
+    Energy gets the app shell with ZERO plan cards (2026-07-26: headless 0
+    cards, headful 26), which is why two refreshes reported "found 0 plan
+    card(s)" against a healthy site.
+
+    DIAGNOSTIC for Ambit: its funnel fails intermittently (2026-07-26 -- all 14
+    plans at 12:05, a plan-card timeout at 12:50, no code change between) and a
+    visible window is the only way to see which interstitial it stopped on."""
     assert rd.REP_CONFIGS["tesla"] is rd.TESLA
     assert rd.TESLA.force_headful is True
+    assert rd.DIRECT_ENERGY.force_headful is True
+    assert rd.AMBIT.force_headful is True
     assert all(
-        c.force_headful is False for k, c in rd.REP_CONFIGS.items() if k != "tesla"
+        c.force_headful is False
+        for k, c in rd.REP_CONFIGS.items()
+        if k not in ("tesla", "ambit", "direct_energy")
     ), "headful must stay opt-in"
 
 
@@ -1302,7 +1680,7 @@ def test_champion_captures_the_download_url_not_the_blank_popup(monkeypatch):
     # the failing case: a popup that never leaves the placeholder
     assert _popup_url_when_ready(_Popup(":"), timeout_ms=500) is None
     assert _popup_url_when_ready(_Popup("about:blank"), timeout_ms=500) is None
-    # a popup that really did navigate is still honoured
+    # a popup that really did navigate is still honored
     assert _popup_url_when_ready(_Popup("https://x/e.pdf"), timeout_ms=500) == "https://x/e.pdf"
 
 
@@ -1369,7 +1747,7 @@ def test_download_does_not_retry_a_normal_404(monkeypatch):
     assert c.calls == 1
 
 
-def test_retry_honours_the_per_host_rate_limit(monkeypatch):
+def test_retry_honors_the_per_host_rate_limit(monkeypatch):
     """A retry must never hit a site faster than the normal path."""
     seen = []
     monkeypatch.setattr(rd.time, "sleep", lambda *_: None)
@@ -1439,8 +1817,20 @@ def test_is_bot_block_only_fires_on_an_explicit_refusal():
     assert not rd._is_bot_block(_FakeResponse(b"%PDF-1.4 Blocked by WAF"))
 
 
-def test_explicit_block_is_not_retried():
-    """A block is an answer, not a hiccup: asking twice more is only noisier."""
+@pytest.fixture
+def no_waiting(monkeypatch):
+    """Strip the retry backoff and the per-host throttle: these tests assert
+    request COUNTS, and the real waits add ~30s to the suite."""
+    monkeypatch.setattr(rd, "_MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(rd.time, "sleep", lambda _s: None)
+
+
+def test_a_bot_block_is_retried_but_only_a_few_times(no_waiting):
+    """A block used to end the request on the spot, on the reasoning that the
+    site had already answered. True of a blanket policy; wrong for Ambit, whose
+    Azure Front Door WAF is a measured coin flip (2026-07-24: httpx got through
+    3 times in 6). Retried a bounded number of times -- enough to survive an
+    unlucky draw, few enough not to argue with a site that means it."""
     calls = []
 
     class _Client:
@@ -1450,14 +1840,31 @@ def test_explicit_block_is_not_retried():
 
     resp = rd._get_with_retry(_Client(), "https://waf.example/efl.pdf", "waf.example")
     assert resp.status_code == 403
-    assert len(calls) == 1, "an explicit bot block must not be retried"
+    assert len(calls) == rd._BOT_BLOCK_ATTEMPTS
 
 
-def test_download_stops_asking_a_host_that_blocked_us(tmp_path, monkeypatch):
-    """One block ends the run for that host -- the other plans are never fetched.
+def test_a_block_that_clears_on_retry_still_yields_the_pdf(no_waiting):
+    """The case worth all of this: the first draw is refused, the second isn't."""
+    calls = []
 
-    Regression guard for the 2026-07-26 refresh, where 14 Ambit EFLs each got
-    retried 3x against a WAF that had already refused the first request.
+    class _FlakyWafClient:
+        def get(self, url, *args, **kwargs):
+            calls.append(url)
+            return _BlockedResponse() if len(calls) == 1 else _FakeResponse(b"%PDF-1.4 ok")
+
+    resp = rd._get_with_retry(_FlakyWafClient(), "https://waf.example/efl.pdf", "waf.example")
+    assert resp.content.startswith(b"%PDF")
+    assert len(calls) == 2
+
+
+def test_download_stops_asking_a_host_that_keeps_blocking_us(tmp_path, monkeypatch, no_waiting):
+    """A host that refuses everything costs a handful of requests, not dozens.
+
+    The breaker exists because one blanket-blocking host once drew ~42 pointless
+    requests. But tripping it on the FIRST refusal was the opposite failure: on
+    2026-07-26 Ambit's very first EFL was refused and the other 13 were skipped
+    without being tried, losing the whole retailer to one coin flip. So it now
+    counts distinct refusals before giving up on the host.
     """
     import httpx
 
@@ -1485,9 +1892,109 @@ def test_download_stops_asking_a_host_that_blocked_us(tmp_path, monkeypatch):
     ]
     summary = rd.download_discovered(plans, dest=tmp_path / "efl", buyback_only=True)
 
-    assert len(seen[0].calls) == 1, "only the first URL may be requested"
+    # Bounded: TOLERANCE distinct URLs, each retried at most ATTEMPTS times.
+    urls_tried = {u for u in seen[0].calls}
+    assert len(urls_tried) == rd._BOT_BLOCK_TOLERANCE, "stop after enough refusals"
+    assert len(seen[0].calls) <= rd._BOT_BLOCK_TOLERANCE * rd._BOT_BLOCK_ATTEMPTS
     assert not summary["downloaded"]
     # Every plan is still reported, so the retailer stays out of discovery
     # coverage and its meterplan drafts are not pruned as "not offered".
     assert len(summary["failed"]) == 6
     assert {f["url"] for f in summary["failed"]} == {p.efl_url for p in plans}
+
+
+def test_a_guarded_endpoint_falls_back_to_the_browser_when_httpx_is_refused(
+    tmp_path, monkeypatch, no_waiting
+):
+    """Ambit's EFL host guards its document endpoint. httpx goes first -- cheap,
+    and fine whenever the WAF is in a normal mood -- and a refusal is retried
+    from the browser stack that was handed the link, rather than giving up on a
+    plan because one anonymous request was unlucky.
+    """
+    import httpx
+
+    class _NoGetClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            self.calls.append(url)
+            return _BlockedResponse()
+
+    fetched: list = []
+
+    class _FakeFetcher:
+        def __init__(self, stealth=False, headless=True):
+            self.stealth = stealth
+            fetched.append(self)
+
+        def get(self, url, timeout_ms=60000):
+            fetched.append(url)
+            return 200, b"%PDF-1.4 through the browser", "application/pdf"
+
+        def close(self):
+            fetched.append("closed")
+
+    monkeypatch.setattr(httpx, "Client", _NoGetClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _FakeFetcher)
+    plan = rd.DiscoveredPlan(
+        retailer="Ambit Energy",
+        plan_name="Texas Solar Buyback 12",
+        efl_url="https://shopping.ambitenergy.com/api/getdocument?productid=X",
+        is_buyback=True,
+        fetch_via_browser=True,
+    )
+    dest = tmp_path / "efl"
+    summary = rd.download_discovered([plan], dest=dest, browser_stealth=True)
+
+    assert len(summary["downloaded"]) == 1
+    assert (dest / "Ambit_Energy_Texas_Solar_Buyback_12.pdf").read_bytes().startswith(b"%PDF")
+    assert fetched[0].stealth is True, "the fetch browser needs discovery's evasions"
+    assert "closed" in fetched, "the browser must not outlive the batch"
+
+
+def test_the_browser_is_only_opened_when_something_needs_it(tmp_path, monkeypatch):
+    """Ordinary EFLs stay on httpx -- launching Chromium for them would cost far
+    more than the downloads."""
+    import httpx
+
+    def _boom(*a, **k):
+        raise AssertionError("no browser should be launched")
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _boom)
+    summary = rd.download_discovered(_sample_plans(), dest=tmp_path / "efl", buyback_only=True)
+
+    assert len(summary["downloaded"]) == 1
+
+
+def test_a_browser_fetch_that_is_refused_is_reported_not_saved(tmp_path, monkeypatch, no_waiting):
+    """Both paths refused: reported as a failure, and nothing lands on disk as
+    a .pdf. Measured against the live site 2026-07-26 -- when Ambit's API is
+    refusing, httpx, a cold browser context and a warm one all get the same
+    14-byte "Blocked by WAF"."""
+    import httpx
+
+    class _FakeFetcher:
+        def __init__(self, stealth=False, headless=True):
+            pass
+
+        def get(self, url, timeout_ms=60000):
+            return 403, b"Blocked by WAF", "text/plain"
+
+        def close(self):
+            pass
+
+    class _BlockingClient(_FakeClient):
+        def get(self, url, *args, **kwargs):
+            return _BlockedResponse()
+
+    monkeypatch.setattr(httpx, "Client", _BlockingClient)
+    monkeypatch.setattr(rd, "_BrowserFetcher", _FakeFetcher)
+    plan = rd.DiscoveredPlan(
+        retailer="Ambit Energy", plan_name="P", is_buyback=True,
+        efl_url="https://shopping.ambitenergy.com/api/getdocument?productid=X",
+        fetch_via_browser=True,
+    )
+    summary = rd.download_discovered([plan], dest=tmp_path / "efl")
+
+    assert summary["downloaded"] == []
+    assert "403" in summary["failed"][0]["error"]
+    assert not list((tmp_path / "efl").glob("*.pdf"))

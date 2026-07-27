@@ -572,9 +572,223 @@ Three independent mechanisms now:
    is completed **without repeating the sweep**. Idempotent. Surfaced on the
    Plans page as "Finish incomplete refresh" whenever `was_interrupted()`.
 
+### 9e. Sibling brands (`plan_economics_fingerprint`, `group_plan_siblings`)
+
+Texas retail is full of white labels: one product sold under several brands by
+the same parent. Measured over the 263-plan database, **263 plans are only 234
+distinct products, and 18 clusters span more than one retailer** --
+
+* NRG: Frontier / Gexa / Companion (6 clusters). `Frontier Battery Awards 12`,
+  `Frontier Sun Confidence 12`, `Gexa Battery Benefits 12` and `Gexa Solar
+  Buyback 12` are ONE product with four names -- same effective date, same
+  475 kWh outflow assumption, same "solar energy and/or battery energy
+  generation" wording in all four EFLs. (Checked precisely because an identical
+  fingerprint can instead mean the parser is missing a term; here it does not.)
+* Just Energy: Amigo / Tara / Just Energy (5 clusters)
+* Rhythm / Energy Texas (4), Green Mountain / Reliant, Ranchero / Southern
+  Federal.
+
+`plan_economics_fingerprint` keys on every field that can move a bill -- rates
+and windows, base, ETF, signup fee, TDU pass-through, buyback, bill credits, EV
+allowance -- plus `excludes_solar`, because a plan this home cannot buy is not
+interchangeable with one it can. `group_plan_siblings` keeps the first of each
+group in ranked order and reports the rest, which Compare shows in an "Also sold
+as" column behind a toggle (default on).
+
+**Grouping is a VIEW, never storage.** Every plan stays on disk: these are
+separate contracts with separate retailers and separate enrollment links (see
+`Plan.enroll_url` -- Amigo, Tara and Just Energy each sell the identical
+GoodBundle plan at their own `/ptcsl/` referral page), and collapsing them on
+disk would hide the day one brand's price drifts from its siblings'. The current
+plan is never folded away; it is the baseline every other row is read against.
+
+### 8d. Mandatory one-off charges (`Plan.signup_fee_usd`)
+
+Six 5-month "Sustainable / Bundle" plans -- Just Energy's family, sold under
+Amigo, Tara and Just Energy -- require a **one-time $49.99 GoodBundle setup and
+carbon-offset purchase** to enroll. They price energy at 4.9c/kWh and ranked #7
+and #8 on that alone; the fee was invisible to the comparison.
+
+`signup_fee_usd` is added to `first_year_net` exactly once and never touches the
+monthly frame, so a monthly bill stays a faithful picture of the recurring
+charge. Deliberately NOT folded into `base_charge_usd` at 1/12 (the way the EFL
+itself amortizes it for its average-price table): the contracts are five months
+long, so spreading a one-off over twelve understates it for the term actually
+signed, and it would quietly distort every monthly view.
+
+`_extract_signup_fee` is narrow on purpose -- it needs "one-time", a
+setup/enrollment/purchase word, AND an amount, so a conditional fee (late,
+disconnection) cannot masquerade as one. Audited across all 263 EFLs on disk: 6
+hits, all the same $49.99 GoodBundle line, no false positives.
+
+Effect: the three 4.9c variants moved #7/#8-ish to **#18-20** ($1,291.51 ->
+$1,341.50).
+
+**Open caveat, not fixed here:** the engine prices a full twelve months at the
+contracted rate regardless of `term_months`, so any short-term plan's first-year
+figure is optimistic beyond this fee -- a 5-month rate is only held for five
+months. That affects every short plan in the table, not just these.
+
+### 9b2. Guarded EFL endpoints and the bot-block breaker
+
+Ambit's `shopping.ambitenergy.com/api/getdocument` sits behind an Azure Front
+Door WAF. Two mechanisms, in order:
+
+1. **httpx first, browser second.** A refusal is retried through
+   `_BrowserFetcher` -- Playwright's `context.request`, so the browser's TLS
+   fingerprint, cookie jar and header order, i.e. the client that was handed the
+   link during discovery. Enabled per REP via `RepConfig.efl_via_browser`
+   (Ambit only), which stamps `DiscoveredPlan.fetch_via_browser`. The browser is
+   opened lazily and closed with the batch, so ordinary EFLs never pay for it.
+2. **A counting breaker.** `_BOT_BLOCK_TOLERANCE` distinct refusals per host
+   before we stop asking, and `_BOT_BLOCK_ATTEMPTS` retries per URL.
+
+Both numbers exist because of the same 2026-07-26 refresh, from opposite
+directions. The breaker was added when one blanket-blocking host drew ~42
+pointless requests; tripping it on the FIRST refusal then cost all 14 Ambit
+EFLs, because discovery had rendered Ambit's site perfectly and the very first
+document request drew a 403.
+
+Measured, and recorded because it rules out the obvious theory: when Ambit's
+API is refusing, it refuses a cold browser context, a warm one (after loading
+`/Path2Plans` in the same session) and httpx alike -- all 14 bytes of
+"Blocked by WAF" -- while the plans page on that same host renders normally in
+that same browser. An hour earlier all three had succeeded on the same URL. So
+the browser is **not** a way through a determined block; it is a second,
+better-credentialed attempt for when the refusal is a coin flip. When Ambit is
+in a refusing mood the right move is to leave it alone for a while -- the
+manual-capture fallback and the quarantine mean a refused run costs nothing.
+
+### 9b3. Just Energy — WON'T automate (CAPTCHA-gated)
+
+Investigated 2026-07-26 because Just Energy's website-only "Free Nights Plan -
+12" gives 10 free night hours at a cheaper day rate than Direct's Twelve Hour
+Power, which ranks top-5. Its enroll funnel cannot be driven:
+
+* the deep link `enroll.justenergy.com/US/TX/SVC/residential-plans?...` redirects
+  to `/`;
+* the rendered page exposes an EMPTY accessibility tree to Playwright -- zero
+  textboxes, buttons or matching text -- while `page.content()` returns ~597k
+  chars with `attachShadow` in it, so the app is in shadow DOM and never boots;
+* with playwright-stealth it boots slightly further and serves an **"I'm not a
+  robot" CAPTCHA**.
+
+That is a clear "no" from the site, and it is where automation stops. PTC covers
+five Just Energy plans (Basics PTC 24/60, Smart Choice 12, the two 5-month
+bundles), but not the website-only Free Nights plan.
+
+The supported route for a plan like this is `data/efl/manual/`: save the EFL by
+hand from a normal browser session and drop it in. `manual_efl_paths()` feeds it
+to the same parser as everything else, and the refresh wipe cannot see into that
+subdirectory (its glob is non-recursive), so it survives. `_plan_supersedes`
+already matches "Nights Free" to "Free Nights Plan - 12", so the stale meterplan
+synthetic retires itself once the real EFL lands.
+
+Note the naming, which is independent evidence that meterplan's index is stale:
+it lists the plan as "Nights Free", the live site calls it "Free Nights Plan -
+12".
+
+### 9c. "Nothing new to review" (`Plan.source_sha256`)
+
+A refresh re-parses every EFL, so a plan the user hand-corrected is read again
+by the same parser that failed on it the first time -- producing the identical
+failed draft and re-queuing it for review. Ambit Lone Star Plus 12 was verified
+at 12.3c/kWh and every refresh put 0.0 back in the queue. **17 of the 42 review
+items on 2026-07-26 were this**, and they would have recurred forever.
+
+`Plan.source_sha256` is the SHA-256 of the EFL PDF a reading was taken from,
+stamped at promote time (all three promote paths call `_carry_source_hash`) and
+carried from the draft's `_parse` block. `reconcile_quarantine` then asks
+`_rerun_verdict` one question when a re-parse lands in review against an
+already-verified plan:
+
+| verdict | condition | action |
+|---|---|---|
+| `rerun` | same `source` file **and** same hash | drop the draft (`already_reviewed`) |
+| `new` | hash differs, source file differs, or the draft has no hash | keep it in review |
+| `unknown` | the plan predates stamping | stamp it, show the draft once more |
+
+Identity is the PDF's **content**, never its name or mtime: a refresh
+re-downloads the whole EFL directory, so timestamps always differ while the
+bytes usually don't. A republished EFL moves the hash and the draft comes
+back -- deliberately, because a stale verified price is worse than a noisy
+queue.
+
+The one accepted gap: if the parser improves but the new reading *still* lands
+in review, it is suppressed. The plan keeps its hand-verified value, which
+remains correct until the document changes; and a parser improvement that
+actually works promotes over the top via precedence row 1 without ever becoming
+a draft.
+
+Existing plans were backfilled in bulk on 2026-07-26 (249 stamped, 12 skipped
+as not EFL-backed: meterplan synthetics, report-derived, manual).
+
+### 9d. Retiring synthetic meterplan rows
+
+meterplan.com is a third-party index published by a competing REP; its rows go
+stale, and they carry no EFL so they can never be verified. A synthetic retires
+two ways: **superseded** (a real parsed EFL now covers the same plan) or
+**pruned** (the retailer's own site was surveyed live and complete and does not
+list it). Almika is the only retailer behind a meterplan row we do NOT survey
+directly, so it is the only synthetic that should ever survive a clean run.
+
+Six others survived 2026-07-26. Three separate causes, all now fixed:
+
+* `prune_stale_meterplan_rows` (was `..._drafts`) only looked in
+  `plans/drafts/`, so a synthetic promoted *before* we started surveying its REP
+  was never re-examined. It runs over `plans/` too.
+* `reconcile_quarantine` resurrected retirements: "no plan file with this id"
+  reads the same as "never rebuilt", so it restored a synthetic moments after
+  supersede removed it -- the run summary printed both. It now takes
+  `retired_ids`.
+* Tesla's Drive 12M was named **"PUCT Certificate Number: 10296"** by the
+  parser's name regex catching EFL boilerplate, which made it unmatchable, so
+  its synthetic could never be superseded. `_is_not_a_plan_name` treats a
+  certificate line as a failed read (like `Unnamed Plan`) and discovery's name
+  wins. The pattern requires a qualifier -- PUCT/REP certificate, or certificate
+  *number* -- so a bare "Certificate 12" can still be a real product name.
+
 Note the discovery caveat: promote/supersede recover the database from drafts
 already on disk, but *discovery itself* is not resumable — REPs it never reached
 still need a fresh run.
+
+### 9b. Refresh concurrency (`fetchers/hostpool.py`)
+
+A refresh is almost entirely **waiting on other people's servers**: of the 15m54s
+run on 2026-07-26, REP discovery was 7m56s (thirteen browsers idling on someone
+else's JavaScript, one at a time) and the 92 discovered EFL downloads were 3m02s
+— about 2s each, which is the politeness throttle, not the transfer.
+
+`hostpool.run_per_host` encodes the rule that politeness actually cares about:
+**serialize per host, parallelize across hosts.** Each host gets its own FIFO
+queue run start-to-finish by a single worker, so an individual REP still sees one
+request at a time with the same throttle in between — Gexa's fifteen EFLs simply
+no longer block Chariot's eleven. It is used three ways:
+
+* **REP discovery** (`common._run_rep_discovery`, `DISCOVERY_MAX_WORKERS = 3`) —
+  one queue per REP key, so three sites are queried at once and none is ever
+  touched twice at once.
+* **Discovered EFL downloads** and **PTC EFL downloads** (`max_workers=4`).
+
+Measured end to end: a full refresh went **15m54s -> 6m40s** (2026-07-26).
+Meter's harvester is now the longest single REP and cannot be parallelized --
+it drives one browser through nine plans on one host -- so it was cut the other
+way, by replacing the flat 6s sleep after each reload with a wait for the EFL
+buttons to actually appear (`_METER_EFL_SELECTOR`). That reload runs once per
+(card, term), fifteen times a sweep: 11s per plan -> 6s, 2m38s -> 1m27s, still
+9/9 plans with nine distinct EFL documents. The 2s settle after a term-tab
+click is deliberately left alone -- clicking through before it lands is what
+once made Earner return the same PDF for all three terms.
+
+Two invariants the tests pin down, because breaking either is invisible at
+runtime: results come back in **input order** regardless of completion order (so
+manifests and run reports stay diffable), and a host's **peak concurrency is 1**.
+`max_workers=1` restores the strictly serial path on any of the three.
+
+The ceiling on discovery workers is this box's memory (~7 GB under WSL) — each
+worker may drive its own Chromium — not politeness. `_respect_rate_limit` claims
+its slot under a lock and sleeps outside it, so two callers that did land on one
+host queue rather than both reading the same stale timestamp.
 
 `common.promote_all_drafts()` is the separate "quick look" path: it promotes
 **every** draft, confidence gate bypassed, preserving each one's `needs_review`
@@ -594,7 +808,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | ingest | #2 | DONE | CSV position-based DST handling + GreenButton merge; parquet cache |
 | engine | #3 | DONE | simulate()/rank() implemented per §6; validated against real CSV (see open Q below re: TDU during free windows). Report-benchmark regression (`test_integration_report_benchmarks`) now reads ALL its inputs -- the 7 `report-2026-07` plan YAMLs, the Oncor tariff, and the interval CSV -- from a frozen archive (`tests/fixtures/benchmark_2026_07/`, see its README; CSV gitignored/private, test skips when absent) so refreshing live usage data / tariffs / plans can't move the expected dollars. |
 | prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
-| discovery: Chariot host fix + Ambit automation | #4 | DONE | Two REP-discovery fixes 2026-07-24. **Chariot** silently lost ALL 11 EFLs to 404s: its cards carry RELATIVE hrefs (`/Home/EFl?productId=...`) and the marketing site hands off to `signup.chariotenergy.com`, but the extractor resolved them against `homepage` (`chariotenergy.com`). Nothing caught it at discovery time because a bad base only surfaces later as a failed download. New `RepConfig.efl_base` / `link_base` property separates the *navigation* host from the *relative-link* host; Chariot sets `efl_base="https://signup.chariotenergy.com/"`. Verified live: 5/5 real PDFs (the Shine/PowerBank buyback plans). **Ambit** gained a real `render()`: the recorded note that its "WAF blocks Playwright" was WRONG -- Azure Front Door answers `Blocked by WAF` *probabilistically* (measured: plain httpx 3/6, Playwright 3/3), and what actually hid the plans was a qualification funnel (ZIP -> Get Started -> House -> Accept -> See Plans -> **radio** "No. I already live here." -> See Plans). Built from the user's `playwright codegen`; validated live at 14 plans / 2 buyback, matching the manual capture. It IS flaky (success and a card-wait timeout minutes apart), so `_run_rep_discovery` now falls back to the newest manual capture when a live render raises (`_newest_capture`) -- a bad night degrades to the old behaviour instead of dropping every buyback plan. Ambit's EFL download is **also fixed**: the `/PDFGenerator` link the "See Plan Details" panel exposes is only a *viewer page* -- it returns the Next.js 404 shell (text/html, 8 KB) to httpx, to `ctx.request` with 45 funnel cookies, AND to a real in-browser navigation. Watching the popup's own network traffic showed its JS calling a backend endpoint, `/api/getdocument`, and wrapping the result in a `blob:` (same shape as Direct Energy). That endpoint serves `application/pdf` to plain httpx with no session at all, so `download_discovered` needs no browser. Every query parameter is renamed between the two (`formType`/`comProdId`/`lang`/`custClass` -> `docType`/`productid`/`language`/`classification`) and `efldate` must be full ISO 8601 (`...T00:00:00`), not a bare date. Validated end-to-end: both buyback EFLs download, parse (base $9.95, 12.7c, buyback fixed 3.5c energy_only) and come out `needs_review=False`. Ambit is now fully automated -- no manual capture required. 403 tests green. |
+| discovery: Chariot host fix + Ambit automation | #4 | DONE | Two REP-discovery fixes 2026-07-24. **Chariot** silently lost ALL 11 EFLs to 404s: its cards carry RELATIVE hrefs (`/Home/EFl?productId=...`) and the marketing site hands off to `signup.chariotenergy.com`, but the extractor resolved them against `homepage` (`chariotenergy.com`). Nothing caught it at discovery time because a bad base only surfaces later as a failed download. New `RepConfig.efl_base` / `link_base` property separates the *navigation* host from the *relative-link* host; Chariot sets `efl_base="https://signup.chariotenergy.com/"`. Verified live: 5/5 real PDFs (the Shine/PowerBank buyback plans). **Ambit** gained a real `render()`: the recorded note that its "WAF blocks Playwright" was WRONG -- Azure Front Door answers `Blocked by WAF` *probabilistically* (measured: plain httpx 3/6, Playwright 3/3), and what actually hid the plans was a qualification funnel (ZIP -> Get Started -> House -> Accept -> See Plans -> **radio** "No. I already live here." -> See Plans). Built from the user's `playwright codegen`; validated live at 14 plans / 2 buyback, matching the manual capture. It IS flaky (success and a card-wait timeout minutes apart), so `_run_rep_discovery` now falls back to the newest manual capture when a live render raises (`_newest_capture`) -- a bad night degrades to the old behavior instead of dropping every buyback plan. Ambit's EFL download is **also fixed**: the `/PDFGenerator` link the "See Plan Details" panel exposes is only a *viewer page* -- it returns the Next.js 404 shell (text/html, 8 KB) to httpx, to `ctx.request` with 45 funnel cookies, AND to a real in-browser navigation. Watching the popup's own network traffic showed its JS calling a backend endpoint, `/api/getdocument`, and wrapping the result in a `blob:` (same shape as Direct Energy). That endpoint serves `application/pdf` to plain httpx with no session at all, so `download_discovered` needs no browser. Every query parameter is renamed between the two (`formType`/`comProdId`/`lang`/`custClass` -> `docType`/`productid`/`language`/`classification`) and `efldate` must be full ISO 8601 (`...T00:00:00`), not a bare date. Validated end-to-end: both buyback EFLs download, parse (base $9.95, 12.7c, buyback fixed 3.5c energy_only) and come out `needs_review=False`. Ambit is now fully automated -- no manual capture required. 403 tests green. |
 | refresh durability | #6 | DONE | New `app/refresh_state.py` after a real incident (2026-07-24): a click-away during REP discovery killed the Streamlit script mid-refresh, leaving 178 drafts, a 5-plan database, and **no summary or record of how far it got**. Three fixes: (a) `RefreshJournal` — atomic append-as-you-go progress at `data/refresh_state.json`, throttled ~1/s but never for stage transitions or terminal states, so an interrupted run leaves an accurate trail; (b) `RefreshRunner` — the refresh now runs on a background thread Streamlit can't kill, reporting into the journal (never `st.*` — no ScriptRunContext) while the page polls it via `st.fragment(run_every=2)`; discovery console logs moved to `data/refresh_log.txt` and are tailed from disk, so they now outlive the run; concurrent runs refused. (c) `common.finish_refresh()` — steps 7+8 extracted from `refresh_market_data` and callable standalone since they're purely local, so an interrupted run is completed from drafts already on disk **without repeating the sweep**; idempotent; surfaced as "Finish incomplete refresh" on the Plans page when `was_interrupted()`. Used to recover the 2026-07-24 incident: 145 promoted, 0 failures, 5 -> 150 plans. Caveat: discovery itself is not resumable — REPs it never reached need a fresh run. 11 new tests, 391 green, ruff clean. |
 | eflparse: accuracy harness + LLM assist tier | #5 | DONE | New `scripts/eval_efl.py` scores the parser against `tests/fixtures/efl_texts/real/ground_truth.yaml` (26 hand-verified EFLs, quoted evidence per field); headline metric is **silent-wrong** (confidence >=0.8 but value wrong), not review-queue size. Diagnosis first: of 58 drafts stuck in review, most were deterministic *vocabulary* gaps, not parsing difficulty — Octopus prints `Base Charge: 0.00 per month` verbatim and scored 0.0 confidence; Heritage's `Base Monthly Charge`; Constellation's `Minimum Usage Fee`. Fixed in `_extract_base_charge` (added `Base Monthly Charge` word order, made `$` optional, and a **zero-only** `Minimum Usage Fee/Charge` rule — a NON-zero minimum-usage fee is a conditional charge, never a base charge). Separately fixed a confidently-wrong class: `_extract_buyback` returned `{kind:none}` at 0.95 when no rate label matched, even on EFLs whose own PUCT disclosure answers "Yes, we purchase excess distributed renewable generation" — the LLM tier could never reach it since it only touches fields <0.8. Added `_buyback_disclosure_answer` to veto that confidence (value unchanged, only confidence drops) and `E?xport Credit Rate` to the label vocabulary (verified across all 200 downloaded EFLs: every "credit rate" occurrence is an export credit; the `E?` absorbs corrupted-font PDFs that drop the capital E). Result on the corpus: buyback 21/22 -> 22/22, silent-wrong 1 -> 0, review 9/26 -> 6/26. Then benchmarked 4 local models: `gemma3:4b` and `qwen3:4b` both reach 100/100 load-bearing fields, `granite4:micro` and `lfm2.5-thinking` are *worse than no LLM* (each adds a silent-wrong). Default is `gemma3:4b` — equal accuracy to qwen3 at 15x the speed (0.9s vs 13.9s/EFL), and US-origin per owner preference. Its whole contribution is one EFL: Atlantex's broken-font PDF (`ae Charge $19.95 per ill`). `llm.py` now pins `temperature=0` + `num_ctx=8192` (Ollama defaults 0.8 and 4096, the latter silently dropping the schema system prompt on long EFLs) and logs `message.thinking` at DEBUG. Tier is **assist-only**: pre-fills weak fields, records `_llm_suggested{fields,model,reasoning}`, and never clears `needs_review` (new `plan_fields()` strips both meta keys before promotion). 380 tests green, ruff clean. |
 | eflparse | #5 | DONE | static regex/heuristic parser + 6 synthetic/pulse fixtures + 15-file real Texas EFL corpus regression suite (tests/fixtures/efl_texts/real/), 175 tests green; hardened against corrupted/PUA-encoded fonts, bullet/numbered-list/colon layouts, brand-prefixed TOU tables, per-day prepaid fees, and bundled-TDU phrasing; pdfplumber import-failure noise silenced |
@@ -602,7 +816,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | app + fetchers followup | #6/#4 | DONE | fixed 3 user-reported Plans-page issues: `fetchers.ptc.filter_plans` gained a backward-compatible `language="English"` default filter + snapshot TDU picker in the UI (was reading as truncation, was actually TDU+Spanish-duplicate filtering); `download_efls` gained `progress_callback` wired to `st.progress`; new `app/common.parse_downloaded_efls` batch-parses `data/efl/*.pdf` into `plans/drafts/` (per-file try/except, skip-if-already-parsed) plus a "Draft plans" review/edit/promote UI -- promote/delete both invalidate the plans cache and `st.rerun()` so the main table updates immediately; 183 tests green (`pytest tests/`), plus manual `streamlit.testing.v1.AppTest` smoke passes on the Plans page across empty and populated states |
 | app followup 2: refresh + staleness | #6/#4 | DONE | new `app/common.refresh_market_data` (delete old ptc/efl:-sourced plans+drafts+EFLs+stale snapshots -- never manual/report-*/current-plan -- then fetch-or-fallback → load+filter → download → parse → auto-promote drafts with needs_review=False and all load-bearing confidences >=0.8, stamping `retrieved`) wired to a confirmation-gated "Refresh market data" button + one progress bar with staged labels on the Plans page; new staleness helpers (`interval_staleness_warning`, `price_coverage_warning`, `tdu_staleness_warning`, `plan_is_stale`/`stale_plan_ids`) surfaced as warnings + a "Stale?" table column on Compare; single-draft promote also stamps `retrieved`; 190 tests green (`pytest tests/`, incl. new tests/test_refresh.py), ruff clean, manual AppTest smoke green on both Plans (checkbox-gated button, full refresh pipeline with faked transport, promote/delete) and Compare (staleness warnings + Stale? column render against the real data/IntervalData.csv + plans/*.yaml) |
 | meterplan.com solar plan index | #4/#6 | DONE | new `fetchers/meterplan.py` (fetch_meterplan/load_meterplan/filter_meterplan/meterplan_to_drafts, offline-first, tests/fixtures/meterplan_sample.md as format reference); covers solar buyback plans (mostly non-Oncor TDUs) PTC's export lacks -- their "Estimated annual cost" column is never read, only rates; drafts get a `_parse` confidence/evidence block like eflparse, battery-required rows skipped, free-hours-named plans get an assumed 9pm-6am two-rate structure at low confidence + needs_review, deduped by (retailer, plan, term) against plans already in the database; wired into `app/common.refresh_market_data` as a new stage between EFL parsing and auto-promote (same fetch-or-fallback-to-newest-disk-snapshot pattern, tolerated gracefully if unavailable) and into a new "Meterplan solar plan index" subsection on the Plans page (fetch/snapshot-picker/TDU-filter/import-as-drafts, feeding the existing drafts review/promote UI unchanged); from the committed fixture, filtering to Oncor produces 30 imported / 0 skipped-battery / 0 skipped-existing / 10 flagged-for-review (all schema-valid via Plan.model_validate); 214 tests green (`pytest tests/`, incl. new tests/test_meterplan.py + extended tests/test_refresh.py), ruff clean, manual AppTest smoke green on the Plans page (empty + populated meterplan states, load/filter/import-as-drafts) with data/ and plans/drafts/ left with no git residue afterward |
-| rep_discovery (REP-site EFL discovery) | #4 | DONE (Green Mountain + TXU + Chariot + Gexa + Frontier + Ambit + Octopus + Champion + Direct Energy + Reliant + Atlantex) | new `fetchers/rep_discovery.py`: deterministic-first (per-REP static self-label extractor) discovery of solar buyback EFLs on REP marketing sites PTC/meterplan miss, plus an interactive `harvester` seam for REPs whose EFL URL is JS-computed and not in the DOM (Champion — `harvest_live()` drives the browser, reads the EFL popup URL, returns `DiscoveredPlan`s directly), an Ollama `lfm2.5` JSON fallback (sites that don't self-label) and an upgrade-only `llm_review=True` pass over all returned EFLs (a site wording change can't silently lose a buyback plan). Octopus needs an ESI ID (PII) when a ZIP spans load zones — read from a gitignored secrets file (`data/rep_discovery_secrets.yaml`, `_load_rep_secret`), never in code/git. Playwright live fetch behind optional `[discovery]` extra (a `render()` may return concatenated multi-page HTML for paginated listings, or be `None` for WAF-blocked/manual-capture REPs); `download_discovered` → `data/efl/` + jsonl manifest. Green Mountain (analytics `^BuyBack` flag), TXU (`show-plan` cards + `PDFGenerator?formType=EnergyFactsLabel` URLs), Chariot (`planbox` cards + `/Home/EFl?productId=` URLs, solar-gated + paginated, ¢/kWh rate parsed from card text), Gexa (`plan-list-padding` rows + `eflviewer.aspx?prodcode=` URLs, `Plan Type: Solar Buyback` self-label keyed per card) and Ambit (`show-plan` cards, EFL URL *constructed* from `data-productid` since the collapsed list hides it; WAF-blocked so manual capture + no render()) static extractors each validated against real rendered-HTML captures (GM 11/2 buyback, TXU 10/1, Chariot 11/11, Gexa 15/2, Ambit 14/2), scripts/SVG stripped first so badge JSON can't false-positive; Octopus (`data-cy="product-title"` cards + `octopusenergy.com/efl/` links, buyback = all plans except OctopusFlex, ESI ID from gitignored secrets, competitor EFL ignored) validated against a real capture (3 plans, 2 buyback); Champion via the interactive `harvester` seam (EFL is a JS popup button; harvest_live drives modal→popup and reads the URL — all Champion plans bundle Indexed Solar Buyback; 3 plans are website-only, absent from PTC) tested through a fake-page seam and validated live (6/6 plans + EFL URLs); llm_review validated live (TXU 10 reviewed/1 flagged/0 false upgrades; Chariot 11/11 at 0.97–0.99 conf; Gexa 15/2 with 0 false upgrades after a context fix — an lfm2.5 probe initially false-upgraded "Energy Saver 12" because its `context` ended in the trailing "Solar Buyback" ribbon that the DOM positions on the *next* card; the ribbon is now stripped from card context, root-caused via a diagnostic prompt to the model itself); 61 tests + 1 skipif-gated live-Ollama test, ruff clean. Octopus's `render()` (ESI-ID flow) is not yet live-validated (the solar/EV/thermostat qualification checkboxes are intentionally omitted — obfuscated classes, and they don't gate which EFLs appear). Ambit's PDFGenerator endpoint also 403s plain-httpx downloads (WAF) — open its 2 EFLs via browser; a stealth `render()` (real-Chrome persistent profile) is a possible follow-up. Champion's harvester was validated live 2026-07-23 (harvested all 6 plans + EFL popup URLs cleanly; the per-plan modal closes with "Close", not the "Close this dialog" interstitial). Wired into `refresh_market_data` 2026-07-23 as an optional, checkbox-gated stage (`app/common._run_rep_discovery`: per-REP dispatch by config shape — harvester/render/manual-capture — with independent per-REP error tolerance, then `download_discovered` → `data/efl/` → `parse_downloaded_efls` → auto-promote; Plans page adds the checkbox, a discovery-ZIP input, a help tooltip covering the Playwright install / Ambit-style manual captures / Octopus ESI-ID secret, and a per-retailer status table). Frontier Utilities added 2026-07-23: runs the SAME Vistra/eflviewer enrollment platform as Gexa, so `extract_gexa`/`extract_frontier` were refactored to delegate to a shared `_extract_eflviewer_platform` (identical `plan-list-padding` cards, `<h3>` names, `eflviewer.aspx?prodcode` EFL links hosted at eflviewer.frontierutilities.com, `Plan Type: Solar Buyback` self-label, and the same next-card `.Product-tab` ribbon-bleed stripping); its plans page is reached directly via `/Home/Index?Zip=<zip>` (JS-injected cards, so `_frontier_render` navigates there and waits for the EFL links), validated live 12 plans/2 buyback (Sun Confidence 12 + Battery Awards 12). Frontier's `newenroll` subdomain robots.txt is a blanket `Disallow: /` ("Stop indexing of all content"); per the user's decision a single rate-limited render of their own shopping page is treated as outside that crawler-indexing intent, so its RepConfig sets the new `check_robots=False` field (threaded into `fetch_rendered_html`/`harvest_live` via the discovery dispatch) -- a deliberate per-REP override, never a blanket default. Direct Energy added 2026-07-23: `shop.directenergy.com` React SPA reached by the ZIP URL (`?zipCode=`, capital C) + a residential/"not moving" prelude; EFL is a client-generated `blob:` PDF, but the browser first fetches it from a stable backend endpoint `api-oam.directenergy.com/api/docs/files/<id>.pdf` (plain application/pdf, httpx-downloadable) which `_direct_energy_harvest` captures from the network response (scoped per plan card -- a global `.first` would give every plan the first plan's URL) and stores as the efl_url; targets Direct Energy's "Direct Solar Unlimited 12/24" solar buyback plans (validated live: 2 plans, distinct EFLs, buyback 5.3c/4.8c). Its buyback credit is labeled "Solar Grid Credit" -- added to the EFL parser's `_BUYBACK_LABEL` vocabulary. Reliant + Atlantex added 2026-07-23 (last two REPs; Base intentionally skipped -- battery-infrastructure requirement, multi-year payback). Reliant (`shop.reliant.com`): a *different* NRG SPA flow than Direct Energy (address autocomplete + moving/renting segmentation + a "Solar Plans" filter; hashed CSS-module classes matched by class *substring* via xpath); its "Solar Payback Match" EFL PDF comes from `myaccount.reliant.com/files/<id>.pdf`, captured from a CONTEXT-level response listener (the PDF loads in a popup, so a page-scoped expect_response misses it). Reliant's buyback is RTW (ERCOT 15-min RTSPP floored at 0), which required widening the parser's RTW-signal window (the RTSPP prose sits ~400 chars after the "Solar Grid Credit" label) using only *specific* market tokens (RTSPP/settlement-point/real-time-market -- never bare "real-time"/"ERCOT", which appear in unrelated EFL prose/boilerplate). Atlantex (`enroll.atlantexpower.com`, ASP.NET): its "Solar Buy Back Plan" is promoCode-gated (`?promoCode=tpgsolar`); EFL is a direct `efl.aspx` PDF captured the same way -- but Atlantex's PDF has a broken embedded font that drops letters, so the text parses poorly (lands needs_review for manual fix); discovery/harvest still delivers the PDF. |
+| rep_discovery (REP-site EFL discovery) | #4 | DONE (Green Mountain + TXU + Chariot + Gexa + Frontier + Ambit + Octopus + Champion + Direct Energy + Reliant + Atlantex) | new `fetchers/rep_discovery.py`: deterministic-first (per-REP static self-label extractor) discovery of solar buyback EFLs on REP marketing sites PTC/meterplan miss, plus an interactive `harvester` seam for REPs whose EFL URL is JS-computed and not in the DOM (Champion — `harvest_live()` drives the browser, reads the EFL popup URL, returns `DiscoveredPlan`s directly), an Ollama `lfm2.5` JSON fallback (sites that don't self-label) and an upgrade-only `llm_review=True` pass over all returned EFLs (a site wording change can't silently lose a buyback plan). Octopus needs an ESI ID (PII) when a ZIP spans load zones — read from a gitignored secrets file (`data/rep_discovery_secrets.yaml`, `_load_rep_secret`), never in code/git. Playwright live fetch behind optional `[discovery]` extra (a `render()` may return concatenated multi-page HTML for paginated listings, or be `None` for WAF-blocked/manual-capture REPs); `download_discovered` → `data/efl/` + jsonl manifest. Green Mountain (analytics `^BuyBack` flag), TXU (`show-plan` cards + `PDFGenerator?formType=EnergyFactsLabel` URLs), Chariot (`planbox` cards + `/Home/EFl?productId=` URLs, solar-gated + paginated, ¢/kWh rate parsed from card text), Gexa (`plan-list-padding` rows + `eflviewer.aspx?prodcode=` URLs, `Plan Type: Solar Buyback` self-label keyed per card) and Ambit (`show-plan` cards, EFL URL *constructed* from `data-productid` since the collapsed list hides it; WAF-blocked so manual capture + no render()) static extractors each validated against real rendered-HTML captures (GM 11/2 buyback, TXU 10/1, Chariot 11/11, Gexa 15/2, Ambit 14/2), scripts/SVG stripped first so badge JSON can't false-positive; Octopus (`data-cy="product-title"` cards + `octopusenergy.com/efl/` links, buyback = all plans except OctopusFlex, ESI ID from gitignored secrets, competitor EFL ignored) validated against a real capture (3 plans, 2 buyback); Champion via the interactive `harvester` seam (EFL is a JS popup button; harvest_live drives modal→popup and reads the URL — all Champion plans bundle Indexed Solar Buyback; 3 plans are website-only, absent from PTC) tested through a fake-page seam and validated live (6/6 plans + EFL URLs); llm_review validated live (TXU 10 reviewed/1 flagged/0 false upgrades; Chariot 11/11 at 0.97–0.99 conf; Gexa 15/2 with 0 false upgrades after a context fix — an lfm2.5 probe initially false-upgraded "Energy Saver 12" because its `context` ended in the trailing "Solar Buyback" ribbon that the DOM positions on the *next* card; the ribbon is now stripped from card context, root-caused via a diagnostic prompt to the model itself); 61 tests + 1 skipif-gated live-Ollama test, ruff clean. Octopus's `render()` (ESI-ID flow) is not yet live-validated (the solar/EV/thermostat qualification checkboxes are intentionally omitted — obfuscated classes, and they don't gate which EFLs appear). Ambit's PDFGenerator endpoint also 403s plain-httpx downloads (WAF) — open its 2 EFLs via browser; a stealth `render()` (real-Chrome persistent profile) is a possible follow-up. Champion's harvester was validated live 2026-07-23 (harvested all 6 plans + EFL popup URLs cleanly; the per-plan modal closes with "Close", not the "Close this dialog" interstitial). Wired into `refresh_market_data` 2026-07-23 as an optional, checkbox-gated stage (`app/common._run_rep_discovery`: per-REP dispatch by config shape — harvester/render/manual-capture — with independent per-REP error tolerance, then `download_discovered` → `data/efl/` → `parse_downloaded_efls` → auto-promote; Plans page adds the checkbox, a discovery-ZIP input, a help tooltip covering the Playwright install / Ambit-style manual captures / Octopus ESI-ID secret, and a per-retailer status table). Frontier Utilities added 2026-07-23: runs the SAME Vistra/eflviewer enrollment platform as Gexa, so `extract_gexa`/`extract_frontier` were refactored to delegate to a shared `_extract_eflviewer_platform` (identical `plan-list-padding` cards, `<h3>` names, `eflviewer.aspx?prodcode` EFL links hosted at eflviewer.frontierutilities.com, `Plan Type: Solar Buyback` self-label, and the same next-card `.Product-tab` ribbon-bleed stripping); its plans page is reached directly via `/Home/Index?Zip=<zip>` (JS-injected cards, so `_frontier_render` navigates there and waits for the EFL links), validated live 12 plans/2 buyback (Sun Confidence 12 + Battery Awards 12). Frontier's `newenroll` subdomain robots.txt is a blanket `Disallow: /` ("Stop indexing of all content"); per the user's decision a single rate-limited render of their own shopping page is treated as outside that crawler-indexing intent, so its RepConfig sets the new `check_robots=False` field (threaded into `fetch_rendered_html`/`harvest_live` via the discovery dispatch) -- a deliberate per-REP override, never a blanket default. Direct Energy added 2026-07-23: `shop.directenergy.com` React SPA reached by the ZIP URL (`?zipCode=`, capital C) + a residential/"not moving" prelude; EFL is a client-generated `blob:` PDF, but the browser first fetches it from a stable backend endpoint `api-oam.directenergy.com/api/docs/files/<id>.pdf` (plain application/pdf, httpx-downloadable) which `_direct_energy_harvest` captures from the network response (scoped per plan card -- a global `.first` would give every plan the first plan's URL) and stores as the efl_url; targets Direct Energy's "Direct Solar Unlimited 12/24" solar buyback plans (validated live: 2 plans, distinct EFLs, buyback 5.3c/4.8c). Its buyback credit is labeled "Solar Grid Credit" -- added to the EFL parser's `_BUYBACK_LABEL` vocabulary. Reliant + Atlantex added 2026-07-23 (last two REPs; Base intentionally skipped -- battery-infrastructure requirement, multi-year payback). Reliant (`shop.reliant.com`): a *different* NRG SPA flow than Direct Energy (address autocomplete + moving/renting segmentation + a "Solar Plans" filter; hashed CSS-module classes matched by class *substring* via xpath); its "Solar Payback Match" EFL PDF comes from `myaccount.reliant.com/files/<id>.pdf`, captured from a CONTEXT-level response listener (the PDF loads in a popup, so a page-scoped expect_response misses it). Reliant's buyback is RTW (ERCOT 15-min RTSPP floored at 0), which required widening the parser's RTW-signal window (the RTSPP prose sits ~400 chars after the "Solar Grid Credit" label) using only *specific* market tokens (RTSPP/settlement-point/real-time-market -- never bare "real-time"/"ERCOT", which appear in unrelated EFL prose/boilerplate). Atlantex (`enroll.atlantexpower.com`, ASP.NET): its "Solar Buy Back Plan" is promoCode-gated (`?promoCode=tpgsolar`); EFL is a direct `efl.aspx` PDF captured the same way -- but Atlantex's PDF has a broken embedded font that drops letters, so the text parses poorly (lands needs_review for manual fix); discovery/harvest still delivers the PDF. Ambit is `force_headful=True` as of 2026-07-26 -- diagnostic, not (like Tesla) an edge requirement: its funnel is the flakiest of the thirteen and fails intermittently (all 14 plans at 12:05, a 60s plan-card timeout at 12:50 the same day with no code change between, after the "I already live here" radio and the second "See Plans" both reported not-present), and a visible window is the only way to see which interstitial it actually stopped on. For unattended runs `_save_failure_evidence` now writes a full-page screenshot + the dead page's HTML to `data/rep_discovery/failures/<key>_<ts>.{png,html}` before the browser closes -- deliberately NOT beside the good captures, because `_newest_capture` globs `<key>_*.html` for the render-failure fallback and a dead end parked there would become the thing discovery falls back TO, turning a loud failure into a silent zero-plan run. Direct Energy reworked 2026-07-26 after two refreshes reported "found 0 plan card(s)" against a reachable site -- three independent faults, all measured: (a) headless Chromium is served the app shell with ZERO cards while headful gets 26 on the same URL/UA (Akamai, same shape as Tesla) -> `force_headful`; (b) `/tx/product-chart-tabs?zipCode=<zip>` renders the chart directly, so the old `/tx/plan-selection` residential/"not moving" prelude (four best-effort clicks, ~30s of timeouts against controls that no longer exist) is gone -- no `tdspCode` needed, verified 26 cards with and without; (c) only SIX cards are visible, the rest hidden behind a button whose label carries a count -- the code matched the literal "Load 8 More" and the live site says "Load 7 More", so it saw 6 of 13 plans even when cards rendered, Direct Solar Unlimited among the seven it missed (matched by pattern now). The chart renders every plan TWICE (a hidden second tab), so harvesting is restricted to VISIBLE cards -- name dedup would drop them too, but only after a failed 6s click timeout each. `is_buyback` is now derived from the name rather than hardcoded True (correct while the filter was solar-only; the config since broadened to all 13). Live-validated 2026-07-26: 13/13 plans, 13 distinct api-oam EFL URLs, 1 buyback, PDFs httpx-downloadable. Note Direct Solar Unlimited **24** is no longer offered -- only the 12. |
 | integration/validation | #7 | TODO | lead |
 
 ## 11. Open questions / decisions log
@@ -625,6 +839,58 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
   for engine validation; live shopping requires refreshed EFLs.
 - Battery simulation: out of scope v1. Taxes: excluded by design.
+- **Export credit is valued PER INTERVAL, never at an average price.** An
+  RTW-indexed buyback pays the ERCOT price at the moment of export, and solar
+  exports cluster 09:00-14:00 when that price is at its lowest. Measured on this
+  premises: the flat mean RTSPP is 3.32c/kWh but the export-WEIGHTED price is
+  **2.15c** -- so valuing 9,803 kWh of exports at the average would over-credit
+  by **$115/yr**. That is the whole of the residual gap against the July 2026
+  report on Octo Green 12 ($1,432 here vs $1,336 there); the report appears to
+  have used a flat rate. Any future comparison against an external quote for an
+  indexed-buyback plan should expect this difference, in this direction.
+- **Usage tiers and seasonal TOU: WON'T BUILD (measured 2026-07-26).** The two
+  remaining schema gaps were costed against real interval data before deciding,
+  by modelling each plan's published tiers offline. The tier model reproduces
+  every one of these EFLs' own published average prices at 500/1000/2000 kWh
+  exactly, so the numbers are trustworthy:
+
+  | plan | shape | annual | rank |
+  |---|---|---|---|
+  | GM Boost Your Green 12 | 2 usage tiers | $1,965 | ~#200 |
+  | TXU Saver's Choice 12 | 3 tiers + $50 credit | $2,228 | — |
+  | Ambit Lone Star Plus 12 | 3 usage tiers | $2,243 | — |
+  | TXU e-Saver 12 | 2 usage tiers | $2,296 | — |
+  | Octopus Octo Green 12 | flat + RTW buyback | $1,432 | #44 |
+  | Octopus Flex | seasonal TOU, no buyback | $1,575 | #109 |
+
+  Detected rather than merely skipped, as of 2026-07-26: `detect_usage_tiers`
+  reads the bracket table (`0 - 1200 kWh 12.7c` / `> 2000 kWh 13.3c` and the two
+  parenthesised variants) and sets `Plan.unpriceable_reason`, which `rank()`
+  refuses the same way it refuses an all-zero rate. Eleven of the 263 EFLs are
+  tiered, and **seven were already promoted at `needs_review=False`, ranked on a
+  single tier**. They all sat at #175-#234, but by luck: Direct Apartment 12 had
+  kept its CHEAPER tier (8.8798c of 8.8798/10.8798) while GM Boost Your Green 24
+  kept its DEARER one (10.7798c of 10.7798/5.7798). Picking the other way round
+  would have put a wrong number near the top. The old note ("multiple differing
+  flat Energy Charge values found; used first") read like parser trouble rather
+  than a plan whose shape the schema cannot hold.
+
+  #10 is ~$1,292, so the best of them misses by $140 and the tiered ones by
+  $674–$1,004. The reason is structural rather than incidental: this premise
+  exports 9,803 kWh against 11,278 kWh imported, so **what a plan pays for
+  exports dominates any discount on imports**. Every usage-tiered plan above
+  offers no buyback at all, and Octopus Flex explicitly answers "No" to
+  purchasing excess generation. A cheap import tier cannot make up the gap.
+
+  Revisit only if the export/import ratio drops sharply (battery, EV load
+  shifting) or a tiered plan appears WITH competitive buyback -- not merely
+  because another tiered plan shows up.
+
+  Note Octo Green 12 is not actually tiered: it is a flat 8.0685c (8.0485c with
+  a smart thermostat or EV connected, both of which this premise has) that the
+  parser reads as ambiguous because the rate appears three times in adjacent
+  columns for the different device conditions. Cheap to fix if ever wanted, but
+  it lands #46, so it changes no decision.
 - **TODO — make home features a setting, not an assumption (not urgent).**
   Today "this premise has rooftop solar" is baked in everywhere: the whole app
   is built around export, and `Plan.excludes_solar` hides plans whose REP won't

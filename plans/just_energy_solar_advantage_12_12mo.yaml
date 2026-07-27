@@ -1,0 +1,36 @@
+id: just_energy_solar_advantage_12_12mo
+retailer: Just Energy
+name: Solar Advantage - 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 14.95
+energy_rates:
+- rate_ckwh: 10.8
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 6.0
+  rates: []
+  offset_scope: energy_only
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 375.0
+etf_per_month_remaining: false
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:EFL_Just_Energy_Solar_Advantage_12_English_Residential_20260726183612.pdf
+retrieved: '2026-07-26'
+source_sha256: cf1b1542b4a9a00030cb264b0246207717be842e5bfffeefac0a5cb4fda3da14
+notes: 'Buyback Energy Credit 6.0c/kWh on Excess Energy, offsetting up to 100% of
+  monthly Energy Charges only -- base, TDSP, taxes and fees are never offset. Unused
+  credit is banked to future Energy Charges up to a $500 ceiling and has no cash value
+  ($500 bank cap not modelled). Requires an executed Interconnection Agreement and
+  a TDSP load profile with a PV designation, which this premises has. Cannot be combined
+  with Just Energy''s Excess Generation Buy Back Program. Verified: the model reproduces
+  all three published average prices to 0.04c. Not listed by its source on 2026-07-26
+  -- the source was reached and did not offer this plan. It may have left the market.'
+needs_review: true
+excludes_solar: false
