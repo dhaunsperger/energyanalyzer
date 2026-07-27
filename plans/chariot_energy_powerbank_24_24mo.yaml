@@ -19,11 +19,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 15.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_PowerBank_24.pdf
 retrieved: '2026-07-26'
-source_sha256: 122fb83f0c6317a751ef432b5baea35699e1137950b0118793da8b43b7fe0bbe
+source_sha256: 99657424990b4a64fe9818710adf9d1e170402d63a8df10462559a7b3f3fd2a3
 notes: ''
 needs_review: false
 excludes_solar: false

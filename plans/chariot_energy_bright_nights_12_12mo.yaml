@@ -32,12 +32,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 15.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Bright_Nights_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 4e110e2f78e754c9faf7f464569b67fc7723040e21204db7f62f7eb1256e4eac
+source_sha256: db0da7d95d5b29cae6e66f8b9d9e20a6db59bfafb6661af78b0c9fd147d3aab0
+enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR12002711&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR12002711&Promo=GqAtunAVIGY=

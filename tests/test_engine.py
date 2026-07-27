@@ -657,3 +657,27 @@ def test_no_signup_fee_changes_nothing():
     assert simulate(plan, intervals, tdu).first_year_net == pytest.approx(
         float(simulate(plan, intervals, tdu).monthly["bill"].sum())
     )
+
+
+def test_an_unpriceable_plan_is_refused_rather_than_guessed_at():
+    """A plan whose shape the schema cannot hold must not be ranked at all.
+
+    needs_review is not enough on its own: "Promote all drafts" bypasses it
+    deliberately. Direct Apartment 12 is usage-tiered (8.8798c to 1000 kWh,
+    10.8798c above) and kept its FIRST tier -- a rate that looks cheap and ranks
+    high. Whether the parser happens to grab the cheap tier or the dear one is
+    luck; a wrong number that sorts well is worse than no number.
+    """
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    tdu = TduTariff(effective=dt.date(2024, 1, 1), fixed_usd_month=0.0, volumetric_ckwh=0.0)
+    ok = Plan(id="ok", retailer="R", name="Fine", term_months=12,
+              energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=False)
+    tiered = Plan(id="tiered", retailer="R", name="Tiered", term_months=12,
+                  energy_rates=[EnergyRate(rate_ckwh=8.8798)], tdu_passthrough=False,
+                  unpriceable_reason="usage-tiered energy charge (0-1000 kWh @ 8.8798c, "
+                                     ">1000 kWh @ 10.8798c)")
+
+    results = rank([ok, tiered], intervals, tdu)
+
+    assert [r.plan_id for r in results] == ["ok"]
+    assert any("tiered" in w and "usage-tiered" in w for w in results.warnings)

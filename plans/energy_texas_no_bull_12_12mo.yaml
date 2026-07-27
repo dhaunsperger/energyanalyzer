@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 20.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_No_Bull_12.pdf
 retrieved: '2026-07-26'
 source_sha256: 1b27797f3840b1721f11795bacf6fbd0e98c2b2f359b189af91c601452f8bd28
+enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=AEP-CENTRAL&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=NB12
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=AEP-CENTRAL&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=NB12

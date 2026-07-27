@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_11.pdf
 retrieved: '2026-07-26'
 source_sha256: 67a830eea25486626a102b83eb7d237e09ed82267b3a937a8682f655cc34b7b2
+enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBTX_AEC_NA_NA_RES_FPR_SD0_T11_NEW&deploymentName=TX%20State%20Rate%20Board
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBTX_AEC_NA_NA_RES_FPR_SD0_T11_NEW&deploymentName=TX%20State%20Rate%20Board

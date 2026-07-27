@@ -27,6 +27,7 @@ renewable_pct: 100.0
 source: efl:Reliant_Energy_Reliant_Solar_Payback_Match_12.pdf
 retrieved: '2026-07-26'
 source_sha256: 9c04ecdccf67f749fe521fed0e3bbff078bbc513ecc924458c138a5097a9e1d3
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-07-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

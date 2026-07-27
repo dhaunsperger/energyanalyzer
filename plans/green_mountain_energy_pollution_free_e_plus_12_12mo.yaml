@@ -18,10 +18,11 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 6b791cec8779f70f9484e2a03bd35385c8bdeac147cae61251dadb894d5b8f93
+source_sha256: e44d08c21168c921c31127e36843a88c677b8f0048f71d4a955183d3b74d8b5e
 notes: ''
 needs_review: false
 excludes_solar: false

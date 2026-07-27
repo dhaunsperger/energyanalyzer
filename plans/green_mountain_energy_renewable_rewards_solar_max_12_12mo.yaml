@@ -22,11 +22,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 712d56598a4d785c253d577a75a2b5cd71e2a60aff57c5cd7639df04027b766d
+source_sha256: a951c9dc4c3467ddc48130e24b29e2019369a1451c0abf24215812dbc1e7ceb4
 notes: ''
 needs_review: false
 excludes_solar: false

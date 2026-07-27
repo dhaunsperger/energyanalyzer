@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 75.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.9
 source: efl:HERITAGE_POWER_LLC_Bright_Start_24_-_25_credit_on_your_first_bill.pdf
 retrieved: '2026-07-26'
-source_sha256: 32f60228d249432c7bcfb782bb749f6777cdc000688f8e2283d297d1f3811603
+source_sha256: 1901ac566f071c28142024e2a6642ff6fcf02a09353142aea90a32561791e0d3
+enroll_url: https://signup.heritagepower.com/Home/index?ProductCode=RN24000454&Promo=PTC
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.heritagepower.com/Home/index?ProductCode=RN24000454&Promo=PTC

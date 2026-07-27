@@ -42,6 +42,8 @@ source_sha256: 1f24fedfafa74dc46daeb3e5cd526dd8e70c6b597becbf4ace4a67cc23dff391
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row);
   TDU delivery charge waived during the free window (Delivery Charges will be credited
   for usage during the night) Not listed by its source on 2026-07-26 -- the source
-  was reached and did not offer this plan. It may have left the market.
+  was reached and did not offer this plan. It may have left the market. Not listed
+  by its source on 2026-07-26 -- the source was reached and did not offer this plan.
+  It may have left the market.
 needs_review: true
 excludes_solar: false

@@ -18,11 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Live_Brighter_12_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: bfe142fb9fef09d98d9599cfa28a8dba419d54e59545c683d1d8c53b8594934c
+source_sha256: 45f79266594b310dca528d06b61538a40da053037d6878fb670a592abb6d5673
 notes: ''
 needs_review: false
 excludes_solar: false

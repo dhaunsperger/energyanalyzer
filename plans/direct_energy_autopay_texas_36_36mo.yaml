@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 395.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:DIRECT_ENERGY_Autopay_Texas_36.pdf
 retrieved: '2026-07-26'
-source_sha256: 3ee88511861fb02cd90c4d99ab2c311b216be3458da681fb72dbaa216a20c1ef
+source_sha256: 90feef7d33f12ebc2e4eb14bbd05fb2d5fec4116f2bf601811d7b71205c41077
+enroll_url: https://shop.directenergy.com/tx/product-chart-tabs?tdspCode=D0004&promo_code=WHPGCD&sid=APTC_1726591058&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://shop.directenergy.com/tx/product-chart-tabs?tdspCode=D0004&promo_code=WHPGCD&sid=APTC_1726591058&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose

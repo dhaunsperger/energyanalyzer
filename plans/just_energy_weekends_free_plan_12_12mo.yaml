@@ -58,6 +58,7 @@ notes: 'NOT USABLE with rooftop solar. Just Energy ToS 10.1(a): for a time-of-us
   ''includes all supply and applicable TDSP delivery charges'' -- so tdu_passthrough
   is false; billing TDU on top overstated this plan by ~6.5c/kWh. Confirmed: bundled
   reproduces all three published average prices to 0.05c, passthrough misses by 6.3-6.9c.
-  No distributed-generation exclusion.'
+  No distributed-generation exclusion. Not listed by its source on 2026-07-26 -- the
+  source was reached and did not offer this plan. It may have left the market.'
 needs_review: true
 excludes_solar: true

@@ -18,11 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 295.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Simple_Value_24.pdf
 retrieved: '2026-07-26'
-source_sha256: 468a3ee3190bed1aad94ba9959297da61ac3d174cb88f334fe165576c3a41770
+source_sha256: 1abaec1876bf962b6ce021373c59dcc42a62487774cf789d4cc787d5c775df82
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

@@ -205,6 +205,13 @@ class Plan(BaseModel):
     enroll_url: Optional[str] = None
     notes: str = ""
     needs_review: bool = False
+    # Set when the EFL describes a structure this schema cannot express, so the
+    # plan must not be priced at all. `needs_review` is not enough on its own:
+    # "Promote all drafts" bypasses it deliberately, and a usage-tiered plan that
+    # kept its first tier (Direct Apartment 12: 8.8798c of 8.8798/10.8798) looks
+    # cheap and ranks high. rank() refuses these the same way it refuses an
+    # all-zero rate -- a wrong number that sorts well is worse than no number.
+    unpriceable_reason: Optional[str] = None
     # The REP will not sell this plan to a home with rooftop solar (TXU's Free
     # Nights & Cool Summer 12: "Customers with electric vehicles, batteries,
     # and/or solar panels are ineligible"). This premise HAS solar, so such a

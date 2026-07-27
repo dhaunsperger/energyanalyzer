@@ -23,6 +23,11 @@ renewable_pct: 3.0
 source: efl:TXU_Energy_Saver_s_Choice_12.pdf
 retrieved: '2026-07-26'
 source_sha256: dcb030f3d44127c455f7a009c4d14f75becb8bc91f86cb3d0ad36833309f0d26
-notes: could not find an Energy Charge rate
-needs_review: false
+notes: usage-tiered energy charge (0-1200 kWh @ 12.7c, 1201-2000 kWh @ 6.4c, >2000
+  kWh @ 13.3c) -- the schema models one rate per window, so any single rate here would
+  misprice the plan; could not find an Energy Charge rate
+needs_review: true
 excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-1200 kWh @ 12.7c, 1201-2000 kWh
+  @ 6.4c, >2000 kWh @ 13.3c) -- the schema models one rate per window, so any single
+  rate here would misprice the plan

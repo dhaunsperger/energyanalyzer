@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 200.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_24.pdf
 retrieved: '2026-07-26'
-source_sha256: 2608b158e699f9a06e151d0a3a79ba1d8f2ffaf63b8b6baf8dac3bca4dd56176
+source_sha256: 3c2de8b4a25b4f7f7101f34170fe5f7c8e5cc0f4446000643eabb9070b085c20
+enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas

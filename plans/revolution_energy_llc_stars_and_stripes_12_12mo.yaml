@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 200.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_12.pdf
 retrieved: '2026-07-26'
 source_sha256: eabb6403f64ef09e84a00373b2a9d79234b1b084dcf682fafb4a123aaa55a01c
+enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370252&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370252&promotion=NONE&valid=N&referral=&landingpage=ptc

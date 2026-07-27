@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 99.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Choice_24.pdf
 retrieved: '2026-07-26'
-source_sha256: acb615725ed6009eed5778f09193c60f16f9a79589b143dde75c0d967d06e560
+source_sha256: 68b8f807a9afd73871208b8e2975be6356e061d74872c89bd59153e703925c47
+enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN24000016&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN24000016&Promo=GqAtunAVIGY=

@@ -942,6 +942,59 @@ _SIGNUP_FEE_RE = re.compile(
 _SIGNUP_REQUIRED_RE = re.compile(r"required to enroll|must be purchased|is required", re.I)
 
 
+# A usage-TIERED energy charge: the rate depends on how many kWh you used that
+# month. Seen three ways in the corpus, all meaning the same thing:
+#   "Energy Charge (0 to 1000 kWh): 8.8798c per kWh" / "(> 1000 kWh): 10.8798c"
+#   "Energy Charge: (0 to 1000 kWh) 10.7798c per kWh" / "(> 1000 kWh) 5.7798c"
+#   "0 - 1200 kWh 12.7000c" / "1201 - 2000 kWh 6.4000c" / "> 2000 kWh 13.3000c"
+#
+# The schema models ONE rate per window, so a tiered plan cannot be priced --
+# a decision taken on measurement, not convenience (ARCHITECTURE.md section 11:
+# every tiered plan in the corpus lands $674-$1,004 off the top ten, because
+# what a plan pays for EXPORTS dominates any discount on imports here).
+#
+# What matters is that they fail LOUDLY. Picking one tier and carrying on is the
+# dangerous outcome: Direct Apartment 12 grabbed its first tier, 8.8798c, which
+# looks cheap and ranks high, and the note said only "multiple differing flat
+# Energy Charge values found; used first" -- which reads like parser trouble
+# rather than a plan we cannot price at all.
+_TIER_BOUND_RE = re.compile(
+    r"(?:^|[(\s])"
+    r"(?:(0)\s*(?:to|-|–)\s*([\d,]+)"          # 0 to 1000 / 0 - 1200
+    r"|(>|over|above)\s*([\d,]+)"                # > 1000
+    r"|([\d,]+)\s*(?:to|-|–)\s*([\d,]+))"      # 1201 - 2000
+    r"\s*kWh\s*\)?\s*:?\s*"
+    r"(\d{1,3}(?:\.\d+)?)\s*(?:¢|c\b|cents)",
+    re.I,
+)
+
+
+def detect_usage_tiers(text: str) -> list:
+    """Usage-tier brackets found in an EFL, as ``(label, rate_ckwh)``.
+
+    Two or more distinct brackets means the plan is usage-tiered. One is just a
+    rate that happens to mention a kWh bound, so it is not treated as tiered.
+    """
+    tiers: list = []
+    seen: set = set()
+    for m in _TIER_BOUND_RE.finditer(text or ""):
+        if m.group(1) is not None:
+            label = f"0-{m.group(2)} kWh"
+        elif m.group(3) is not None:
+            label = f">{m.group(4)} kWh"
+        else:
+            label = f"{m.group(5)}-{m.group(6)} kWh"
+        try:
+            rate = float(m.group(7))
+        except (TypeError, ValueError):
+            continue
+        if label in seen:
+            continue
+        seen.add(label)
+        tiers.append((label, rate))
+    return tiers if len(tiers) >= 2 else []
+
+
 def _extract_signup_fee(text: str) -> Extraction:
     """A mandatory one-off enrollment cost, e.g. a required carbon-offset purchase."""
     match = _SIGNUP_FEE_RE.search(text or "")
@@ -2520,6 +2573,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     # --- ETF -------------------------------------------------------------#
     (etf_usd, etf_per_month), etf_conf, etf_ev = _extract_etf(text)
     signup_fee, signup_conf, signup_ev = _extract_signup_fee(text)
+    usage_tiers = detect_usage_tiers(text)
     confidence["etf"] = etf_conf
     if signup_fee:
         # Recorded only when one was FOUND: scoring every fee-less EFL 0.0
@@ -2647,6 +2701,18 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             "express it, so this plan's cost is OVERstated"
         )
         notes.append(note)
+        plan_dict["notes"] = "; ".join(notes)
+        needs_review = True
+    if usage_tiers:
+        # Loud, and specific about WHY: the old note ("multiple differing flat
+        # Energy Charge values found; used first") read like parser trouble
+        # rather than a plan whose shape the schema cannot hold.
+        shape = ", ".join(f"{label} @ {rate:g}c" for label, rate in usage_tiers)
+        plan_dict["unpriceable_reason"] = (
+            f"usage-tiered energy charge ({shape}) -- the schema models one rate "
+            "per window, so any single rate here would misprice the plan"
+        )
+        notes.append(plan_dict["unpriceable_reason"])
         plan_dict["notes"] = "; ".join(notes)
         needs_review = True
     plan_dict["needs_review"] = needs_review

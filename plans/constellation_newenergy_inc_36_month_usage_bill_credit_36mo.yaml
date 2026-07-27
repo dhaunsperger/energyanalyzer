@@ -22,12 +22,13 @@ bill_credits:
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_36_Month_Usage_Bill_Credit.pdf
 retrieved: '2026-07-26'
-source_sha256: f65ccbf51b3c5e3b3aebf34dc1c4f6eec628a0ca83d91550bb0626f017f49a3e
+source_sha256: 3d413b9c9cef0ac56f154fb20d68ba9c6a6f594fd9d0422d8045caed050da6e0
+enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral

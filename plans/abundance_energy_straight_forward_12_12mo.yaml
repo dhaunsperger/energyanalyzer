@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 200.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 25.5
 source: efl:Abundance_Energy_Straight_Forward_12.pdf
 retrieved: '2026-07-26'
-source_sha256: f16d6a850a8f11c7c2d082ea51c93b9e0295fb4079a01db8a587fdb5e0aa9a6c
+source_sha256: 7c63b9c0d78894dade3490afa781d4a6d3f7dfd43bafb8cc76bb28b72777dba4
+enroll_url: https://join.abundanceenergy.com/?promoCode=PTC
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://join.abundanceenergy.com/?promoCode=PTC

@@ -35,11 +35,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Solar_All_Nighter_12.pdf
 retrieved: '2026-07-26'
-source_sha256: a12b803de68991a0b380311a399ea65d19a7da5e220aa1d44ce02421d8d024e4
+source_sha256: dc7544dd6b6f0cf169348f4c03c5ca1dfd0850d14024f2fd97c5c287d8cfbe2b
 notes: ''
 needs_review: false
 excludes_solar: false

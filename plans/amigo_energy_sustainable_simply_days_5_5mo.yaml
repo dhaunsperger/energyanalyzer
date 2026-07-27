@@ -32,19 +32,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 175.0
 etf_per_month_remaining: false
+signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Sustainable_Simply_Days_-_5.pdf
 retrieved: '2026-07-26'
-source_sha256: 69c53d74e65552c6440ca785e8a33ef19578a617f6e506fb13a3b67a412c0483
-notes: 'Enrolling REQUIRES a one-time $49.99 GoodBundle setup and carbon-offset purchase
-  (2000 lbs of carbon credits); the EFL folds 1/12 of it into its average-price table.
-  Modeled as signup_fee_usd, counted once in the first-year total. NOTE the 5-month
-  term: the 4.9c/kWh energy rate is only held for five months, but the ranking prices
-  a full twelve at it, so this plan''s first-year figure is optimistic beyond the
-  fee. base charge inferred as $0.00: the EFL''s bulleted price-component list has
+source_sha256: 89cf4d4e5c5cdf631ff2302f589ae030876b2cc80758136bbb98d2e05eb20dae
+enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
+notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'
 needs_review: false
 excludes_solar: false
-signup_fee_usd: 49.99
-enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST

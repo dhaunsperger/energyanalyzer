@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 100.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_12.pdf
 retrieved: '2026-07-26'
-source_sha256: e8b56e2fdd9e96f2f587db2ceda66e9dfd87b9798f775fd901c0ead6981aaf3a
+source_sha256: 1da43a3fd46b88a34c64c857aae5a49bbf49d481fbe6b77640a474de7abf700f
+enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC

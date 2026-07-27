@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 175.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.9
 source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_12.pdf
 retrieved: '2026-07-26'
 source_sha256: c8118fcd92651784c30d434f2cce8411edc8bcd7798391dfa844a62ba3f73110
+enroll_url: https://www.sfeenergy.com/texas/
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.sfeenergy.com/texas/

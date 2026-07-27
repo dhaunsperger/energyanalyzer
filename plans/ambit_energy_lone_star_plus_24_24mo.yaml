@@ -23,7 +23,14 @@ renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Plus_24.pdf
 retrieved: '2026-07-26'
 source_sha256: f3fa4fc3c46dd0033f79c4802db6fac11bbbc2d2d7bf5e0e658b65fb5c2290ad
-notes: could not find an Energy Charge rate Not listed by its source on 2026-07-26
-  -- the source was reached and did not offer this plan. It may have left the market.
+notes: usage-tiered energy charge (0-1350 kWh @ 12.3c, 1351-2000 kWh @ 6.1c, >2000
+  kWh @ 12.3c) -- the schema models one rate per window, so any single rate here would
+  misprice the plan; could not find an Energy Charge rate Not listed by its source
+  on 2026-07-26 -- the source was reached and did not offer this plan. It may have
+  left the market. Not listed by its source on 2026-07-26 -- the source was reached
+  and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-1350 kWh @ 12.3c, 1351-2000 kWh
+  @ 6.1c, >2000 kWh @ 12.3c) -- the schema models one rate per window, so any single
+  rate here would misprice the plan

@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 20.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_13.pdf
 retrieved: '2026-07-26'
-source_sha256: 709c79e7821a7c47abe8af811d21754c4db5d5be33c01262b4aa4165d9c92b20
+source_sha256: f96b4e0d95ade05821f3d55bc40d7374bd3d915527ce0aee0aed3d93fe225c9d
+enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001

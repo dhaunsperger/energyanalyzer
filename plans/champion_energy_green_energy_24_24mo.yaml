@@ -22,11 +22,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 250.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Champion_Energy_Green_Energy-24.pdf
 retrieved: '2026-07-26'
-source_sha256: 9bec2ab2b6b0d274b9e6bd2021174e65d5c0206adaa81956d17573d15d166d11
+source_sha256: a9d2580ac91093a5ca8a29bd70c6215b613835bbb0ac5473ae9fb285539b17a3
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

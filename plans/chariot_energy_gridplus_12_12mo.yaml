@@ -20,12 +20,13 @@ bill_credits:
 tdu_passthrough: true
 etf_usd: 15.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 9ffac959f876024b919e4976b6c3e899f19e39db68487b822e21978c400b3729
+source_sha256: cae42393498623b1da3b9ca624d731e277a0ae51864af16fd3f87b1730048350
+enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN12004288&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN12004288&Promo=GqAtunAVIGY=

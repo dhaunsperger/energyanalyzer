@@ -18,13 +18,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 20.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_10.pdf
 retrieved: '2026-07-26'
-source_sha256: 2b7b9ceb4876edb117c64717d89ca955574396fe15fbe2f0af7bd5ac3f372eb9
+source_sha256: b019056d9dae3e20ed5ad1938d57ab992567096a0316fa9c9f44d38481c9882e
+enroll_url: https://enroll.aetexasco.com/Enrollment/Default.aspx?&promoCode=AETXPTC1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan
 needs_review: false
 excludes_solar: false
-enroll_url: https://enroll.aetexasco.com/Enrollment/Default.aspx?&promoCode=AETXPTC1

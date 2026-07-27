@@ -18,13 +18,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 50.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 20.0
 source: efl:PRONTO_POWER_Summer_2026.pdf
 retrieved: '2026-07-26'
 source_sha256: 6062264bd3c80f66d86b05432cc2f66ae2e002dc2b5fa62b320900f36d28910f
+enroll_url: https://pronto-enroll.smartgridcis.net/?aid=2026
 notes: base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365
   / 12, rounded to cents)
 needs_review: false
 excludes_solar: false
-enroll_url: https://pronto-enroll.smartgridcis.net/?aid=2026

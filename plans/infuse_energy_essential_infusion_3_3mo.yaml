@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 100.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_3.pdf
 retrieved: '2026-07-26'
 source_sha256: 0025f3aba2da9280edebfebca70c12f8b5269ae6ad88fb74b6ff7af5a887cc7b
+enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1668654&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1668654&promotion=NONE&valid=N&referral=&landingpage=ptc

@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 200.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected.pdf
 retrieved: '2026-07-26'
-source_sha256: e1b26a7e0b2dea71bc3216fd5f65e6296e187f2440ec0137d82546883c77cebf
+source_sha256: cf01618f5e3bb514e0bc57c824e9cdb6bc1a0f2ab249cf3604095922178d7496
+enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas

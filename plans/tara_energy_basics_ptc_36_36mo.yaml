@@ -18,13 +18,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 175.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Basics_PTC_-_36.pdf
 retrieved: '2026-07-26'
-source_sha256: ec31f7755cc76414490f9ae5a04a4bcad3355bc8f8a639dad5d2fac68562193e
+source_sha256: dcca0c50e4541295a92880479e7e467126f480c309528d0d675b2a0975681ec8
+enroll_url: https://taraenergy.com/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false
 excludes_solar: false
-enroll_url: https://taraenergy.com/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT

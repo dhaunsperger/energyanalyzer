@@ -27,11 +27,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 295.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Free_Power_Weekends_24_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: b946429e4f602751ed8624fe8b8f03d819dc19cf4ec52066ce1ad03717031f2b
+source_sha256: b6947f44f4f43d58c53526c5417b30757f1fc614a6b1a141a58bf1ce651cf211
 notes: TDU delivery charge waived during the free window (not be billed for any TDU
   delivery charges during the Designated Free)
 needs_review: false

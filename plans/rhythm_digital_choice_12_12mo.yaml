@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 20.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Digital_Choice_12.pdf
 retrieved: '2026-07-26'
 source_sha256: 70fe75d40c0211fd91255c8ddd64122c890b3859bfaa3bdf8c3c3c049a2e31f8
+enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=DC12
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=DC12

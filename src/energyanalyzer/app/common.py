@@ -1031,6 +1031,12 @@ def parse_downloaded_efls(
                     summary["identified"].append(
                         {"file": pdf_path.name, "id": draft.plan_dict["id"]}
                     )
+                # The parser's confidence in an identity it no longer supplies
+                # is noise, and it was the loudest thing in the review table:
+                # retailer 0.75 / plan_name 0.7 appeared on 20 of 22 drafts,
+                # burying the fields a human actually needs to check.
+                draft.confidence["retailer"] = 1.0
+                draft.confidence["plan_name"] = 1.0
             # Where to sign up is row data too, and for some plans it is the only
             # way in: Just Energy's GoodBundle plans live at a /ptcsl/ referral
             # landing page their own site never links.

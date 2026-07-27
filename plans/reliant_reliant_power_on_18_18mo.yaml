@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 180.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_18.pdf
 retrieved: '2026-07-26'
-source_sha256: 0638898d1b68b47d572ea0f475a58f3f00037e06a65545db9f65f40b32f0528d
+source_sha256: 248c1e9493c94c32d53606317e159c346dd035d92370ddb4ec2e17e6f0cefdb9
+enroll_url: http://www.reliant.com/public/startOEProcess.htm?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=A3P_1562314131
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: http://www.reliant.com/public/startOEProcess.htm?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=A3P_1562314131

@@ -50,6 +50,8 @@ notes: 'NOT USABLE with rooftop solar. Just Energy ToS 10.1(a): for a time-of-us
   Night Hours 9:00PM-7:00AM credited at 100% of the Energy Charge; TDU delivery still
   billed on night kWh. $4.99 minimum-usage fee below 400 kWh/cycle -- not modelled.
   EFL: ''Customers with distributed generation may not be eligible for this product''
-  -- this premise HAS rooftop solar, so CONFIRM ELIGIBILITY before enrolling.'
+  -- this premise HAS rooftop solar, so CONFIRM ELIGIBILITY before enrolling. Not
+  listed by its source on 2026-07-26 -- the source was reached and did not offer this
+  plan. It may have left the market.'
 needs_review: true
 excludes_solar: true

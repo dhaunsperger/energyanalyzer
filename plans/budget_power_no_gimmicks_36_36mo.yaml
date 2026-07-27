@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 250.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_36.pdf
 retrieved: '2026-07-26'
-source_sha256: c7c0ffdcb3ff3a6ba77aa6b133d31790df36b65a1f534f0340259bb73fa86694
+source_sha256: 826bc72d7b5d0e75863dd75ffd55ef21bff13a541f005032017f9dd6a8f8b7f7
+enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN36000086&Promo=PTC
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN36000086&Promo=PTC

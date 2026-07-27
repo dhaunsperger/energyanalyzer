@@ -37,11 +37,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 180.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Twelve_Hour_Power_18_Auto_Pay.pdf
 retrieved: '2026-07-26'
-source_sha256: 22942141db1c1b69c0221607cd2aabe67fc081fdb1abe0bfb4e81b8552e91375
+source_sha256: dd17cdfb50b13dad259b9320c0da374d700ea6af44fc42b4472703897457a8de
 notes: free window (12h) read from prose; it is priced in a different column from
   its label, so no rate table carries it; TDU delivery charge waived during the free
   window (not be billed for any TDU delivery charges during the Designated Free)

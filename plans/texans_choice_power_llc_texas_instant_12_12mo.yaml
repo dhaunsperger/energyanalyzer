@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 200.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Texas_Instant_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 8a1502bfc8aa263163a1a20b6e1c0cb31d88c163930c33aca4775588a7e799db
+source_sha256: c0181729dcb558dcc6147fd97a5884f4c25beec6eef1f236e1aa00a080709057
+enroll_url: https://signup.texanschoicepower.com/?PromoCode=PTC
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.texanschoicepower.com/?PromoCode=PTC

@@ -303,6 +303,11 @@ def rank(
         # cannot catch it, because "Promote all drafts" bypasses needs_review.
         # `rtw is None` on every rate first: an RTW-indexed IMPORT rate leaves
         # rate_ckwh unset, and must not be mistaken for a zero.
+        if plan.unpriceable_reason:
+            results.warnings.append(
+                f"skipping plan {plan.id}: {plan.unpriceable_reason}"
+            )
+            continue
         if all(r.rtw is None for r in plan.energy_rates) and not any(
             r.rate_ckwh for r in plan.energy_rates
         ):

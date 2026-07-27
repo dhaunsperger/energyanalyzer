@@ -23,7 +23,12 @@ renewable_pct: 22.0
 source: efl:Direct_Energy_Power_More_Savings_12.pdf
 retrieved: '2026-07-26'
 source_sha256: c0e2020864e775b8870779966ebd4895ad5a0a000bf0a4f1af65c18e3778d8e2
-notes: multiple differing flat Energy Charge values found [7.3798, 9.3798]; used first
+notes: usage-tiered energy charge (0-1000 kWh @ 9.3798c, >1000 kWh @ 7.3798c) -- the
+  schema models one rate per window, so any single rate here would misprice the plan;
+  multiple differing flat Energy Charge values found [7.3798, 9.3798]; used first
   (9.3798)
-needs_review: false
+needs_review: true
 excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 9.3798c, >1000 kWh @
+  7.3798c) -- the schema models one rate per window, so any single rate here would
+  misprice the plan

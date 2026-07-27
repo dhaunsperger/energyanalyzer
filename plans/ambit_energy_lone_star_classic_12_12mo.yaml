@@ -25,6 +25,7 @@ retrieved: '2026-07-26'
 source_sha256: 442ccac9f2a12c2d9bfaffadcf91bceb5b8535f73d9b8c9c345c89b5691cd7e9
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
   Not listed by its source on 2026-07-26 -- the source was reached and did not offer
-  this plan. It may have left the market.
+  this plan. It may have left the market. Not listed by its source on 2026-07-26 --
+  the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

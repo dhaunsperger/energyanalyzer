@@ -28,6 +28,7 @@ retrieved: '2026-07-26'
 source_sha256: 929deb61c81d8191fd3d7c380c2ba66fd13f78b942733d6ce7feff9c3bb01547
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
-  scan
-needs_review: false
+  scan Not listed by its source on 2026-07-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

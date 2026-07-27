@@ -19,11 +19,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 0.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:TXU_Energy_Solar_Buyback_System_Flex.pdf
 retrieved: '2026-07-26'
-source_sha256: 126b3b690592d09a86e8b355d294b72dd59d46cb735da441afcc6330632f988f
+source_sha256: b80fd4928aa12fcf067c75e389c5260a885ab8b31726a1db4d4e3a96ddc75546
 notes: ''
 needs_review: false
 excludes_solar: false

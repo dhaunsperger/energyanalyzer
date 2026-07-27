@@ -22,7 +22,12 @@ rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Boost_Your_Green_12.pdf
 retrieved: '2026-07-26'
 source_sha256: d908d2014992e83b31ec0afd9cd46762340789441fe7ba7a8758855e1485cf01
-notes: multiple differing flat Energy Charge values found [8.2798, 10.2798]; used
+notes: usage-tiered energy charge (0-1000 kWh @ 10.2798c, >1000 kWh @ 8.2798c) --
+  the schema models one rate per window, so any single rate here would misprice the
+  plan; multiple differing flat Energy Charge values found [8.2798, 10.2798]; used
   first (10.2798)
-needs_review: false
+needs_review: true
 excludes_solar: false
+unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 10.2798c, >1000 kWh @
+  8.2798c) -- the schema models one rate per window, so any single rate here would
+  misprice the plan

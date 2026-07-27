@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 250.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_18.pdf
 retrieved: '2026-07-26'
 source_sha256: e7912a5a11d8bc9dc3f97c6e9d90c438d8676b91ec9920da7084e887126c9e79
+enroll_url: https://signup.ironhorsepowerservices.com/ironhorse-ptc/CTP-18-PC-0-100279
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://signup.ironhorsepowerservices.com/ironhorse-ptc/CTP-18-PC-0-100279

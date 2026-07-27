@@ -854,6 +854,18 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
   | Octopus Octo Green 12 | flat + RTW buyback | $1,432 | #46 |
   | Octopus Flex | seasonal TOU, no buyback | $1,575 | #109 |
 
+  Detected rather than merely skipped, as of 2026-07-26: `detect_usage_tiers`
+  reads the bracket table (`0 - 1200 kWh 12.7c` / `> 2000 kWh 13.3c` and the two
+  parenthesised variants) and sets `Plan.unpriceable_reason`, which `rank()`
+  refuses the same way it refuses an all-zero rate. Eleven of the 263 EFLs are
+  tiered, and **seven were already promoted at `needs_review=False`, ranked on a
+  single tier**. They all sat at #175-#234, but by luck: Direct Apartment 12 had
+  kept its CHEAPER tier (8.8798c of 8.8798/10.8798) while GM Boost Your Green 24
+  kept its DEARER one (10.7798c of 10.7798/5.7798). Picking the other way round
+  would have put a wrong number near the top. The old note ("multiple differing
+  flat Energy Charge values found; used first") read like parser trouble rather
+  than a plan whose shape the schema cannot hold.
+
   #10 is ~$1,292, so the best of them misses by $140 and the tiered ones by
   $674–$1,004. The reason is structural rather than incidental: this premise
   exports 9,803 kWh against 11,278 kWh imported, so **what a plan pays for

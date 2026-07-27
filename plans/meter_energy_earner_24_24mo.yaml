@@ -1,0 +1,30 @@
+id: meter_energy_earner_24_24mo
+retailer: Meter Energy
+name: Earner 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 14.95
+energy_rates:
+- rate_ckwh: 14.39
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 8.0
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 300.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Meter_Energy_Earner_24.pdf
+retrieved: '2026-07-26'
+source_sha256: fd04a479452cd5859fa0454d61bf2bcfbfda18eaa55336c9847ea4baf10a692c
+notes: ''
+needs_review: false
+excludes_solar: false

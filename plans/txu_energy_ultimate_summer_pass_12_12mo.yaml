@@ -18,11 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Ultimate_Summer_Pass_12.pdf
 retrieved: '2026-07-26'
-source_sha256: 978289c1edf6b087cdfd180d5fe073c3c1e00892d2232d73d75a8bbba67376b6
+source_sha256: 3e78e6490397911a255891241f2e3d42e00396fa884d3580d4390ddf65c3179a
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

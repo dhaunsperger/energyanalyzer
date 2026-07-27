@@ -18,12 +18,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 395.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Saver_36.pdf
 retrieved: '2026-07-26'
-source_sha256: ddf28c4463898c33c56267fdb6e95fc2d9ab442c5778522492c09835d9b9c0c8
+source_sha256: 41279d82b7e0ae6e0878d6c966ce368add3a35418137c29ff899fb21cc153b0f
+enroll_url: https://shop.discountpowertx.com/offer-selection/?txtPromocode=WQ4131&tdspCode=D0004&language=es&fromLP=ptc&sid=APTC_1686090020&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false
 excludes_solar: false
-enroll_url: https://shop.discountpowertx.com/offer-selection/?txtPromocode=WQ4131&tdspCode=D0004&language=es&fromLP=ptc&sid=APTC_1686090020&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
