@@ -1849,3 +1849,51 @@ def test_bare_base_charge_is_read_but_never_the_delivery_utilitys():
     assert _extract_base_charge_bare_amount(
         "Oncor Delivery Charges: 6.1196 ¢/kWh\nOncor Base Charge: $4.06 /month"
     ) is None
+
+
+def test_a_branded_bill_credit_is_read():
+    """Just Energy's family names the credit after the plan and inverts the
+    comparator, which defeated every existing pattern at once:
+
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or
+         greater than 500 kWh per bill cycle."
+
+    The others say "credit of $125 ... usage is at least 1,000 kWh". Simple
+    Value 12 therefore modeled at 15c/kWh with NO credit -- overstating it by
+    $50 every single month, $600 a year.
+    """
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    got = _extract_bill_credits(
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or "
+        "greater than 500 kWh per bill cycle."
+    )
+    assert got == [{"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}]
+
+    got = _extract_bill_credits(
+        "Power Perks Credit: $125.00 if your usage on this plan is equal or "
+        "greater than 1000 kWh per bill cycle."
+    )
+    assert got == [{"min_kwh": 1000.0, "max_kwh": None, "credit_usd": 125.0}]
+
+    # ...and the prose restatement of the same credit must not double it up.
+    both = _extract_bill_credits(
+        "Simple Value Credit: $50.00 if your usage on this plan is equal or "
+        "greater than 500 kWh per bill cycle. The Simple Value Credit applies "
+        "when billed usage meets or exceeds 500 kWh during a billing cycle."
+    )
+    assert both == [{"min_kwh": 500.0, "max_kwh": None, "credit_usd": 50.0}]
+
+
+def test_the_branded_pattern_does_not_invent_credits():
+    """It needs a labelled credit, an amount, AND a kWh threshold -- prose about
+    credits in general must not become a bill credit."""
+    from energyanalyzer.eflparse.parser import _extract_bill_credits
+
+    for text in (
+        "Your bill will contain a credit for Energy Charges consumed during Night Hours.",
+        "Buyback Energy Credit: 6.0c/kWh.",
+        "A Minimum Usage Fee of $4.99 will apply to billing cycles less than 400 kWh.",
+        "One-time GoodBundle set up and carbon offset purchase: $49.99.",
+    ):
+        assert _extract_bill_credits(text) == [], text

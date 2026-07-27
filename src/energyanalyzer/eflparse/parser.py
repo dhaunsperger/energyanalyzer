@@ -1876,6 +1876,26 @@ def _extract_bill_credits(text: str) -> list[dict]:
     ):
         _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
 
+    # A BRANDED credit, amount after the label: "Simple Value Credit: $50.00 if
+    # your usage on this plan is equal or greater than 500 kWh per bill cycle."
+    # Two things defeated the patterns above at once -- the retailer names the
+    # credit after the plan rather than calling it a "bill credit", and writes
+    # "equal or greater than" where the others write "greater than or equal to".
+    # Just Energy Simple Value 12 therefore modeled at 15c/kWh with NO credit,
+    # which overstates it by $50 every single month.
+    for m in re.finditer(
+        r"[A-Z][\w' -]{0,30}?Credit[:\s]*\$(\d+(?:\.\d+)?)\s*"
+        r"(?:if|when)[^.]{0,70}?usage[^.]{0,70}?"
+        r"(?:equals?\s*(?:to\s*)?or\s*(?:is\s*)?greater\s*than"
+        r"|greater\s*than\s*or\s*equal(?:\s*to)?"
+        r"|meets?\s*or\s*exceeds?"
+        r"|at\s*least|>=)\s*"
+        r"(\d+(?:,\d{3})*)\s*kWh",
+        text,
+        re.I,
+    ):
+        _add(float(m.group(1)), float(m.group(2).replace(",", "")), None)
+
     # "Usage Credit $125 per billing cycle when usage >=1000 kWh"
     for m in re.finditer(
         r"Usage\s*Credit[:\s]*\$(\d+(?:\.\d+)?)\s*(?:per\s*(?:billing\s*cycle|month)\s*)?"
