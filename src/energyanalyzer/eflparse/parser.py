@@ -1993,6 +1993,20 @@ _BUYBACK_DISCLOSURE_RE = re.compile(
 )
 
 
+# The disclosure answer sometimes names the MECHANISM, not just "Yes": Octopus
+# answers "Yes (at the Real Time Settlement Price Point)". That is a complete
+# specification of an RTW buyback -- the export credit is the ERCOT real-time
+# settlement price for the interval -- and reading it as `kind: none` cost the
+# plan its entire export credit. Against 9,803 kWh/yr of exports that was $215.
+#
+# Only the ERCOT market terms count, never a bare "real-time" or "market": those
+# appear in unrelated EFL boilerplate about price changes.
+_BUYBACK_DISCLOSURE_RTW = re.compile(
+    r"(?:real[-\s]?time\s*)?settlement\s*(?:point\s*)?price|RTSPP|real[-\s]?time\s*settlement",
+    re.I,
+)
+
+
 def _buyback_disclosure_answer(text: str) -> Optional[bool]:
     """True/False if the EFL's excess-generation disclosure clearly answers
     yes/no, else None (wrapped/absent/unparseable answer -- most EFLs)."""
@@ -2170,6 +2184,24 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
 
     if not candidates:
         if says_yes:
+            # ...and if that answer names the settlement point, the rate IS
+            # specified -- it is the ERCOT real-time price for the interval.
+            disclosure = _BUYBACK_DISCLOSURE_RE.search(text)
+            answer = re.sub(r"\s+", " ", disclosure.group(1))[:160] if disclosure else ""
+            if _BUYBACK_DISCLOSURE_RTW.search(answer):
+                return (
+                    {
+                        "kind": "rtw",
+                        # Multiplier/adder are not stated, so 1x with no adder is
+                        # the plain reading of "at the settlement point price".
+                        # Floored at 0: ERCOT prices go negative, and no EFL in
+                        # the corpus says a customer is ever billed for exporting.
+                        "rtw": {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0},
+                        "offset_scope": "all_charges",
+                    },
+                    0.75,
+                    f"excess-generation disclosure: {answer.strip()}",
+                )
             return {"kind": "none"}, 0.3, "EFL discloses it purchases excess generation, but no rate found"
         return {"kind": "none"}, 0.95, ""
 

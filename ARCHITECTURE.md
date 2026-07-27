@@ -839,6 +839,15 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 - Seed plans from the July 2026 report carry `source: report-2026-07` and are
   for engine validation; live shopping requires refreshed EFLs.
 - Battery simulation: out of scope v1. Taxes: excluded by design.
+- **Export credit is valued PER INTERVAL, never at an average price.** An
+  RTW-indexed buyback pays the ERCOT price at the moment of export, and solar
+  exports cluster 09:00-14:00 when that price is at its lowest. Measured on this
+  premises: the flat mean RTSPP is 3.32c/kWh but the export-WEIGHTED price is
+  **2.15c** -- so valuing 9,803 kWh of exports at the average would over-credit
+  by **$115/yr**. That is the whole of the residual gap against the July 2026
+  report on Octo Green 12 ($1,432 here vs $1,336 there); the report appears to
+  have used a flat rate. Any future comparison against an external quote for an
+  indexed-buyback plan should expect this difference, in this direction.
 - **Usage tiers and seasonal TOU: WON'T BUILD (measured 2026-07-26).** The two
   remaining schema gaps were costed against real interval data before deciding,
   by modelling each plan's published tiers offline. The tier model reproduces
@@ -851,7 +860,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
   | TXU Saver's Choice 12 | 3 tiers + $50 credit | $2,228 | — |
   | Ambit Lone Star Plus 12 | 3 usage tiers | $2,243 | — |
   | TXU e-Saver 12 | 2 usage tiers | $2,296 | — |
-  | Octopus Octo Green 12 | flat + RTW buyback | $1,432 | #46 |
+  | Octopus Octo Green 12 | flat + RTW buyback | $1,432 | #44 |
   | Octopus Flex | seasonal TOU, no buyback | $1,575 | #109 |
 
   Detected rather than merely skipped, as of 2026-07-26: `detect_usage_tiers`

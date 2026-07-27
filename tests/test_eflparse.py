@@ -1897,3 +1897,55 @@ def test_the_branded_pattern_does_not_invent_credits():
         "One-time GoodBundle set up and carbon offset purchase: $49.99.",
     ):
         assert _extract_bill_credits(text) == [], text
+
+
+def test_a_settlement_point_disclosure_is_an_rtw_buyback():
+    """Octopus answers the PUCT excess-generation question with the MECHANISM,
+    not just "Yes":
+
+        "Does Octopus Energy purchase excess distributed renewable generation?
+         Yes (at the Real Time Settlement Price Point)"
+
+    That fully specifies an RTW buyback -- the export credit is the ERCOT
+    real-time price for the interval. Reading it as `kind: none` cost Octo Green
+    12 its entire export credit: $1,646.59 modeled against $1,431.88 once the
+    buyback is there, on 9,803 kWh/yr of exports.
+    """
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, conf, ev = _extract_buyback(
+        "Does Octopus Energy purchase excess distributed renewable generation? "
+        "Yes (at the Real Time Settlement Price Point) Renewable Content 100%",
+        None,
+    )
+    assert bb["kind"] == "rtw"
+    assert bb["rtw"] == {"multiplier": 1.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
+    assert conf < 0.8, "multiplier/adder are not stated -- a human should confirm"
+    assert "Settlement Price Point" in ev
+
+
+def test_a_bare_yes_still_only_vetoes_confidence():
+    """Without a named mechanism the rate really is unread: the value stays
+    "none" and only the confidence drops, so the draft lands in review rather
+    than entering the ranking as a non-buyback plan."""
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, conf, _ = _extract_buyback(
+        "Does the REP purchase excess distributed renewable generation? Yes "
+        "Renewable Content 22%",
+        None,
+    )
+    assert bb["kind"] == "none" and conf == 0.3
+
+
+def test_unrelated_real_time_prose_is_not_a_buyback():
+    """"Real-time" and "market" appear in EFL boilerplate about price changes;
+    only the ERCOT settlement-point terms may promote a disclosure to RTW."""
+    from energyanalyzer.eflparse.parser import _extract_buyback
+
+    bb, _conf, _ = _extract_buyback(
+        "Does the REP purchase excess distributed renewable generation? Yes. "
+        "Your price may change to reflect real-time changes in market conditions.",
+        None,
+    )
+    assert bb["kind"] == "none"
