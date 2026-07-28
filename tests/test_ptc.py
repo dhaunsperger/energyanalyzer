@@ -357,7 +357,9 @@ def test_efl_ssl_context_enables_legacy_server_connect():
     import ssl
 
     ctx = ptc._efl_ssl_context()
-    assert ctx.options & ssl.OP_LEGACY_SERVER_CONNECT
+    # The constant only exists on Python 3.12+; the source falls back to its
+    # literal value so the option is set on 3.11 too (pyproject allows >=3.11).
+    assert ctx.options & getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
     # Still a verifying context -- we relaxed renegotiation, not trust.
     assert ctx.verify_mode == ssl.CERT_REQUIRED
 

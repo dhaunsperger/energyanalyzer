@@ -42,8 +42,10 @@ CSV disagrees, adjust `_DST_FLAG_MEANS_DST` accordingly.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -241,6 +243,35 @@ def _no_files_error(data_dir: Path) -> FileNotFoundError:
     )
 
 
+def _source_manifest(source_files: list[Path]) -> list[list]:
+    """Identity of the source set a cache was built from: name, size, mtime.
+
+    Compared instead of "is the cache newer than the newest source?" because
+    mtimes are not monotonic in practice -- `cp -p`, unzipping an archive, or
+    restoring a backup all land files whose mtime predates the cache, and a
+    newest-mtime test then silently reuses a cache that is missing a whole
+    year of prices. Adding OR removing a file changes this manifest.
+    """
+    return sorted(
+        [f.name, f.stat().st_size, int(f.stat().st_mtime)] for f in source_files
+    )
+
+
+def _manifest_path(cache_path: Path) -> Path:
+    return cache_path.with_suffix(".manifest.json")
+
+
+def _read_manifest(cache_path: Path) -> Optional[list]:
+    try:
+        return json.loads(_manifest_path(cache_path).read_text())
+    except Exception:  # noqa: BLE001 -- absent/corrupt manifest just means "rebuild"
+        return None
+
+
+def _write_manifest(cache_path: Path, manifest: list[list]) -> None:
+    _manifest_path(cache_path).write_text(json.dumps(manifest))
+
+
 def _read_cache(cache_path: Path) -> pd.Series:
     try:
         cached_df = pd.read_parquet(cache_path)
@@ -278,8 +309,8 @@ def load_prices(zone: str = "LZ_SOUTH", data_dir: Path = Path("data/ercot")) -> 
         raise _no_files_error(data_dir)
 
     cache_path = data_dir / f"{zone}.parquet"
-    newest_source_mtime = max(f.stat().st_mtime for f in source_files)
-    if cache_path.exists() and cache_path.stat().st_mtime >= newest_source_mtime:
+    manifest = _source_manifest(source_files)
+    if cache_path.exists() and _read_manifest(cache_path) == manifest:
         cached = _read_cache(cache_path)
         if not cached.empty:
             return cached
@@ -308,6 +339,7 @@ def load_prices(zone: str = "LZ_SOUTH", data_dir: Path = Path("data/ercot")) -> 
     combined.index.name = "ts"
 
     _write_cache(combined, cache_path)
+    _write_manifest(cache_path, manifest)
     return combined
 
 

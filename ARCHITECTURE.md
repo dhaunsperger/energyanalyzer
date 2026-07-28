@@ -173,6 +173,13 @@ Key semantics implementers must honor:
   added to bills).
 - `needs_review: true` marks auto-parsed/uncertain plans; UI must badge them.
 
+**Monthly fixed charges prorate** by `coverage` (above): a 365-day export that
+doesn't start on the 1st spans 13 calendar months, and charging all 13 in full
+invents a 13th month of fixed fees. The error scales with the plan's base
+charge, so it reorders the ranking rather than just shifting every plan
+equally. Whole months have `coverage == 1.0` and are unaffected — the frozen
+July-2026 benchmarks are byte-identical either way.
+
 TDU tariffs (`tdu/oncor.yaml`): list of `{effective: date, fixed_usd_month,
 volumetric_ckwh}`; engine picks the record effective for each billing month.
 For "first-year forward-looking" bills we use the LATEST tariff for all 12
@@ -187,8 +194,9 @@ For each plan, for each of the 12 local-calendar months in the interval data:
 imp(t), exp(t)           # kWh per 15-min interval in month
 rate(t)                  # $/kWh from first matching EnergyRate (RTW: join price series)
 energy_cost   = Σ imp(t)·rate(t)
-base          = base_charge_usd
-tdu           = fixed_usd_month + volumetric·Σimp(t over non-tdu_exempt rates)
+coverage      = distinct local dates in month / days_in_month   (≤ 1.0)
+base          = base_charge_usd · coverage
+tdu           = fixed_usd_month·coverage + volumetric·Σimp(t over non-tdu_exempt rates)
                                                        [if tdu_passthrough]
 credit_earned = Σ exp(t)·buyback_rate(t)               [0 if kind=none]
 credit_earned = min(credit_earned, energy_cost)        [if monthly_credit_cap=energy_charge]

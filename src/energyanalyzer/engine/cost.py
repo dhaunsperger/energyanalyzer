@@ -183,9 +183,20 @@ def simulate(
         export_kwh = float(g["export_kwh"].sum())
         energy_cost = float(g["energy_charge"].sum())
         ev_free_kwh = float(g["ev_free_kwh"].sum())
-        base = plan.base_charge_usd
+
+        # Monthly FIXED charges (base + TDU's per-month fee) are prorated by how
+        # much of the calendar month the data actually covers. A 365-day export
+        # that doesn't start on the 1st spans 13 calendar months, and charging
+        # all 13 in full invents a 13th month of fixed fees -- worse, the error
+        # scales with the plan's base charge ($19.95/mo plans absorb four times
+        # the phantom cost of a $4.95/mo plan), which reorders the ranking. With
+        # proration the two partial end months sum back to exactly one month.
+        # Whole months are unaffected (coverage == 1.0).
+        coverage = min(int(g["date"].nunique()) / month.days_in_month, 1.0)
+        base = plan.base_charge_usd * coverage
         tdu_charge = (
-            tdu.fixed_usd_month + tdu.volumetric_usd_kwh * float(g["tdu_import_kwh"].sum())
+            tdu.fixed_usd_month * coverage
+            + tdu.volumetric_usd_kwh * float(g["tdu_import_kwh"].sum())
             if plan.tdu_passthrough
             else 0.0
         )
@@ -222,6 +233,7 @@ def simulate(
         rows.append(
             {
                 "month": str(month),
+                "coverage": coverage,
                 "import_kwh": import_kwh,
                 "export_kwh": export_kwh,
                 "energy_cost": energy_cost,
@@ -241,6 +253,7 @@ def simulate(
         rows,
         columns=[
             "month",
+            "coverage",
             "import_kwh",
             "export_kwh",
             "energy_cost",

@@ -1775,7 +1775,7 @@ def refresh_market_data(
     efl_dir: Path = EFL_DIR,
     ptc_dir: Path = PTC_DIR,
     meterplan_dir: Path = METERPLAN_DIR,
-    quarantine_dir: Path = QUARANTINE_DIR,
+    quarantine_dir: Optional[Path] = None,  # None -> QUARANTINE_DIR, resolved below
     tdu: str = "ONCOR",
     language: Optional[str] = "English",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -1883,7 +1883,11 @@ def refresh_market_data(
     efl_dir = Path(efl_dir)
     ptc_dir = Path(ptc_dir)
     meterplan_dir = Path(meterplan_dir)
-    quarantine_dir = Path(quarantine_dir)
+    # Late-bound (see the signature): a def-time default would freeze the real
+    # data/ path into the function, so a caller working in its own directories
+    # -- every test -- would still quarantine there and, worse, reconcile
+    # against a live recovery state it knows nothing about.
+    quarantine_dir = Path(quarantine_dir) if quarantine_dir is not None else QUARANTINE_DIR
 
     notes: list[str] = []
     summary: dict = {
@@ -2186,6 +2190,8 @@ def refresh_market_data(
     finish_refresh(
         plans_dir=plans_dir,
         drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        quarantine_dir=quarantine_dir,
         summary=summary,
         notes=notes,
         progress_callback=progress_callback,
@@ -2253,6 +2259,8 @@ def promote_all_drafts(
 def finish_refresh(
     plans_dir: Path = PLANS_DIR,
     drafts_dir: Path = DRAFTS_DIR,
+    efl_dir: Optional[Path] = None,  # None -> EFL_DIR
+    quarantine_dir: Optional[Path] = None,  # None -> QUARANTINE_DIR
     summary: Optional[dict] = None,
     notes: Optional[list] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -2274,6 +2282,11 @@ def finish_refresh(
     omit them to get a fresh summary dict back.
     """
     from energyanalyzer.eflparse.parser import LOAD_BEARING_KEYS, plan_fields
+
+    # Late-bound so a caller (or test) working in its own directories doesn't
+    # silently reconcile the real data/ quarantine -- see refresh_market_data.
+    efl_dir = Path(efl_dir) if efl_dir is not None else EFL_DIR
+    quarantine_dir = Path(quarantine_dir) if quarantine_dir is not None else QUARANTINE_DIR
 
     if summary is None:
         summary = {"promoted": [], "needing_review": [], "meterplan_superseded": []}
@@ -2349,7 +2362,16 @@ def finish_refresh(
     # promotion so "was it re-derived?" is asked of the finished database, and
     # inside finish_refresh so the "Finish incomplete refresh" recovery path
     # un-quarantines too -- an interrupted run must not strand the old plans.
-    reconciled = reconcile_quarantine(plans_dir=plans_dir, drafts_dir=drafts_dir)
+    # Pass this run's own directories: defaulting them silently reconciled the
+    # real data/ quarantine no matter which directories the run actually
+    # quarantined into, so any caller using non-default paths (every test, and
+    # the recovery path below) restored nothing while mutating real user data.
+    reconciled = reconcile_quarantine(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        quarantine_dir=quarantine_dir,
+    )
 
     # Retiring synthetics runs AFTER the quarantine has put back whatever this
     # run failed to rebuild, because both directions of the ordering bite:

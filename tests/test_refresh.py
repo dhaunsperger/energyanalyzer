@@ -1219,3 +1219,75 @@ def test_restore_runs_before_retire_so_a_restored_plan_can_supersede(tmp_path):
 
     assert [mp for mp, _ in retired] == ["mp_ambit_free_clear_12mo"]
     assert not (drafts_dir / "mp_ambit_free_clear_12mo.yaml").exists()
+
+
+def test_failed_refresh_restores_quarantined_plans_in_its_own_directories(
+    refresh_dirs, monkeypatch
+):
+    """A refresh that rebuilds nothing must leave the database as it found it.
+
+    Regression: reconcile_quarantine was called without efl_dir/quarantine_dir,
+    so it defaulted to the real data/ tree. Any caller working in its own
+    directories therefore restored nothing -- the auto-imported plans stayed
+    quarantined and the database silently shrank -- while reaching into a live
+    quarantine that belonged to someone else.
+    """
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    quarantine_dir = plans_dir.parent / "quarantine"
+
+    specs = [
+        ("hand_solar", "manual", "Gexa", "Solar Buyback", 12),
+        ("imp_ptc", "ptc", "Reliant", "Secure Advantage", 24),
+        ("imp_efl", "efl:x.pdf", "TXU", "Simple Value", 12),
+        ("imp_mp", "meterplan", "Chariot", "Shine", 36),
+    ]
+    for pid, src, retailer, name, term in specs:
+        (plans_dir / f"{pid}.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": pid,
+                    "retailer": retailer,
+                    "name": name,
+                    "term_months": term,
+                    "energy_rates": [{"rate_ckwh": 10.0}],
+                    "source": src,
+                }
+            )
+        )
+
+    # fetch=False with no snapshot on disk: nothing to rebuild from.
+    summary = app_common.refresh_market_data(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
+        quarantine_dir=quarantine_dir,
+        fetch=False,
+    )
+
+    assert {p.stem for p in plans_dir.glob("*.yaml")} == {s[0] for s in specs}
+    assert set(summary["quarantine"]["restored"]) == {"imp_ptc", "imp_efl", "imp_mp"}
+    assert summary["quarantine"]["delisted"] == []
+
+
+def test_refresh_never_touches_the_real_quarantine_dir(refresh_dirs):
+    """The default quarantine is late-bound, so tests can't reach the live one.
+
+    conftest redirects app_common.QUARANTINE_DIR per test; a def-time default
+    would have frozen the real data/ path in at import and ignored that.
+    """
+    plans_dir, drafts_dir, efl_dir, ptc_dir, meterplan_dir = refresh_dirs
+    real_quarantine = Path(__file__).resolve().parents[1] / "data" / "refresh_quarantine"
+    existed_before = real_quarantine.exists()
+
+    app_common.refresh_market_data(
+        plans_dir=plans_dir,
+        drafts_dir=drafts_dir,
+        efl_dir=efl_dir,
+        ptc_dir=ptc_dir,
+        meterplan_dir=meterplan_dir,
+        fetch=False,  # quarantine_dir deliberately omitted
+    )
+
+    assert real_quarantine.exists() == existed_before

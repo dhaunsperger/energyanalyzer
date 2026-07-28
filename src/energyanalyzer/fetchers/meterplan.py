@@ -73,7 +73,13 @@ _TIDY_COLUMNS = [
 # day/non-free rate, or a blended figure); meterplan.com's index doesn't
 # publish the free window's exact hours, so we assume the common 9pm-6am
 # convention and flag the draft for manual verification against the real EFL.
-_FREE_HOURS_RE = re.compile(r"night|nighter|free|twelve hour|weekend", re.I)
+# Word-boundaried on purpose: a bare `free` substring also matches "Freedom"
+# ("Chariot Freedom" is a real Oncor plan), which would fabricate a 0c overnight
+# window on a plan that has none -- and on a night-heavy load that error makes
+# the plan look dramatically, and wrongly, cheap.
+_FREE_HOURS_RE = re.compile(
+    r"\bfree\b|\bnights?\b|\ball.?nighter\b|\btwelve hour\b|\bweekends?\b", re.I
+)
 
 _ASSUMED_NIGHT_HOURS = [21, 22, 23, 0, 1, 2, 3, 4, 5]  # 9pm-6am
 

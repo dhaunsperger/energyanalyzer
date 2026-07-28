@@ -54,6 +54,18 @@ def make_intervals(
     ).sort_index()
 
 
+def month_coverage(start: str, days: int) -> float:
+    """Fraction of `start`'s calendar month that `days` days cover.
+
+    Monthly FIXED charges (plan base + the TDU's per-month fee) prorate by
+    this, so a 365-day span that straddles 13 calendar months still totals 12
+    months of fixed fees. These unit tests deliberately use short spans, so
+    their expected fixed charges are fractions of a month -- real 12-month
+    datasets have coverage 1.0 everywhere and are unaffected.
+    """
+    return min(days / pd.Period(start, freq="M").days_in_month, 1.0)
+
+
 def flat_tdu(fixed=10.0, volumetric_ckwh=5.0) -> TduTariff:
     return TduTariff(
         effective=dt.date(2023, 1, 1),
@@ -93,12 +105,14 @@ def test_flat_rate_with_tdu():
     assert len(result.monthly) == 1
     row = result.monthly.iloc[0]
     n = 2 * 96
+    cov = month_coverage("2024-01-08", 2)
+    assert row["coverage"] == pytest.approx(cov)
     assert row["import_kwh"] == pytest.approx(n * 1.0)
     expected_energy = n * 1.0 * 0.10
-    expected_tdu = 10.0 + 0.05 * (n * 1.0)
+    expected_tdu = 10.0 * cov + 0.05 * (n * 1.0)
     assert row["energy_cost"] == pytest.approx(expected_energy)
     assert row["tdu"] == pytest.approx(expected_tdu)
-    assert row["bill"] == pytest.approx(expected_energy + 5.0 + expected_tdu)
+    assert row["bill"] == pytest.approx(expected_energy + 5.0 * cov + expected_tdu)
     assert result.first_year_net == pytest.approx(row["bill"])
     assert not result.uses_rtw
 
@@ -149,7 +163,9 @@ def test_ev_free_charging_caps_and_leaves_tdu():
     # Energy charge = (all kWh - 20 free) x 10c.
     assert row["energy_cost"] == pytest.approx((total_kwh - 20) * 0.10)
     # TDU is charged on ALL import kWh -- the free benefit waives energy only.
-    assert row["tdu"] == pytest.approx(10.0 + 0.05 * total_kwh)
+    assert row["tdu"] == pytest.approx(
+        10.0 * month_coverage("2024-01-08", 2) + 0.05 * total_kwh
+    )
     # Sanity: an identical plan without the benefit costs exactly 20 x 10c more.
     plain = base_plan(energy_rates=[EnergyRate(rate_ckwh=10.0)], tdu_passthrough=True)
     plain_row = simulate(plain, intervals, tdu).monthly.iloc[0]
@@ -213,15 +229,16 @@ def test_fixed_buyback_energy_only_scope_rolls_over():
 
     row = result.monthly.iloc[0]
     n = 96
+    cov = month_coverage("2024-01-08", 1)
     energy_cost = n * 0.5 * 0.10  # 4.8
-    tdu_charge = 10.0 + 0.05 * (n * 0.5)  # 12.4
+    tdu_charge = 10.0 * cov + 0.05 * (n * 0.5)
     credit_earned = n * 0.5 * 0.50  # 24.0
     assert row["energy_cost"] == pytest.approx(energy_cost)
     assert row["tdu"] == pytest.approx(tdu_charge)
     assert row["credit_earned"] == pytest.approx(credit_earned)
     used = min(credit_earned, energy_cost)
     assert row["credit_used"] == pytest.approx(used)
-    expected_bill = energy_cost + 5.0 + tdu_charge - used
+    expected_bill = energy_cost + 5.0 * cov + tdu_charge - used
     assert row["bill"] == pytest.approx(expected_bill)
     assert row["rollover_out"] == pytest.approx(credit_earned - used)
     assert result.final_rollover_balance == pytest.approx(credit_earned - used)
@@ -247,13 +264,14 @@ def test_fixed_buyback_all_charges_scope():
     result = simulate(plan, intervals, tdu)
 
     row = result.monthly.iloc[0]
+    cov = month_coverage("2024-01-08", 1)
     energy_cost = 96 * 0.5 * 0.10
-    tdu_charge = 10.0 + 0.05 * (96 * 0.5)
+    tdu_charge = 10.0 * cov + 0.05 * (96 * 0.5)
     credit_earned = 96 * 0.5 * 0.50
-    offsettable = energy_cost + 5.0 + tdu_charge
+    offsettable = energy_cost + 5.0 * cov + tdu_charge
     used = min(credit_earned, offsettable)
     assert row["credit_used"] == pytest.approx(used)
-    expected_bill = energy_cost + 5.0 + tdu_charge - used
+    expected_bill = energy_cost + 5.0 * cov + tdu_charge - used
     assert row["bill"] == pytest.approx(expected_bill)
     assert expected_bill == pytest.approx(0.0)
     assert row["rollover_out"] == pytest.approx(credit_earned - used)
@@ -681,3 +699,43 @@ def test_an_unpriceable_plan_is_refused_rather_than_guessed_at():
 
     assert [r.plan_id for r in results] == ["ok"]
     assert any("tiered" in w and "usage-tiered" in w for w in results.warnings)
+
+
+# --------------------------------------------------------------------------- #
+# Monthly fixed charges prorate across partial calendar months
+# --------------------------------------------------------------------------- #
+def test_fixed_charges_prorate_over_a_non_calendar_aligned_year():
+    """365 days that don't start on the 1st span 13 calendar months, but must
+    still cost exactly 12 months of base + TDU fixed fees.
+
+    Charging all 13 in full doesn't just inflate the total -- the error scales
+    with the plan's base charge, so it reorders the ranking: a $19.95/mo plan
+    would absorb four times the phantom cost of a $4.95/mo one.
+    """
+    intervals = make_intervals("2025-10-15", days=365, import_kwh=0.3, export_kwh=0.0)
+    tdu = flat_tdu(fixed=10.0, volumetric_ckwh=5.0)
+    plan = base_plan(base_charge_usd=19.95, tdu_passthrough=True)
+
+    result = simulate(plan, intervals, tdu)
+
+    assert len(result.monthly) == 13  # Oct 2025 .. Oct 2026, both ends partial
+    assert result.monthly["base"].sum() == pytest.approx(12 * 19.95)
+    # TDU's fixed component prorates identically (volumetric is per-kWh, so it
+    # is unaffected and excluded here).
+    fixed_tdu = result.monthly["tdu"].sum() - 0.05 * result.monthly["import_kwh"].sum()
+    assert fixed_tdu == pytest.approx(12 * 10.0)
+    # The two partial end months are the only ones scored below a full month.
+    assert result.monthly["coverage"].iloc[0] < 1.0
+    assert result.monthly["coverage"].iloc[-1] < 1.0
+    assert (result.monthly["coverage"].iloc[1:-1] == 1.0).all()
+
+
+def test_whole_calendar_months_are_charged_in_full():
+    """The proration above must be a no-op on calendar-aligned data."""
+    intervals = make_intervals("2025-01-01", days=31 + 28, import_kwh=0.3, export_kwh=0.0)
+    plan = base_plan(base_charge_usd=9.95, tdu_passthrough=True)
+
+    result = simulate(plan, intervals, flat_tdu(fixed=10.0, volumetric_ckwh=5.0))
+
+    assert (result.monthly["coverage"] == 1.0).all()
+    assert result.monthly["base"].sum() == pytest.approx(2 * 9.95)
