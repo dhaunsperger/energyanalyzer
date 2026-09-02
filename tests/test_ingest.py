@@ -274,11 +274,26 @@ def test_load_intervals_prefers_csv_and_caches(tmp_path):
     cache_path = tmp_path / "intervals.parquet"
     assert cache_path.exists()
 
-    # remove the source CSV; a fresh call must still succeed via the cache
+    # Unchanged source set -> the cache is reused.
+    df_again, report_again = load_intervals(data_dir=tmp_path)
+    assert "cache" in report_again.source
+    assert len(df_again) == 96
+    assert df_again["import_kwh"].iloc[0] == pytest.approx(0.5)
+
+    # Removing a source CHANGES the source set, so the cache is rebuilt from
+    # what remains (here the XML's 999 Wh) rather than replaying a frame built
+    # from a file the user deleted. Deleting a superseded export is exactly how
+    # a stale window used to survive: every remaining file is older than the
+    # cache, so a newest-mtime check saw nothing to do.
     (tmp_path / "IntervalData.csv").unlink()
-    df2, report2 = load_intervals(data_dir=tmp_path)
-    pd.testing.assert_frame_equal(df2, df, check_freq=False)
-    assert "cache" in report2.source
+    df2, _ = load_intervals(data_dir=tmp_path)
+    assert df2["import_kwh"].iloc[0] == pytest.approx(0.999)
+
+    # With no sources left at all, the cache is the only thing to serve.
+    (tmp_path / "GreenButton.xml").unlink()
+    df3, report3 = load_intervals(data_dir=tmp_path)
+    assert "cache" in report3.source
+    assert len(df3) == 96
 
 
 def test_load_intervals_raises_without_source_or_cache(tmp_path):
@@ -315,3 +330,42 @@ def test_real_interval_csv_integration():
     local_end = df.index.max().tz_convert("America/Chicago")
     assert local_start == pd.Timestamp("2025-07-01 00:00:00-05:00", tz="America/Chicago")
     assert local_end == pd.Timestamp("2026-06-30 23:45:00-05:00", tz="America/Chicago")
+
+
+def test_deleting_a_superseded_export_rebuilds_the_cache(tmp_path):
+    """Two overlapping exports merge; deleting the older one must take effect.
+
+    Regression for the exact sequence a user hits when SmartMeter Texas hands
+    out rolling 12-month windows: download a second export, notice the app is
+    now billing 13-14 months, delete the older file -- and keep getting the
+    merged frame, because the cache was only rebuilt when a *source* was newer
+    than it, and deleting a file makes nothing newer.
+    """
+    make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    make_smt_csv(tmp_path, "07/02/2025", kind="normal", filename="IntervalData (3).csv")
+
+    merged, _ = load_intervals(data_dir=tmp_path)
+    assert len(merged) == 192  # both days
+
+    (tmp_path / "IntervalData.csv").unlink()
+    after, _ = load_intervals(data_dir=tmp_path)
+    assert len(after) == 96, "cache must be rebuilt from the remaining export"
+    assert after.index.min() > merged.index.min()
+
+
+def test_cache_rebuilds_for_a_back_dated_new_export(tmp_path):
+    """A file restored from a backup or unzipped carries an old mtime; the
+    cache must still notice it (same defect as the ERCOT price cache)."""
+    import os
+    import time
+
+    make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    first, _ = load_intervals(data_dir=tmp_path)
+    assert len(first) == 96
+
+    make_smt_csv(tmp_path, "07/02/2025", kind="normal", filename="IntervalData (3).csv")
+    old = time.time() - 86400 * 30
+    os.utime(tmp_path / "IntervalData (3).csv", (old, old))
+
+    after, _ = load_intervals(data_dir=tmp_path)
+    assert len(after) == 192, "a back-dated export must not be ignored"

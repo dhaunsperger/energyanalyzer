@@ -739,3 +739,56 @@ def test_whole_calendar_months_are_charged_in_full():
 
     assert (result.monthly["coverage"] == 1.0).all()
     assert result.monthly["base"].sum() == pytest.approx(2 * 9.95)
+
+
+# --------------------------------------------------------------------------- #
+# Billing window: a "first year" must be a year
+# --------------------------------------------------------------------------- #
+def test_select_billing_window_trims_to_the_most_recent_twelve_months():
+    """Two overlapping SmartMeter exports merge into 14 calendar months; only
+    the most recent 12 complete ones may be billed as a first year."""
+    from energyanalyzer.core.models import select_billing_window
+
+    # Jul 1 2025 .. Aug 31 2026 inclusive = 427 days = 14 whole calendar months.
+    intervals = make_intervals("2025-07-01", days=427, import_kwh=0.3, export_kwh=0.2)
+    trimmed, window = select_billing_window(intervals)
+
+    assert window.months_available == 14  # Jul 2025 .. Aug 2026
+    assert window.months_used == 12
+    assert (window.start, window.end) == ("2025-09", "2026-08")
+    assert window.trimmed and window.is_reliable
+    assert len(simulate(base_plan(), trimmed, flat_tdu()).monthly) == 12
+
+
+def test_billing_window_does_not_trim_a_clean_twelve_months():
+    from energyanalyzer.core.models import select_billing_window
+
+    intervals = make_intervals("2025-09-01", days=365, import_kwh=0.3, export_kwh=0.2)
+    trimmed, window = select_billing_window(intervals)
+
+    assert window.months_used == 12 and not window.trimmed and window.is_reliable
+    assert len(trimmed) == len(intervals)
+
+
+def test_simulate_warns_when_the_span_is_not_a_year():
+    """Defence in depth for callers that skip select_billing_window: billing
+    14 months must never be reported as a first-year cost without saying so."""
+    fourteen = make_intervals("2025-07-01", days=427, import_kwh=0.3, export_kwh=0.2)
+    result = simulate(base_plan(base_charge_usd=9.95, tdu_passthrough=True), fourteen, flat_tdu())
+
+    assert len(result.monthly) == 14
+    assert result.warnings and "12" in result.warnings[0]
+
+    twelve = make_intervals("2025-09-01", days=365, import_kwh=0.3, export_kwh=0.2)
+    assert simulate(base_plan(), twelve, flat_tdu()).warnings == []
+
+
+def test_short_dataset_is_flagged_unreliable_but_still_prices():
+    from energyanalyzer.core.models import select_billing_window
+
+    six = make_intervals("2026-01-01", days=181, import_kwh=0.3, export_kwh=0.2)
+    kept, window = select_billing_window(six)
+
+    assert not window.is_reliable and not window.trimmed
+    assert "NOT a full year" in window.note
+    assert len(kept) == len(six)  # still priced -- the caller decides

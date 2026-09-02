@@ -287,3 +287,89 @@ def validate_intervals(df: pd.DataFrame) -> None:
     for col in ("import_kwh", "export_kwh"):
         assert col in df.columns, f"missing column {col}"
         assert (df[col] >= 0).all(), f"{col} must be non-negative"
+
+
+# --------------------------------------------------------------------------- #
+# Billing window selection
+# --------------------------------------------------------------------------- #
+BILLING_MONTHS = 12
+
+
+class BillingWindow(BaseModel):
+    """Which calendar months a first-year cost is computed over, and why.
+
+    A "first-year net bill" is only meaningful over ~12 months, but the interval
+    frame is whatever the user's exports happen to add up to: SmartMeter Texas
+    hands out rolling 12-month windows, so keeping two downloads side by side
+    merges into 13-14 distinct calendar months. Billing all of them sums a
+    13th and 14th month into the annual figure -- and because the extra months
+    are whichever season the two downloads straddle (summer, for a spring and
+    an autumn export), the error is seasonal rather than uniform and reorders
+    the ranking instead of just inflating it.
+    """
+
+    months_available: int
+    months_used: int
+    start: str  # first billed month, "YYYY-MM"
+    end: str  # last billed month
+    trimmed: bool  # were whole months dropped to reach months_used?
+    partial_ends: bool  # is either end month incomplete?
+
+    @property
+    def note(self) -> str:
+        if self.trimmed:
+            return (
+                f"Using the most recent {self.months_used} complete calendar months "
+                f"({self.start} to {self.end}) of the {self.months_available} months "
+                "loaded. A first-year cost is only comparable over a single year; "
+                "the extra months would double-count a season and change the ranking."
+            )
+        if self.months_used < BILLING_MONTHS:
+            return (
+                f"Only {self.months_used} calendar months of usage are loaded "
+                f"({self.start} to {self.end}). Costs shown are for that span, NOT a "
+                "full year, and plans whose value is seasonal will rank unreliably."
+            )
+        if self.partial_ends:
+            return (
+                f"Usage spans {self.start} to {self.end}; the first and/or last month "
+                "is partial, so their fixed charges are prorated."
+            )
+        return f"Using {self.months_used} complete calendar months ({self.start} to {self.end})."
+
+    @property
+    def is_reliable(self) -> bool:
+        return self.months_used >= BILLING_MONTHS
+
+
+def describe_billing_window(df: pd.DataFrame, months: int = BILLING_MONTHS) -> BillingWindow:
+    """Describe the window `select_billing_window` would bill for `df`."""
+    local = add_local_columns(df)
+    counts = local.groupby("month")["import_kwh"].size()
+    periods = list(counts.index)
+    complete = [p for p in periods if counts[p] >= p.days_in_month * 96 * 0.99]
+    keep = [p for p in periods if p in complete][-months:] if len(complete) >= months else periods
+    return BillingWindow(
+        months_available=len(periods),
+        months_used=len(keep),
+        start=str(keep[0]) if keep else "",
+        end=str(keep[-1]) if keep else "",
+        trimmed=len(keep) < len(periods),
+        partial_ends=bool(keep) and (keep[0] not in complete or keep[-1] not in complete),
+    )
+
+
+def select_billing_window(
+    df: pd.DataFrame, months: int = BILLING_MONTHS
+) -> tuple[pd.DataFrame, BillingWindow]:
+    """Trim `df` to the most recent `months` COMPLETE calendar months.
+
+    Returns the frame unchanged when it doesn't hold that many complete months,
+    so a short dataset still produces numbers -- the returned BillingWindow says
+    what happened and `is_reliable` says whether to trust a first-year total.
+    """
+    window = describe_billing_window(df, months)
+    if not window.trimmed:
+        return df, window
+    local = add_local_columns(df)
+    return df[local["month"].astype(str).between(window.start, window.end)], window

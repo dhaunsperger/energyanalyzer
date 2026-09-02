@@ -13,6 +13,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[3]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
+from energyanalyzer.core.models import select_billing_window  # noqa: E402
 from energyanalyzer.app.common import (  # noqa: E402
     CURRENT_PLAN_ID,
     DATA_DIR,
@@ -33,6 +34,12 @@ try:
 except FileNotFoundError as exc:
     render_missing_data_help(exc, title="No usage data yet")
     st.stop()
+
+# Same billing window the Compare page ranks over, so the workbook and the
+# on-screen table can never disagree about which months were billed.
+intervals, billing_window = select_billing_window(intervals)
+if billing_window.trimmed or not billing_window.is_reliable:
+    st.info(billing_window.note, icon="📅")
 
 plans_dict = get_plans_dict()
 if not plans_dict:

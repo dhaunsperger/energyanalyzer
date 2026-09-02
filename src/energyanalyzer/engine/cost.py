@@ -22,6 +22,7 @@ from ..core.models import (
     TduTariff,
     add_local_columns,
     validate_intervals,
+    describe_billing_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,14 @@ def simulate(
     ValueError is raised.
     """
     validate_intervals(intervals)
+
+    # Defence in depth: the app trims to a billing window before ranking (and
+    # says so), but a direct caller passing 13-14 months -- what two overlapping
+    # SmartMeter exports merge into -- would otherwise get those extra months
+    # silently summed into a figure labelled "first year".
+    span = describe_billing_window(intervals)
+    plan_warnings: list[str] = [] if (span.is_reliable and not span.trimmed) else [span.note]
+
     df = add_local_columns(intervals)
 
     energy_rate, tdu_exempt, energy_rtw = _first_match_rate(
@@ -282,6 +291,7 @@ def simulate(
         avg_import_price_ckwh=avg_import_price_ckwh,
         monthly=monthly,
         uses_rtw=uses_rtw,
+        warnings=plan_warnings,
     )
 
 

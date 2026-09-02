@@ -91,7 +91,11 @@ Before re-running, refresh the private input files (the plan database is
 refreshed from inside the app — see the Help page):
 
 1. **Fresh usage**: download a new 12-month interval CSV from SMT → replace
-   `data/IntervalData.csv`.
+   `data/IntervalData.csv`. If you keep both the old and new export, they merge
+   into 13–14 calendar months; Compare bills only the most recent 12 complete
+   months and says so. Deleting the older file is still the tidier option, and
+   now takes effect immediately (the cache tracks the set of source files, so
+   removing one rebuilds it).
 2. **Fresh prices**: re-download the current-year ERCOT XLSX into `data/ercot/`.
 3. **Oncor tariff** (changes every March and September): if the newest entry in
    `tdu/oncor.yaml` is stale (the app warns), append a new

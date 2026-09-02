@@ -14,6 +14,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[3]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
+from energyanalyzer.core.models import select_billing_window  # noqa: E402
 from energyanalyzer.app.common import (  # noqa: E402
     CURRENT_PLAN_ID,
     DATA_DIR,
@@ -54,6 +55,18 @@ tdu = get_tdu()
 prices, price_err = try_get_prices()
 if price_err:
     st.caption(f"ERCOT prices not loaded (RTW-indexed plans will be skipped): {price_err}")
+
+# --- Billing window ------------------------------------------------------- #
+# A first-year cost is only comparable over one year. Two overlapping SMT
+# exports merge into 13-14 calendar months, and billing all of them double-
+# counts a season -- which reorders the ranking rather than just inflating it.
+intervals, billing_window = select_billing_window(intervals)
+if billing_window.trimmed:
+    st.info(billing_window.note, icon="📅")
+elif not billing_window.is_reliable:
+    st.warning(billing_window.note, icon="⚠️")
+else:
+    st.caption(billing_window.note)
 
 # --- Staleness warnings (ARCHITECTURE.md §9) ------------------------------- #
 interval_warning = interval_staleness_warning(quality)

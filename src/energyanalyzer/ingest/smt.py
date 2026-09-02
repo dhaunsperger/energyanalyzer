@@ -10,6 +10,7 @@ Public API:
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -336,11 +337,42 @@ def load_greenbutton_xml(paths) -> tuple:
 # --------------------------------------------------------------------------- #
 # Convenience loader with parquet caching
 # --------------------------------------------------------------------------- #
+def _source_manifest(source_paths: list) -> list:
+    """Identity of the source set a cache was built from: name, size, mtime.
+
+    Compared instead of "is the cache newer than the newest source?", which
+    misses the two changes that matter most here. REMOVING a file leaves every
+    survivor older than the cache, so deleting a superseded export kept serving
+    the merged frame that still contained it; and a file landed by `cp -p`, an
+    unzip, or a restored backup carries an old mtime, so a newly added export
+    was ignored outright. Adding, removing, or replacing any file changes this.
+    """
+    return sorted([p.name, p.stat().st_size, int(p.stat().st_mtime)] for p in source_paths)
+
+
+def _manifest_path(cache_path: Path) -> Path:
+    return cache_path.with_suffix(".manifest.json")
+
+
+def _read_manifest(cache_path: Path):
+    try:
+        return json.loads(_manifest_path(cache_path).read_text())
+    except Exception:  # noqa: BLE001 -- absent/corrupt manifest just means "rebuild"
+        return None
+
+
 def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
     """Load the canonical interval frame from `data_dir`, preferring
     IntervalData*.csv, falling back to GreenButton*.xml. Caches the result to
-    `<data_dir>/intervals.parquet` and reuses the cache when it is newer than
-    all source files."""
+    `<data_dir>/intervals.parquet`, reusing it only while the set of source
+    files is unchanged (see `_source_manifest`).
+
+    Multiple exports are merged: overlapping intervals are deduplicated with
+    the alphabetically-first file winning, which is how a re-download of the
+    same period (carrying revised meter readings) supersedes the older copy.
+    The merged span can therefore exceed 12 months -- see
+    `core.models.describe_billing_window`, which is what decides the window a
+    first-year cost is actually computed over."""
     data_dir = Path(data_dir)
     cache_path = data_dir / "intervals.parquet"
 
@@ -361,8 +393,8 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
             f"and no cache at {cache_path}"
         )
 
-    newest_source_mtime = max(p.stat().st_mtime for p in source_paths)
-    if cache_path.exists() and cache_path.stat().st_mtime >= newest_source_mtime:
+    manifest = _source_manifest(source_paths)
+    if cache_path.exists() and _read_manifest(cache_path) == manifest:
         df = pd.read_parquet(cache_path)
         validate_intervals(df)
         report = QualityReport(source=f"{cache_path} (cache)")
@@ -391,4 +423,5 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
 
     data_dir.mkdir(parents=True, exist_ok=True)
     df.to_parquet(cache_path)
+    _manifest_path(cache_path).write_text(json.dumps(manifest))
     return df, report

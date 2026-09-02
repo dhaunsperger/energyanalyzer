@@ -180,6 +180,20 @@ charge, so it reorders the ranking rather than just shifting every plan
 equally. Whole months have `coverage == 1.0` and are unaffected — the frozen
 July-2026 benchmarks are byte-identical either way.
 
+**The billing window is 12 whole calendar months.** SmartMeter Texas hands out
+rolling 12-month exports, so keeping two downloads side by side merges into
+13–14 distinct calendar months (the loader dedupes overlapping intervals,
+alphabetically-first file winning, so a re-download's revised readings
+supersede the older copy). Billing every month present would sum a 13th and
+14th month into the annual figure, and since the extra months are whichever
+season the two exports straddle, the error is seasonal — it reorders the
+ranking, not just inflates it. `core.models.select_billing_window` trims to the
+most recent 12 **complete** months and returns a `BillingWindow` describing what
+it did; the Compare and Export pages apply it and surface `window.note`. A
+shorter dataset is priced as-is with `is_reliable=False`. `simulate()` warns
+independently, so a caller that skips the trim can't silently report a 14-month
+sum as a first-year cost.
+
 TDU tariffs (`tdu/oncor.yaml`): list of `{effective: date, fixed_usd_month,
 volumetric_ckwh}`; engine picks the record effective for each billing month.
 For "first-year forward-looking" bills we use the LATEST tariff for all 12
