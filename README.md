@@ -144,7 +144,12 @@ download failures by cause, unreadable/image-only PDFs, staleness, discovery).
 - **App shows no plans / no usage**: check the Home page status tiles; each
   missing input shows exact download instructions.
 - **RTW plans missing from rankings**: ERCOT files in `data/ercot/` don't
-  cover the usage window — the Compare page lists the skipped plans.
+  cover the usage window — the Compare page lists the skipped plans. A *small*
+  shortfall (up to 2% of intervals, e.g. the day or two ERCOT's archive
+  normally lags) is estimated from recent prices at the same time of day
+  instead: those plans still rank, marked `~`, with a notice saying how much
+  was estimated. Bigger gaps still refuse rather than guess — re-download the
+  current-year workbook.
 - **A plan's number looks wrong**: open its monthly breakdown on Compare, then
   its YAML in `plans/` — most discrepancies are plan-structure details
   (windows, offset scope), not engine math (the engine is benchmark-tested in

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import openpyxl
 import pandas as pd
 import pytest
@@ -243,3 +244,59 @@ def test_download_prices_raises_clear_error_when_network_unavailable(tmp_path, m
     msg = str(excinfo.value)
     assert "NP6-785-ER" in msg
     assert str(tmp_path) in msg
+
+
+# --------------------------------------------------------------------------- #
+# Short price gaps are estimated; long ones are refused
+# --------------------------------------------------------------------------- #
+def _price_series(start: str, days: int, tz: str = "UTC") -> pd.Series:
+    """Diurnal synthetic prices: cheap overnight, expensive late afternoon."""
+    idx = pd.date_range(start, periods=days * 96, freq="15min", tz=tz)
+    hour = idx.tz_convert("America/Chicago").hour
+    vals = np.where((hour >= 15) & (hour < 20), 0.20, 0.02)
+    return pd.Series(vals, index=idx, name="price_usd_kwh")
+
+
+def test_fill_price_gaps_estimates_a_short_tail_by_time_of_day():
+    from energyanalyzer.prices.ercot import fill_price_gaps
+
+    # A full billing year with ERCOT two days behind -- 0.55% of intervals,
+    # which is the real-world shape of this gap.
+    full = _price_series("2025-09-01", 365)
+    published = full.iloc[: -2 * 96]
+    filled, gap = fill_price_gaps(published, full.index)
+
+    assert gap.missing == 2 * 96
+    assert gap.within_tolerance and gap.filled == 2 * 96
+    assert not filled.isna().any()
+
+    # Filled values follow the diurnal shape rather than a flat average: the
+    # 4pm slot must come back expensive and the 3am slot cheap.
+    local = filled.index.tz_convert("America/Chicago")
+    tail = filled[filled.index >= published.index.max()]
+    tail_local = tail.index.tz_convert("America/Chicago")
+    assert tail[tail_local.hour == 16].mean() == pytest.approx(0.20, abs=1e-6)
+    assert tail[tail_local.hour == 3].mean() == pytest.approx(0.02, abs=1e-6)
+    assert local is not None  # index kept tz-aware
+
+
+def test_fill_price_gaps_refuses_a_large_gap():
+    from energyanalyzer.prices.ercot import fill_price_gaps
+
+    full = _price_series("2025-09-01", 365)
+    published = full.iloc[: -40 * 96]  # 11% of the window missing
+    filled, gap = fill_price_gaps(published, full.index)
+
+    assert not gap.within_tolerance
+    assert gap.filled == 0
+    assert filled.isna().any(), "NaNs must remain so the caller still refuses to price"
+    assert "excluded from the ranking" in gap.note
+
+
+def test_fill_price_gaps_is_a_noop_with_complete_coverage():
+    from energyanalyzer.prices.ercot import fill_price_gaps
+
+    full = _price_series("2026-06-01", 10)
+    filled, gap = fill_price_gaps(full, full.index)
+    assert gap.missing == 0 and gap.note == ""
+    pd.testing.assert_series_equal(filled, full)

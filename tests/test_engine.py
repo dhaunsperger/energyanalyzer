@@ -462,8 +462,9 @@ def test_rank_orders_ascending_and_skips_failures():
 
     ids = [r.plan_id for r in results]
     assert ids == ["cheap", "pricey"]
-    assert len(results.warnings) == 1
-    assert "broken" in results.warnings[0]
+    # The skip is reported; rank() also lifts each plan's own warnings (this
+    # 1-day fixture is not a full year), so assert on content, not on count.
+    assert any("broken" in w for w in results.warnings)
 
 
 # --------------------------------------------------------------------------- #
@@ -792,3 +793,61 @@ def test_short_dataset_is_flagged_unreliable_but_still_prices():
     assert not window.is_reliable and not window.trimmed
     assert "NOT a full year" in window.note
     assert len(kept) == len(six)  # still priced -- the caller decides
+
+
+# --------------------------------------------------------------------------- #
+# ERCOT's publication lag must not delete wholesale plans from the ranking
+# --------------------------------------------------------------------------- #
+def _rtw_plan(**kw):
+    return base_plan(
+        id="rtw",
+        energy_rates=[EnergyRate(rate_ckwh=8.0)],
+        buyback=Buyback(kind=BuybackKind.rtw, rtw=RtwRate()),
+        **kw,
+    )
+
+
+def _prices_for(intervals, drop_days=0):
+    idx = intervals.index
+    s = pd.Series(0.05, index=idx, name="price_usd_kwh")
+    return s.iloc[: len(s) - drop_days * 96] if drop_days else s
+
+
+def test_rtw_plan_survives_ercots_two_day_publication_lag():
+    """A 0.5% tail of unpublished prices must not drop the plan from the ranking.
+
+    Before gap tolerance, any unpriced interval with usage raised, rank() caught
+    it, and every wholesale plan vanished -- which on this house's data removes
+    several of the cheapest candidates over two days out of 365.
+    """
+    intervals = make_intervals("2025-09-01", days=365, import_kwh=0.3, export_kwh=0.2)
+    prices = _prices_for(intervals, drop_days=2)
+
+    results = rank([_rtw_plan()], intervals, flat_tdu(), prices)
+
+    assert [r.plan_id for r in results] == ["rtw"]
+    r = results[0]
+    assert r.uses_rtw
+    assert 0 < r.prices_estimated_fraction < 0.01
+    assert any("estimated" in w for w in results.warnings)
+
+
+def test_rtw_plan_is_still_refused_when_the_gap_is_large():
+    intervals = make_intervals("2025-09-01", days=365, import_kwh=0.3, export_kwh=0.2)
+    prices = _prices_for(intervals, drop_days=40)  # ~11%, past tolerance
+
+    results = rank([_rtw_plan()], intervals, flat_tdu(), prices)
+
+    assert results == []
+    assert any("cannot bill without prices" in w for w in results.warnings)
+
+
+def test_gap_note_is_not_attached_to_fixed_rate_plans():
+    """A fixed-rate plan doesn't care that the wholesale archive is behind."""
+    intervals = make_intervals("2025-09-01", days=365, import_kwh=0.3, export_kwh=0.2)
+    prices = _prices_for(intervals, drop_days=2)
+
+    fixed = simulate(base_plan(), intervals, flat_tdu(), prices)
+
+    assert fixed.prices_estimated_fraction == 0.0
+    assert fixed.warnings == []

@@ -242,6 +242,22 @@ rollover_out  = (pool - used) if rollover else 0
 ## 7. ERCOT prices & fetchers (Task 4)
 
 `prices/ercot.py`:
+- `fill_price_gaps(prices, index, max_fraction=0.02, lookback_days=30)
+  -> (aligned_prices, PriceGapFill)`. ERCOT's historical archive trails real
+  time by a day or two, so a usage window running to yesterday routinely ends
+  with a sliver of unpriced intervals. Refusing to price over that sliver is
+  the wrong trade — every RTW plan gets skipped, and those are often the
+  cheapest candidates, over a fraction of a percent of the data. Up to
+  `max_fraction` of the window is estimated from the mean price at the same
+  **local time of day** over the last `lookback_days` of published prices
+  (time-of-day, not a flat mean, because both wholesale prices and rooftop
+  export swing hard on a diurnal cycle). Past the tolerance nothing is filled:
+  the NaNs remain, `simulate()`'s "cannot bill without prices" path fires, and
+  the plan is skipped rather than guessed at. `simulate()` calls this, sets
+  `PlanResult.prices_estimated_fraction`, and attaches the note only to plans
+  that are actually RTW-priced; `rank()` lifts per-plan notes, de-duped, into
+  `RankedResults.warnings` so the UI shows one notice, and Compare marks
+  affected rows with `~`.
 - `load_prices(zone: str, data_dir=Path("data/ercot")) -> pd.Series`
   ($/kWh, UTC 15-min index). ERCOT publishes RTM Settlement Point Prices
   ($/MWh — divide by 1000) per 15-min settlement interval, local interval

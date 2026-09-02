@@ -253,6 +253,10 @@ class PlanResult(BaseModel):
     monthly: object  # pd.DataFrame: month, energy_cost, base, tdu, credit_earned,
     #                  credit_used, bill_credit, rollover_out, bill
     uses_rtw: bool = False
+    # Share of intervals whose ERCOT price was estimated rather than published
+    # (ERCOT's archive trails real time by a day or two). >0 means this plan's
+    # figure leans on estimated prices for that slice -- see prices.ercot.
+    prices_estimated_fraction: float = 0.0
     warnings: list[str] = Field(default_factory=list)
 
 

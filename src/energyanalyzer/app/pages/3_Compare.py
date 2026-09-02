@@ -152,6 +152,12 @@ st.caption(
     f"{tdu.volumetric_ckwh:.4f}¢/kWh. '*' = import rate not offsettable by export credits "
     "(offset_scope=energy_only). '‡' = RTW-indexed rate (ERCOT settlement prices)."
 )
+if any(r.prices_estimated_fraction for r in results):
+    worst = max(r.prices_estimated_fraction for r in results)
+    st.caption(
+        f"'~' = some ERCOT prices for this window were unpublished (up to {worst:.1%} "
+        "of intervals) and were estimated from recent prices at the same time of day."
+    )
 
 rows = []
 for r in results:
@@ -161,7 +167,11 @@ for r in results:
         {
             "_plan_id": r.plan_id,
             "Retailer": plan.retailer,
-            "Plan": plan.name + (" ‡" if r.uses_rtw else ""),
+            # '~' marks a row whose wholesale prices were partly estimated
+            # (ERCOT's archive trails real time); explained in the footnote.
+            "Plan": plan.name
+            + (" ‡" if r.uses_rtw else "")
+            + ("~" if r.prices_estimated_fraction else ""),
             "Term (mo)": plan.term_months,
             "Base $/mo": plan.base_charge_usd,
             "Import ¢/kWh (+TDU)": f"{import_ckwh:.2f}{'*' if star else ''}",

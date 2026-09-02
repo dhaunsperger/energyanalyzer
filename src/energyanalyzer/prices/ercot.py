@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -395,3 +396,101 @@ def download_prices(
         raise RuntimeError(
             f"Automatic ERCOT download failed ({exc!r}). {manual_hint}"
         ) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Filling short gaps in price coverage
+# --------------------------------------------------------------------------- #
+DEFAULT_MAX_GAP_FRACTION = 0.02
+DEFAULT_GAP_LOOKBACK_DAYS = 30
+
+
+@dataclass
+class PriceGapFill:
+    """What `fill_price_gaps` had to invent, so a caller can disclose it."""
+
+    missing: int  # intervals with no published price
+    total: int  # intervals in the billing window
+    filled: int  # of those, how many we estimated (0 if over tolerance)
+    within_tolerance: bool
+
+    @property
+    def fraction(self) -> float:
+        return (self.missing / self.total) if self.total else 0.0
+
+    @property
+    def note(self) -> str:
+        if not self.missing:
+            return ""
+        pct = f"{self.fraction:.1%}"
+        if not self.within_tolerance:
+            return (
+                f"ERCOT prices are missing for {self.missing:,} of {self.total:,} "
+                f"intervals ({pct}) -- too many to estimate, so real-time-wholesale "
+                "plans are excluded from the ranking. Download the missing days "
+                f"({ERCOT_REPORT_NAME}, report {ERCOT_REPORT_ID}) into your price folder."
+            )
+        return (
+            f"ERCOT prices were unpublished for {self.filled:,} of {self.total:,} "
+            f"intervals ({pct}) -- typically the last day or two before ERCOT's "
+            "archive catches up. Those intervals were estimated from the average "
+            f"price at the same time of day over the preceding "
+            f"{DEFAULT_GAP_LOOKBACK_DAYS} days. Wholesale-indexed figures are a "
+            "reference either way, but treat them as slightly softer than usual."
+        )
+
+
+def fill_price_gaps(
+    prices: pd.Series,
+    index: pd.DatetimeIndex,
+    max_fraction: float = DEFAULT_MAX_GAP_FRACTION,
+    lookback_days: int = DEFAULT_GAP_LOOKBACK_DAYS,
+) -> tuple[pd.Series, PriceGapFill]:
+    """Align `prices` to `index`, estimating a *small* tail of missing intervals.
+
+    ERCOT's historical archive trails real time by a day or two, so a usage
+    window that runs to yesterday routinely ends with a sliver of unpriced
+    intervals. Refusing to price the whole plan over that sliver is the wrong
+    trade: it silently drops every wholesale-indexed plan from the ranking --
+    often the cheapest candidates -- over a fraction of a percent of the data.
+
+    Up to `max_fraction` of the window is filled from the mean price at the same
+    LOCAL time of day over the last `lookback_days` of published prices. Time of
+    day (not a flat average) because wholesale prices and rooftop export both
+    swing hard on a diurnal cycle, and an export credit priced at a flat daily
+    mean would be systematically wrong in both directions.
+
+    Beyond `max_fraction`, nothing is filled: the NaNs remain, the caller's
+    existing "cannot bill without prices" path fires, and the plan is skipped
+    rather than guessed at. Returns `(aligned_prices, PriceGapFill)`.
+    """
+    aligned = prices.reindex(index)
+    missing_mask = aligned.isna()
+    n_missing = int(missing_mask.sum())
+    total = len(index)
+    if n_missing == 0:
+        return aligned, PriceGapFill(0, total, 0, True)
+
+    if total == 0 or (n_missing / total) > max_fraction:
+        return aligned, PriceGapFill(n_missing, total, 0, False)
+
+    known = prices.dropna()
+    if known.empty:
+        return aligned, PriceGapFill(n_missing, total, 0, False)
+
+    cutoff = known.index.max() - pd.Timedelta(days=lookback_days)
+    recent = known[known.index >= cutoff]
+    if recent.empty:  # pragma: no cover -- known is non-empty, so recent can't be
+        recent = known
+
+    local = recent.index.tz_convert(LOCAL_TZ)
+    profile = recent.groupby([local.hour, local.minute]).mean()
+    overall = float(recent.mean())
+
+    missing_local = index[missing_mask].tz_convert(LOCAL_TZ)
+    keys = list(zip(missing_local.hour, missing_local.minute))
+    filled_values = [float(profile.get(k, overall)) for k in keys]
+
+    out = aligned.copy()
+    out.loc[missing_mask] = filled_values
+    return out, PriceGapFill(n_missing, total, n_missing, True)

@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from ..prices.ercot import fill_price_gaps
 from ..core.models import (
     Buyback,
     BuybackKind,
@@ -159,6 +160,19 @@ def simulate(
     span = describe_billing_window(intervals)
     plan_warnings: list[str] = [] if (span.is_reliable and not span.trimmed) else [span.note]
 
+    # ERCOT publishes its historical archive a day or two behind, so a usage
+    # window running to yesterday routinely ends with a sliver of unpriced
+    # intervals. Estimate a small tail rather than dropping every wholesale
+    # plan from the ranking over it; past the tolerance nothing is filled and
+    # the "cannot bill without prices" path below still fires.
+    # The note is attached further down, once we know whether this plan is
+    # actually priced off ERCOT -- a fixed-rate plan doesn't care that the
+    # wholesale archive is two days behind, and saying so on every row would
+    # bury the warning that matters.
+    gap = None
+    if prices is not None:
+        prices, gap = fill_price_gaps(prices, intervals.index)
+
     df = add_local_columns(intervals)
 
     energy_rate, tdu_exempt, energy_rtw = _first_match_rate(
@@ -184,6 +198,9 @@ def simulate(
     df["tdu_import_kwh"] = df["import_kwh"].where(~tdu_exempt, 0.0)
 
     uses_rtw = energy_rtw or buyback_rtw
+    estimated_fraction = gap.fraction if (uses_rtw and gap is not None and gap.filled) else 0.0
+    if estimated_fraction:
+        plan_warnings.append(gap.note)
 
     rows: list[dict] = []
     rollover = 0.0
@@ -291,6 +308,7 @@ def simulate(
         avg_import_price_ckwh=avg_import_price_ckwh,
         monthly=monthly,
         uses_rtw=uses_rtw,
+        prices_estimated_fraction=estimated_fraction if uses_rtw else 0.0,
         warnings=plan_warnings,
     )
 
@@ -348,5 +366,13 @@ def rank(
             msg = f"skipping plan {plan.id}: {exc}"
             logger.warning(msg)
             results.warnings.append(msg)
+    # Per-plan warnings (estimated prices, an off-year billing span) are
+    # identical across every plan they apply to, so lift them here, de-duped,
+    # and a caller gets one page-level notice instead of one per row.
+    for r in results:
+        for w in r.warnings:
+            if w not in results.warnings:
+                results.warnings.append(w)
+
     results.sort(key=lambda r: r.first_year_net)
     return results
