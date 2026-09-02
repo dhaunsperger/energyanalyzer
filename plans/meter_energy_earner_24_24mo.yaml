@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 14.95
 energy_rates:
-- rate_ckwh: 14.39
+- rate_ckwh: 13.97
   label: ''
   tdu_exempt: false
 buyback:
@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Meter_Energy_Earner_24.pdf
-retrieved: '2026-07-26'
-source_sha256: fd04a479452cd5859fa0454d61bf2bcfbfda18eaa55336c9847ea4baf10a692c
+retrieved: '2026-09-01'
+source_sha256: bee0ea627341999a0492477175a91d8cafdac02e1fe55348f29379cbfeb70e9a
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -1,0 +1,31 @@
+id: frontier_utilities_frontier_power_saver_9_9mo
+retailer: Frontier Utilities
+name: Frontier Power Saver 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.21
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 30.4
+source: efl:FRONTIER_UTILITIES_Frontier_Power_Saver_9.pdf
+retrieved: '2026-09-01'
+source_sha256: 27a9a3b7e4a18c37b91eb6254e65962b9374c1b3c8b51188cd3f03b1ae3fb92a
+enroll_url: https://newenroll.frontierutilities.com/?refid=PTCFPS09&ul=1000&tdsp=AEP_CENT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

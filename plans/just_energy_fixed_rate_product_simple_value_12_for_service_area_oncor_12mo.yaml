@@ -1,0 +1,32 @@
+id: just_energy_fixed_rate_product_simple_value_12_for_service_area_oncor_12mo
+retailer: 'Just Energy - Fixed Rate Product: Simple Value - 12'
+name: 'For Service Area: Oncor'
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 15.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 500.0
+  credit_usd: 50.0
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:EFL_Just_Energy_Simple_Value_12_English_Residential_20260726183612.pdf
+retrieved: '2026-09-01'
+source_sha256: 3f836ddb33429f8ebc25fdc65fa42f0191ac4f1d581addc4102733ccfc1324f3
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: true
+excludes_solar: false

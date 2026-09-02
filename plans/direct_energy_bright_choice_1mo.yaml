@@ -1,0 +1,29 @@
+id: direct_energy_bright_choice_1mo
+retailer: Direct Energy
+name: Bright Choice
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 12.0699
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: variable
+renewable_pct: 22.0
+source: efl:Direct_Energy_Bright_Choice.pdf
+retrieved: '2026-09-01'
+source_sha256: 8635b6de8888604bd2535e7715731d57a23f614c56e98ca9a17ad634e4e8b087
+notes: ''
+needs_review: false
+excludes_solar: false

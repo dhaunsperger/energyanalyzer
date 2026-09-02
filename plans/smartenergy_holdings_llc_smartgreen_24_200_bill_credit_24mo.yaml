@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 8.2
+- rate_ckwh: 7.5
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:SMARTENERGY_HOLDINGS_LLC_SmartGreen_24_200_Bill_Credit.pdf
-retrieved: '2026-07-26'
-source_sha256: b2e7c04b1bbbb71b4bb89806b7516fd8c52c3754a6a7536120c30f604cda84d7
+retrieved: '2026-09-01'
+source_sha256: 8e42017a45f2d329e4f17b281afed06b2f56b819b00122ee0d62fa45c5253ae6
 enroll_url: https://texas.smartenergy.com/plans?msid=2001&utility=AEPC
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan

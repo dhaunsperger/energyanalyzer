@@ -25,6 +25,7 @@ source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Better_Rate_-_5.pdf
 retrieved: '2026-07-26'
 source_sha256: dc3ddd1aa29b367574159d83a476f31e606952031217787593d53da57ced679b
 enroll_url: https://southernfederal.com/
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

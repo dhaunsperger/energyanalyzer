@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.67
+- rate_ckwh: 5.87
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.9
 source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_12.pdf
-retrieved: '2026-07-26'
-source_sha256: c8118fcd92651784c30d434f2cce8411edc8bcd7798391dfa844a62ba3f73110
+retrieved: '2026-09-01'
+source_sha256: d093883ed3216431d83dba774e4d962b1b55b9f3d852e7467c52225d95fad4af
 enroll_url: https://www.sfeenergy.com/texas/
 notes: ''
 needs_review: false

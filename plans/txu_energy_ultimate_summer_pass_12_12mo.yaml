@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 15.3
+- rate_ckwh: 14.9
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Ultimate_Summer_Pass_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 3e78e6490397911a255891241f2e3d42e00396fa884d3580d4390ddf65c3179a
+retrieved: '2026-09-01'
+source_sha256: aa8551b96a24b70525ddc98581956c1fce788887c7c65ce6dd3f7275b7d78300
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

@@ -1,0 +1,30 @@
+id: true_power_true_value_10_10mo
+retailer: True Power
+name: True Value 10
+term_months: 10
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.91
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 300.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 15.0
+source: efl:TRUE_POWER_True_Value_10.pdf
+retrieved: '2026-09-01'
+source_sha256: 095e4dacf6bf687571d9eee558432be73871e5cfdccacc1816527b0bb3405ba8
+enroll_url: https://portal.truepower.com/signup?ref=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

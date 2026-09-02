@@ -1,0 +1,30 @@
+id: heritage_power_llc_bright_start_5_50_first_bill_credit_5mo
+retailer: Heritage Power LLC
+name: Bright Start 5 – $50 First Bill Credit!!
+term_months: 5
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.9
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 75.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 23.9
+source: efl:HERITAGE_POWER_LLC_Bright_Start_5_50_First_Bill_Credit.pdf
+retrieved: '2026-09-01'
+source_sha256: b8360adb22266334820cfcdbac9abac628bbbf2d2c81db77225cba1d50c082c4
+enroll_url: https://signup.heritagepower.com/Home/index?ProductCode=RN05000007&Promo=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

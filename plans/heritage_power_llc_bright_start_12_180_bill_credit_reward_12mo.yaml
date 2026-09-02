@@ -1,0 +1,30 @@
+id: heritage_power_llc_bright_start_12_180_bill_credit_reward_12mo
+retailer: Heritage Power LLC
+name: Bright Start 12 – $180 Bill Credit Reward
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 6.9
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 75.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 23.9
+source: efl:HERITAGE_POWER_LLC_Bright_Start_12_180_Bill_Credit_Reward.pdf
+retrieved: '2026-09-01'
+source_sha256: 9f7e77b07075327121645437e7a10c31e2ac013e33c4ef8344970a6aad3d0b57
+enroll_url: https://signup.heritagepower.com/Home/index?ProductCode=RN12000613&Promo=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

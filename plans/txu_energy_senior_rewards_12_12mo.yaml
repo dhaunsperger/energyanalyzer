@@ -1,0 +1,29 @@
+id: txu_energy_senior_rewards_12_12mo
+retailer: TXU Energy
+name: Senior Rewards 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 10.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 3.0
+source: efl:TXU_Energy_Senior_Rewards_12.pdf
+retrieved: '2026-09-01'
+source_sha256: 7ebc92de318fa1a7a02dd61dc6deb4decfb8d831a9af782b3ae07b80fd7a99a9
+notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
+needs_review: false
+excludes_solar: false

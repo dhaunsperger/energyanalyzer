@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 10.4798
+- rate_ckwh: 10.5699
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Direct_Energy_Green_Texas_36_Auto_Pay.pdf
-retrieved: '2026-07-26'
-source_sha256: a6d5cea40a81bc77e765705dab0f506df4498066f9fe672f09d7e47dc7c8b39e
+retrieved: '2026-09-01'
+source_sha256: 6b8eb03a66af26a21565a173fb8c89b3a4e9f37f1acf658b81fbe21eddb4cfda
 notes: ''
 needs_review: false
 excludes_solar: false

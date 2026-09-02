@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 7.8
+- rate_ckwh: 6.64
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected.pdf
-retrieved: '2026-07-26'
-source_sha256: cf01618f5e3bb514e0bc57c824e9cdb6bc1a0f2ab249cf3604095922178d7496
+retrieved: '2026-09-01'
+source_sha256: 51cf1c8b56762fc1c13eec6506b25276998532e434acf7ce96dbf1b938fd293c
 enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false

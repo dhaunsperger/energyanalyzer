@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 8.51
+- rate_ckwh: 8.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -27,8 +27,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_Shine_36.pdf
-retrieved: '2026-07-26'
-source_sha256: 5f60334230756927ce55a6176c4f3d12a950a102e83d2e900f0c6bdaada0f793
+retrieved: '2026-09-01'
+source_sha256: af987e3f1c90877ea03dadaf669aa7844d553a2b7ac625e890bf24fa01896289
 notes: ''
 needs_review: false
 excludes_solar: false

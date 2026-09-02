@@ -31,6 +31,8 @@ notes: 'Buyback Energy Credit 6.0c/kWh on Excess Energy, offsetting up to 100% o
   a TDSP load profile with a PV designation, which this premises has. Cannot be combined
   with Just Energy''s Excess Generation Buy Back Program. Verified: the model reproduces
   all three published average prices to 0.04c. Not listed by its source on 2026-07-26
-  -- the source was reached and did not offer this plan. It may have left the market.'
+  -- the source was reached and did not offer this plan. It may have left the market.
+  Not listed by its source on 2026-09-01 -- the source was reached and did not offer
+  this plan. It may have left the market.'
 needs_review: true
 excludes_solar: false

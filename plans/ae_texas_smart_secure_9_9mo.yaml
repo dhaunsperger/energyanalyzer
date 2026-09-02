@@ -1,0 +1,31 @@
+id: ae_texas_smart_secure_9_9mo
+retailer: Ae Texas
+name: Smart Secure 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.99
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+signup_fee_usd: 0.0
+rate_type: fixed
+source: efl:AE_TEXAS_Smart_Secure_9.pdf
+retrieved: '2026-09-01'
+source_sha256: 88ae6b5ba81b6741f2388dee6f9bfd9aae70ece3ccb6981e42f72c8805aa3e82
+enroll_url: https://enroll.aetexasco.com/Enrollment/Default.aspx?&promoCode=AETXPTC1
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan; base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
+needs_review: false
+excludes_solar: false

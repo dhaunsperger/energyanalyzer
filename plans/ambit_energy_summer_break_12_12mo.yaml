@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 15.7
+- rate_ckwh: 15.8
   label: ''
   tdu_exempt: false
 buyback:
@@ -18,14 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 199.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Summer_Break_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 6e1639d7aad9b87cd545466e5f2bf231ecbe53d60f8f2fae8499e91425635173
+retrieved: '2026-09-01'
+source_sha256: 996790c381478d89f6e24e1f426b783a38a374ffa81b712040dd0257b4d08ccf
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
-  Not listed by its source on 2026-07-26 -- the source was reached and did not offer
-  this plan. It may have left the market. Not listed by its source on 2026-07-26 --
-  the source was reached and did not offer this plan. It may have left the market.
-needs_review: true
+needs_review: false
 excludes_solar: false

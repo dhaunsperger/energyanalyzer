@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_Choice.pdf
-retrieved: '2026-07-26'
-source_sha256: ed2f5cd9680efa69e07db1293aa08f06f7ae12a092482b24fc276b544625140a
+retrieved: '2026-09-01'
+source_sha256: f249a5180330b039089ac3e7b1dd9e4f6bcb4188f3c85a40fddbbe510a1fac98
 enroll_url: https://shop.greenmountainenergy.com/texas/home-energy-solutions/products/?tdspCodeCCS=D0001&fromLP=ptc&txtPromocode=WA0TEZ&sid=APTC_1726590650&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false

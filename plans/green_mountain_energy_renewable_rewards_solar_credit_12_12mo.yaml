@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
-retrieved: '2026-07-26'
-source_sha256: de7bb5f088d48a43c6b793fd3dbd2041461fc46cb001062b2a4211f21cc40a64
+retrieved: '2026-09-01'
+source_sha256: cfc2ad7f1898130540ca05cfb6445169950d68cd0655f417154b312e9ad300eb
 notes: ''
 needs_review: false
 excludes_solar: false

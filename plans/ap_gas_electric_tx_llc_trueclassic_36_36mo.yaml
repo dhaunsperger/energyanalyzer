@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.974
+- rate_ckwh: 6.465
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_36.pdf
-retrieved: '2026-07-26'
-source_sha256: 6328db45e41831f74a3b201bae3a6a64b85345740a46b15b4d5fdb9a8fef9301
+retrieved: '2026-09-01'
+source_sha256: 18eb7235b95bb5c6b371d307918aa8615caf3ad6a191ae1e515aa1613924a027
 enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBTX_AEC_NA_NA_RES_FPR_SD0_T36_NEW&deploymentName=TX%20State%20Rate%20Board&language=spanish
 notes: ''
 needs_review: false

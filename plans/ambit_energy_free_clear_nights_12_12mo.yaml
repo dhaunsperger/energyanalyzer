@@ -21,7 +21,7 @@ energy_rates:
     - 5
   label: free
   tdu_exempt: true
-- rate_ckwh: 25.0
+- rate_ckwh: 25.1
   label: ''
   tdu_exempt: false
 buyback:
@@ -34,16 +34,14 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 199.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Ambit_Energy_Free_Clear_Nights_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 1f24fedfafa74dc46daeb3e5cd526dd8e70c6b597becbf4ace4a67cc23dff391
+retrieved: '2026-09-01'
+source_sha256: ac7bb883851628b4f1f22abad47cb7d4f16d5c1de991d35ce33853669f2c7112
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row);
   TDU delivery charge waived during the free window (Delivery Charges will be credited
-  for usage during the night) Not listed by its source on 2026-07-26 -- the source
-  was reached and did not offer this plan. It may have left the market. Not listed
-  by its source on 2026-07-26 -- the source was reached and did not offer this plan.
-  It may have left the market.
-needs_review: true
+  for usage during the night)
+needs_review: false
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 5.0
 energy_rates:
-- rate_ckwh: 6.32
+- rate_ckwh: 5.77
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Abundance_Energy_Clean_Energy_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 86d6c502068f87b352c10b176b7afb26f47aaf8cfddcf4eded1a9ec67d7acf09
+retrieved: '2026-09-01'
+source_sha256: 3c733aa9d9aea1bc4083f9deed44f73bfa753cf2cc0835455aa2a39c3e37ebb8
 enroll_url: https://join.abundanceenergy.com/?promoCode=PTC
 notes: ''
 needs_review: false

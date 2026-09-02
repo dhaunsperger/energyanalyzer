@@ -27,6 +27,7 @@ source: efl:Discount_Power_Bill_Credit_Bundle_13.pdf
 retrieved: '2026-07-26'
 source_sha256: 71e61563a4352bf8bc21e1243b84addf9672f9b53b2b96d6480f8e8df93e218e
 enroll_url: https://shop.discountpowertx.com/offer-selection/?txtPromocode=WQ4131&tdspCode=D0001&fromLP=ptc&sid=APTC_1686090020&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

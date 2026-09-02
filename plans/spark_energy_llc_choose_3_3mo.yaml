@@ -1,0 +1,30 @@
+id: spark_energy_llc_choose_3_3mo
+retailer: Spark Energy LLC
+name: Choose 3
+term_months: 3
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 3.79
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 100.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 37.2
+source: efl:SPARK_ENERGY_LLC_Choose_3.pdf
+retrieved: '2026-09-01'
+source_sha256: e9f82b7676ea90d3461c83db07c8a0a3e93d035827f6b399373b1c4b0d1d871f
+enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

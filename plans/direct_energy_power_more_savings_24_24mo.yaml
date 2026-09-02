@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 9.3798
+- rate_ckwh: 9.4699
   label: ''
   tdu_exempt: false
 buyback:
@@ -18,17 +18,18 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 295.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Power_More_Savings_24.pdf
-retrieved: '2026-07-26'
-source_sha256: a6a9f358ebb96d5963e69a58f6a5770f7836a66e477dbaf54532778004828272
-notes: usage-tiered energy charge (0-1000 kWh @ 9.3798c, >1000 kWh @ 7.3798c) -- the
-  schema models one rate per window, so any single rate here would misprice the plan;
-  multiple differing flat Energy Charge values found [7.3798, 9.3798]; used first
-  (9.3798)
+retrieved: '2026-09-01'
+source_sha256: edf4b0159c6a265b3e35dd4bf69120ddc73828e119cca7e2b2b406430cfdad5c
+notes: multiple differing flat Energy Charge values found [7.4699, 9.4699]; used first
+  (9.4699); usage-tiered energy charge (0-1000 kWh @ 9.4699c, >1000 kWh @ 7.4699c)
+  -- the schema models one rate per window, so any single rate here would misprice
+  the plan
 needs_review: true
-excludes_solar: false
-unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 9.3798c, >1000 kWh @
-  7.3798c) -- the schema models one rate per window, so any single rate here would
+unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 9.4699c, >1000 kWh @
+  7.4699c) -- the schema models one rate per window, so any single rate here would
   misprice the plan
+excludes_solar: false

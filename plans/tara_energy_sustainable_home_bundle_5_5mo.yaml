@@ -26,6 +26,7 @@ retrieved: '2026-07-26'
 source_sha256: 0f135075cda9b6814e7bcbc11a854da7124bb5cfab626d884b6cf9694228c139
 enroll_url: https://taraenergy.com/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
-  charge line'
-needs_review: false
+  charge line Not listed by its source on 2026-09-01 -- the source was reached and
+  did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

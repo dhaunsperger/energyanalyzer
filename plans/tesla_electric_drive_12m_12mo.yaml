@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Tesla_Electric_Drive_12M.pdf
-retrieved: '2026-07-26'
-source_sha256: a29a1a0293185d7dd24acf75df6d2fd7cc8b9fa2ad1e8f870dd281c3367fc53e
+retrieved: '2026-09-01'
+source_sha256: 30692f26413487fdbb66f340611580434252029975fd290345cd9c89cd4bd4ea
 notes: 'term_months not found; defaulting to 12; base charge inferred as $0.00: the
   EFL states its price components in prose and names only an energy charge and TDU
   delivery charges'

@@ -1,0 +1,30 @@
+id: bkv_energy_daisy_14_14mo
+retailer: BKV Energy
+name: Daisy 14
+term_months: 14
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 6.634
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 29.0
+source: efl:BKV_Energy_Daisy_14.pdf
+retrieved: '2026-09-01'
+source_sha256: 6302d00cf379f0604d2305fe1fdb7813b9365252fb106e60eeea0b93c2bd0cc5
+enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
+notes: ''
+needs_review: false
+excludes_solar: false

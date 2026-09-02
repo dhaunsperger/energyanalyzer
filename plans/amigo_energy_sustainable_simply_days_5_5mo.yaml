@@ -40,6 +40,7 @@ retrieved: '2026-07-26'
 source_sha256: 89cf4d4e5c5cdf631ff2302f589ae030876b2cc80758136bbb98d2e05eb20dae
 enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
-  no recurring REP monthly charge (only the TDSP''s)'
-needs_review: false
+  no recurring REP monthly charge (only the TDSP''s) Not listed by its source on 2026-09-01
+  -- the source was reached and did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

@@ -5,6 +5,12 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
+- rate_ckwh: 12.1
+  label: ''
+  tdu_exempt: false
+- rate_ckwh: 6.1
+  label: ''
+  tdu_exempt: false
 - rate_ckwh: 12.7
   label: ''
   tdu_exempt: false
@@ -18,16 +24,17 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 150.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Saver_s_Choice_12.pdf
-retrieved: '2026-07-26'
-source_sha256: dcb030f3d44127c455f7a009c4d14f75becb8bc91f86cb3d0ad36833309f0d26
-notes: usage-tiered energy charge (0-1200 kWh @ 12.7c, 1201-2000 kWh @ 6.4c, >2000
-  kWh @ 13.3c) -- the schema models one rate per window, so any single rate here would
-  misprice the plan; could not find an Energy Charge rate
+retrieved: '2026-09-01'
+notes: 'could not find an Energy Charge rate; usage-tiered energy charge (0-1200 kWh
+  @ 12.1c, 1201-2000 kWh @ 6.1c, >2000 kWh @ 12.7c) -- the schema models one rate
+  per window, so any single rate here would misprice the plan LLM suggested: energy_charge,
+  free_window (needs human confirmation).'
 needs_review: true
-excludes_solar: false
-unpriceable_reason: usage-tiered energy charge (0-1200 kWh @ 12.7c, 1201-2000 kWh
-  @ 6.4c, >2000 kWh @ 13.3c) -- the schema models one rate per window, so any single
+unpriceable_reason: usage-tiered energy charge (0-1200 kWh @ 12.1c, 1201-2000 kWh
+  @ 6.1c, >2000 kWh @ 12.7c) -- the schema models one rate per window, so any single
   rate here would misprice the plan
+excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 12.35
+- rate_ckwh: 11.85
   label: ''
   tdu_exempt: false
 buyback:
@@ -24,8 +24,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Plus_12.pdf
-retrieved: '2026-07-26'
-source_sha256: e47d9825bb1275d5da52477f925d68bcb6681cade9419754a4b4418c85858373
+retrieved: '2026-09-01'
+source_sha256: a0d869bc9c3fdc493963828330027f492f2557c8350beaa2a1f2b0d3d3ef5926
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

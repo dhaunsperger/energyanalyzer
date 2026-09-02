@@ -5,7 +5,7 @@ term_months: 3
 tdu: ONCOR
 base_charge_usd: 2.0
 energy_rates:
-- rate_ckwh: 6.702
+- rate_ckwh: 4.405
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,9 +22,9 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_3.pdf
-retrieved: '2026-07-26'
-source_sha256: 0025f3aba2da9280edebfebca70c12f8b5269ae6ad88fb74b6ff7af5a887cc7b
-enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1668654&promotion=NONE&valid=N&referral=&landingpage=ptc
+retrieved: '2026-09-01'
+source_sha256: e2b06c7d9e499d717634214fd3aa3beb1feee4ef0807bc05e776f50bd1e7629a
+enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1678842&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''
 needs_review: false
 excludes_solar: false

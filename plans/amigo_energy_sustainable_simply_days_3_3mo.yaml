@@ -1,0 +1,45 @@
+id: amigo_energy_sustainable_simply_days_3_3mo
+retailer: Amigo Energy
+name: Sustainable Simply Days - 3
+term_months: 3
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 0.0
+  window:
+    months: []
+    weekdays: []
+    hours:
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+  label: free
+  tdu_exempt: false
+- rate_ckwh: 5.0
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 49.99
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:AMIGO_ENERGY_Sustainable_Simply_Days_-_3.pdf
+retrieved: '2026-09-01'
+source_sha256: aa1c176ac51ec3d0b2416f145af1b9a99443b7b2e94ede95cb1e6f6db6c78aa8
+enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
+notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
+  no recurring REP monthly charge (only the TDSP''s)'
+needs_review: false
+excludes_solar: false

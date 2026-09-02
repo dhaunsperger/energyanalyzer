@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 9.4798
+- rate_ckwh: 8.9699
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Live_Brighter_24_Auto_Pay.pdf
-retrieved: '2026-07-26'
-source_sha256: 081c29db6aebe424618b1ed2868271f469a0a7dee3ff814855511e9b45e3ced0
+retrieved: '2026-09-01'
+source_sha256: 2b1a1b306b28d94913fc6adb22e4923e240f1a124ab4dcd8f9758f836383a62d
 notes: ''
 needs_review: false
 excludes_solar: false

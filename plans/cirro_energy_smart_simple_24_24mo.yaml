@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 8.4201
+- rate_ckwh: 7.4174
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:CIRRO_ENERGY_Smart_Simple_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 92e38b7296814f1d262b0675e8af2e9c832772654630e191bbe00780816044e0
+retrieved: '2026-09-01'
+source_sha256: 31b06af5cf6ee08dd81c6737e5a642c8712711ed4f02adb544721fe4f9e8cc39
 enroll_url: https://www.cirroenergy.com/lp/ptcZipCodeSearch?tdsp_code=D0004&promo_code=WA198B&txtPromocode=WA198B&fromLP=ptc&sid=APTC_1685677096&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

@@ -5,12 +5,12 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 19.95
 energy_rates:
-- rate_ckwh: 15.8
+- rate_ckwh: 15.0
   label: ''
   tdu_exempt: false
 buyback:
   kind: fixed
-  rate_ckwh: 15.8
+  rate_ckwh: 15.0
   rates: []
   offset_scope: energy_only
   rollover: true
@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:TXU_Energy_Solar_Buyback_System_Flex.pdf
-retrieved: '2026-07-26'
-source_sha256: b80fd4928aa12fcf067c75e389c5260a885ab8b31726a1db4d4e3a96ddc75546
+retrieved: '2026-09-01'
+source_sha256: f5a3309b5df8005a1666c9ec78d65c815fc3e7f501c0d4943a3a5c0b2823202c
 notes: ''
 needs_review: false
 excludes_solar: false

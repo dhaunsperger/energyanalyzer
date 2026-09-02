@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 9.6273
+- rate_ckwh: 9.7174
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf
-retrieved: '2026-07-26'
-source_sha256: e44d08c21168c921c31127e36843a88c677b8f0048f71d4a955183d3b74d8b5e
+retrieved: '2026-09-01'
+source_sha256: 327a5e1833ae7eb1b4f9727745e173b881767c87be03157d7cae2d7cf38d3059
 notes: ''
 needs_review: false
 excludes_solar: false

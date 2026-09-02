@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 9.56
+- rate_ckwh: 9.06
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_55.pdf
-retrieved: '2026-07-26'
-source_sha256: e6c05d25fdfea9b103d7df3d8d5301298a3e61f05a29e2d38bdf8e533330b6dc
+retrieved: '2026-09-01'
+source_sha256: 1c6d6ed990447fe5ab0c51213b6fc32e20587819d184a83e6a0746e80c67abd8
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
 needs_review: false

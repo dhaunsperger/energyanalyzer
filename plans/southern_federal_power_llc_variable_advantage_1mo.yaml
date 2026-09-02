@@ -5,7 +5,7 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 5.1289
+- rate_ckwh: 2.019
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_Variable_Advantage.pdf
-retrieved: '2026-07-26'
-source_sha256: dfefe6ce594001d180ecf407848b0cc36ecc0eff7013c3b2c0db2dd1923bbfdb
+retrieved: '2026-09-01'
+source_sha256: e1524eaf6ec794a0a3a02327962680273b04dbf6ad5d21a113d520ad16df3f6d
 enroll_url: http://southernfederal.com
 notes: ''
 needs_review: false

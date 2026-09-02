@@ -25,6 +25,7 @@ source: efl:BKV_Energy_Daisy_24.pdf
 retrieved: '2026-07-26'
 source_sha256: 125a0982ad46bf7e119db3f409f57860d28a902e1f9a28f0c658a6d9540b65f9
 enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

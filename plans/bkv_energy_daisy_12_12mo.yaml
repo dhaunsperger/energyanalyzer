@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.615
+- rate_ckwh: 6.684
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 03eb943d53a50fa9fc8e1baa9877a4dbd60e51872f71cfcded4529c1da73d11e
+retrieved: '2026-09-01'
+source_sha256: 718500cfc29d2d92c19734feaed17edd27a79fbca256c8d301133c8c3c18f4c6
 enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
 notes: ''
 needs_review: false

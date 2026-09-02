@@ -1,0 +1,32 @@
+id: rhythm_rhythm_max_saver_24_24mo
+retailer: Rhythm
+name: Rhythm Max Saver 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 13.907
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 1000.0
+  credit_usd: 125.0
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: true
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:RHYTHM_Rhythm_Max_Saver_24.pdf
+retrieved: '2026-09-01'
+source_sha256: ef743777cec42e77c3a1ec74ed674032a6e513e914411afe7d7cd050d9e98f85
+enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=RMS12
+notes: ''
+needs_review: false
+excludes_solar: false

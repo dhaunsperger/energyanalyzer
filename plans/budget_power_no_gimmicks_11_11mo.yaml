@@ -25,6 +25,7 @@ source: efl:Budget_Power_No_Gimmicks_11.pdf
 retrieved: '2026-07-26'
 source_sha256: 50f07c265f0ff776348feffafdddd294f75bdea5c8c8e0e02b5aaa7ccc7421d4
 enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN11000059&Promo=PTC
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

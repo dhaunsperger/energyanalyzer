@@ -21,7 +21,7 @@ energy_rates:
     - 5
   label: night
   tdu_exempt: true
-- rate_ckwh: 18.1065
+- rate_ckwh: 18.1965
   label: day
   tdu_exempt: false
 buyback:
@@ -37,8 +37,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Nights_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 29ab7a018f9a050720e48a4146c884e75a5339889967a02ded1cfcb1bb79a4f1
+retrieved: '2026-09-01'
+source_sha256: 2e7b68371a23249c52fa0f6106a6bad2ad3485f95103b4c167e6ba40be0c63ee
 notes: TDU delivery charge waived during the free window (Nighttime Delivery Charges
   $0.00)
 needs_review: false

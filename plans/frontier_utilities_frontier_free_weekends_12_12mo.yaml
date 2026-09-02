@@ -14,7 +14,7 @@ energy_rates:
     hours: []
   label: Weekends
   tdu_exempt: true
-- rate_ckwh: 17.6
+- rate_ckwh: 16.9
   label: Weekdays
   tdu_exempt: false
 buyback:
@@ -31,8 +31,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Free_Weekends_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 5e48ce36d716e7878854c1e0309b0373937e3aa712bcc352fe2b1bbbd7384eb6
+retrieved: '2026-09-01'
+source_sha256: 8121b111d049835ed6b6a72fcda6079709e97cb78fb8d2b98e41d804497c7b09
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line; TDU delivery charge waived during the free window (Delivery Charges
   0.0000 ¢ per kWh - Weekend)'

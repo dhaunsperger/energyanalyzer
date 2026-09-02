@@ -1,0 +1,31 @@
+id: companion_energy_companion_perks_9_9mo
+retailer: Companion Energy
+name: Companion + Perks 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.21
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 30.4
+source: efl:Companion_Energy_Companion_Perks_9.pdf
+retrieved: '2026-09-01'
+source_sha256: b32ef5fa7b8f31fc28e0561f07ba0a3ac2351e8a20f84fb537e4a5a1d1990987
+enroll_url: https://newenroll.companionenergy.com/?refid=PTCPERKS09&ul=1000&tdsp=AEP_CENT&utm_source=power_to_choose&utm_medium=referral&utm_campaign=PTC-PTCPERKS09&utm_content=AEP_CENT&utm_term=additional_info
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

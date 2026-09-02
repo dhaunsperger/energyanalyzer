@@ -24,6 +24,7 @@ source: efl:Ranchero_Power_Ranchero_Smart_Fixed_-_5.pdf
 retrieved: '2026-07-26'
 source_sha256: 026f82b6fb86b51c1810e1eae5c59371568b9173b260b05b3bf87828dae4034b
 enroll_url: http://Rancheropower.com
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

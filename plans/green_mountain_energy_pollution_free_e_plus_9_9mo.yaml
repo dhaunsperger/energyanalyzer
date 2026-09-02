@@ -1,0 +1,28 @@
+id: green_mountain_energy_pollution_free_e_plus_9_9mo
+retailer: Green Mountain Energy
+name: Pollution Free e-Plus 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.7174
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 95.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_9.pdf
+retrieved: '2026-09-01'
+source_sha256: 277c01d2e2924db6a951afe41a7a8d440215c76e2eb8c4ff90f5bbbe5775ae98
+notes: ''
+needs_review: false
+excludes_solar: false

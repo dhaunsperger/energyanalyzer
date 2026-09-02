@@ -25,6 +25,7 @@ source: efl:Meter_Energy_earner_battery_12mo_oncor.pdf
 retrieved: '2026-07-26'
 source_sha256: 7a4ef6dd6b9952188b95a7e211037b43256bc05f768d0d3b81ce669754f91a8f
 notes: Not listed by its source on 2026-07-26 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-01
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 13.9
+- rate_ckwh: 14.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -18,14 +18,12 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 0.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Flex.pdf
-retrieved: '2026-07-26'
-source_sha256: d888f2c516ed1a9767a6b06efd50cbe022e4bedb74f1e6eb35e411d060a81135
+retrieved: '2026-09-01'
+source_sha256: bd709ab4dd84833d69e46296ade0cafe3b03e13f8f18e7d712002aec2e5ecafa
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
-  Not listed by its source on 2026-07-26 -- the source was reached and did not offer
-  this plan. It may have left the market. Not listed by its source on 2026-07-26 --
-  the source was reached and did not offer this plan. It may have left the market.
-needs_review: true
+needs_review: false
 excludes_solar: false

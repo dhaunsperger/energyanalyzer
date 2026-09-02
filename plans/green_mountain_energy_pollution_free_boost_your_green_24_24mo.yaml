@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 6.95
 energy_rates:
-- rate_ckwh: 10.7798
+- rate_ckwh: 10.8699
   label: ''
   tdu_exempt: false
 buyback:
@@ -18,16 +18,16 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 295.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Boost_Your_Green_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 9dab71d81217320dd897e1b3ca7f1b2e39210189ca1d915bcb9066ebe08721b2
-notes: usage-tiered energy charge (0-1000 kWh @ 10.7798c, >1000 kWh @ 5.7798c) --
-  the schema models one rate per window, so any single rate here would misprice the
-  plan; multiple differing flat Energy Charge values found [5.7798, 10.7798]; used
-  first (10.7798)
+retrieved: '2026-09-01'
+notes: 'multiple differing flat Energy Charge values found [5.8699, 10.8699]; used
+  first (10.8699); usage-tiered energy charge (0-1000 kWh @ 10.8699c, >1000 kWh @
+  5.8699c) -- the schema models one rate per window, so any single rate here would
+  misprice the plan LLM suggested: energy_charge (needs human confirmation).'
 needs_review: true
-excludes_solar: false
-unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 10.7798c, >1000 kWh @
-  5.7798c) -- the schema models one rate per window, so any single rate here would
+unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 10.8699c, >1000 kWh @
+  5.8699c) -- the schema models one rate per window, so any single rate here would
   misprice the plan
+excludes_solar: false

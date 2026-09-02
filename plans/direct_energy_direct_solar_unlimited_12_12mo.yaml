@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Direct_Energy_Direct_Solar_Unlimited_12.pdf
-retrieved: '2026-07-26'
-source_sha256: fd384c351c3b32d5cf63a3d7f453e215d12a44e06332156c856b52597d0aac71
+retrieved: '2026-09-01'
+source_sha256: 4ecbad2408ae6d3f033b26e4fafaf57d2b860bb471a38dd15b7cc0f935353497
 notes: ''
 needs_review: false
 excludes_solar: false

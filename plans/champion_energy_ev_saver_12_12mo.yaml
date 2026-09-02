@@ -42,5 +42,7 @@ source: efl:Champion_Energy_EV_Saver-12.pdf
 retrieved: '2026-07-26'
 source_sha256: 282dc9021b0653e4f3994fe56036ae621b7f00dad337d09688bbbd160338bb10
 notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
-needs_review: false
+  Not listed by its source on 2026-09-01 -- the source was reached and did not offer
+  this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

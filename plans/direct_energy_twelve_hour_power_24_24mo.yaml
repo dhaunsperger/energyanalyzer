@@ -41,8 +41,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Twelve_Hour_Power_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 6759cdebebb6cb96e529fe52d5b38e8fc2b4abace02337f7adf15422c01a5bb4
+retrieved: '2026-09-01'
+source_sha256: fd887bd1db44a77e851736510bd872795a38bb12c7ddbe585126ab6971b2368f
 notes: free window (12h) read from prose; it is priced in a different column from
   its label, so no rate table carries it; TDU delivery charge waived during the free
   window (not be billed for any TDU delivery charges during the Designated Free)

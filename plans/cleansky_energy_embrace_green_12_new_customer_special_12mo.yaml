@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.4
+- rate_ckwh: 6.6
   label: ''
   tdu_exempt: false
 buyback:
@@ -16,15 +16,15 @@ buyback:
   cash_out: false
 bill_credits: []
 tdu_passthrough: true
-etf_usd: 150.0
+etf_usd: 75.0
 etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CleanSky_Energy_Embrace_Green_12_-_New_Customer_Special.pdf
-retrieved: '2026-07-26'
-source_sha256: eb1214cff326281c844bfa74ea21469118a9ebe7f95ca040896e70e3d30059bc
-enroll_url: https://enroll.cleanskyenergy.com/Home/index?ProductCode=RN00001116&Promo=PTCHOOSETX&Term=12
+retrieved: '2026-09-01'
+source_sha256: 4a1abd401ab76142390f80b434d8b24f9a1d7f9b9feb39cfac12970c5c4257e8
+enroll_url: https://enroll.cleanskyenergy.com//Home/index?ProductCode=RN00008021&Promo=PTCHOOSETX&Term=12
 notes: ''
 needs_review: false
 excludes_solar: false

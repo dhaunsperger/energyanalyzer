@@ -5,7 +5,7 @@ term_months: 18
 tdu: ONCOR
 base_charge_usd: 29.95
 energy_rates:
-- rate_ckwh: 9.9
+- rate_ckwh: 9.1
   label: ''
   tdu_exempt: false
 buyback:
@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_GreenVolt_18.pdf
-retrieved: '2026-07-26'
-source_sha256: 108e2ff6c5d9a9299ea989b9c3edea1e0313be5618a7f76ee8dddd7a36a26821
+retrieved: '2026-09-01'
+source_sha256: bd202f60ee53a45ab022343c117d983c96268cde04266ea225de9fe7cf60f9b6
 notes: ''
 needs_review: false
 excludes_solar: false

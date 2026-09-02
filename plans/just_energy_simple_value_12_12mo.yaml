@@ -28,6 +28,8 @@ retrieved: '2026-07-26'
 source_sha256: 3f836ddb33429f8ebc25fdc65fa42f0191ac4f1d581addc4102733ccfc1324f3
 notes: 'Simple Value Credit $50/bill cycle at >=500 kWh billed usage. Verified: the
   model reproduces all three published average prices to 0.03c. base charge inferred
-  as $0.00: itemized price-components list has no REP base/customer charge line'
+  as $0.00: itemized price-components list has no REP base/customer charge line Not
+  listed by its source on 2026-09-01 -- the source was reached and did not offer this
+  plan. It may have left the market.'
 needs_review: true
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.5
+- rate_ckwh: 7.3
   label: ''
   tdu_exempt: false
 buyback:
@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Champ_Silver-24.pdf
-retrieved: '2026-07-26'
-source_sha256: 0968cf8741bcc2d7ba5768de779ea34ac74296d4dc63d47ff1eca64e049daf74
+retrieved: '2026-09-01'
+source_sha256: fc0a3edaed3b77498f298dbface9c7e921e9453c42c6d2d461f0b55550abda05
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

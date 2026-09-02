@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 13.973
+- rate_ckwh: 13.407
   label: ''
   tdu_exempt: false
 buyback:
@@ -24,8 +24,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_The_Lone_Saver_Plus_12.pdf
-retrieved: '2026-07-26'
-source_sha256: efc94b9dc6e0d5773351b0cf26848b8616132e1bc91485ea2347203c740e1da8
+retrieved: '2026-09-01'
+source_sha256: 2fc1395b8a6ccf5a2426eac20cb80bb92257b33eb1a532f22ea42d14a2422596
 enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=LSP12
 notes: ''
 needs_review: false

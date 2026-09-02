@@ -29,8 +29,9 @@ notes: 'Enrolling REQUIRES a one-time $49.99 GoodBundle setup and carbon-offset 
   term: the 4.9c/kWh energy rate is only held for five months, but the ranking prices
   a full twelve at it, so this plan''s first-year figure is optimistic beyond the
   fee. base charge inferred as $0.00: itemized price-components list has no REP base/customer
-  charge line'
-needs_review: false
+  charge line Not listed by its source on 2026-09-01 -- the source was reached and
+  did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false
 signup_fee_usd: 49.99
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST

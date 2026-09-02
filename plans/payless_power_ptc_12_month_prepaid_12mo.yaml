@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 10.6
+- rate_ckwh: 9.8
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:PAYLESS_POWER_PTC_12_Month_-_Prepaid.pdf
-retrieved: '2026-07-26'
-source_sha256: 4ae1744459a0561874ae66694d998e8bfe2852db2a2aac1bbd7b12f00b836767
+retrieved: '2026-09-01'
+source_sha256: 066f6d3461d9854ff28e7777b84c9f43536df2c30a645ad7c2ed8c18e83d1ceb
 enroll_url: https://account.paylesspower.com/enroll/487447
 notes: term_months not found; defaulting to 12; base_charge_usd ($0.00/mo) derived
   from a per-day customer fee (fee * 365 / 12, rounded to cents)

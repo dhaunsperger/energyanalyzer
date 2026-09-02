@@ -14,7 +14,7 @@ energy_rates:
     hours: []
   label: free
   tdu_exempt: true
-- rate_ckwh: 16.8693
+- rate_ckwh: 16.9594
   label: ''
   tdu_exempt: false
 buyback:
@@ -31,8 +31,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Direct_Energy_Free_Power_Weekends_24_Auto_Pay.pdf
-retrieved: '2026-07-26'
-source_sha256: b6947f44f4f43d58c53526c5417b30757f1fc614a6b1a141a58bf1ce651cf211
+retrieved: '2026-09-01'
+source_sha256: 192f634ba7b95a7e334e16572f1da9cfb4e676a5ef2d8a8d3d198bd378250540
 notes: TDU delivery charge waived during the free window (not be billed for any TDU
   delivery charges during the Designated Free)
 needs_review: false

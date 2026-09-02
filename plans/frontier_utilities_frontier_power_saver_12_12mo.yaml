@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 5.71
+- rate_ckwh: 5.21
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:FRONTIER_UTILITIES_Frontier_Power_Saver_12.pdf
-retrieved: '2026-07-26'
-source_sha256: f0eba9d8da5f9275ea05c971a7ffe4cda547baa65dde889c05f52a1b2412d5f3
+retrieved: '2026-09-01'
+source_sha256: 9661a6e969e0cc2e6b54112fbbc6b4a4205f0b5dff58c683d7474f1c90481a29
 enroll_url: https://newenroll.frontierutilities.com/?refid=PTCFPS12&ul=1000&tdsp=AEP_CENT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

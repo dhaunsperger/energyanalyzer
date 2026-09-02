@@ -5,7 +5,7 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 12.6273
+- rate_ckwh: 12.7174
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus.pdf
-retrieved: '2026-07-26'
-source_sha256: 56aa28e2d1c47f2b290ad7b354a2e070bcc58d5cd8906cc7eb912f1282484b4c
+retrieved: '2026-09-01'
+source_sha256: c1cb194ebf1b9cc77d07f125ee56d5f878c04714198c889e4aa3df77f271bad7
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 18
 tdu: ONCOR
 base_charge_usd: 4.0
 energy_rates:
-- rate_ckwh: 6.982
+- rate_ckwh: 6.035
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,9 +22,9 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_18.pdf
-retrieved: '2026-07-26'
-source_sha256: 958519279de8060de8508d302338a38129c3cf4b88489d8ad5985e8d667a6631
-enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370257&promotion=NONE&valid=N&referral=&landingpage=ptc
+retrieved: '2026-09-01'
+source_sha256: 12337fe1a999dd2aa9546a8aa31f0cf3bfc5f7b61b93ffdccb9ab88fd678430f
+enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=379077&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''
 needs_review: false
 excludes_solar: false

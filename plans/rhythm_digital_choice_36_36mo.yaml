@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.724
+- rate_ckwh: 7.114
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Digital_Choice_36.pdf
-retrieved: '2026-07-26'
-source_sha256: 14f233c4128467ba97bfcd18941175f212ce89361638635889de7f360bbd53ae
+retrieved: '2026-09-01'
+source_sha256: cceabea4b8cd988587bda2f49288e316fa1db40ddf45becc8a3736e056eed6bd
 enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=DC36
 notes: ''
 needs_review: false

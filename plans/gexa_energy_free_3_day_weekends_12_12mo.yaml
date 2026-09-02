@@ -15,7 +15,7 @@ energy_rates:
     hours: []
   label: Weekends
   tdu_exempt: true
-- rate_ckwh: 22.9
+- rate_ckwh: 22.4
   label: Weekdays
   tdu_exempt: false
 buyback:
@@ -32,8 +32,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Free_3_Day_Weekends_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 74107a2927da4e0be22daab0fc21def5a947be6921b5c7e1a14b684997dcb58d
+retrieved: '2026-09-01'
+source_sha256: 00b309e328edbcb4faa7d020078ab39be016f069232b84dbaae9de8ed0414b15
 notes: TDU delivery charge waived during the free window (Delivery Charges 0.0000
   ¢ per kWh - Weekend)
 needs_review: false

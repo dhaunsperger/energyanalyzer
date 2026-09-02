@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.89
+- rate_ckwh: 5.79
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 1da43a3fd46b88a34c64c857aae5a49bbf49d481fbe6b77640a474de7abf700f
+retrieved: '2026-09-01'
+source_sha256: e7353c54b38fff845b66f1d70c18f8439e06089046eaf61a6b6c8d6384d3ce17
 enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
 notes: ''
 needs_review: false

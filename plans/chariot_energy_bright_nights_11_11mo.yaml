@@ -39,6 +39,7 @@ source: efl:CHARIOT_ENERGY_Bright_Nights_11.pdf
 retrieved: '2026-07-26'
 source_sha256: 444bea8407a4de9c2a6ce52029c4a80ad2428cbcb5c05cebab0d634a134765f4
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR11000015&Promo=GqAtunAVIGY=
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

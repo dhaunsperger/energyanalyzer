@@ -5,8 +5,14 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 12.3
-  label: ''
+- rate_ckwh: 12.4
+  label: 0 - 1350 kWh
+  tdu_exempt: false
+- rate_ckwh: 6.2
+  label: 1351 - 2000 kWh
+  tdu_exempt: false
+- rate_ckwh: 12.4
+  label: '> 2000 kWh'
   tdu_exempt: false
 buyback:
   kind: none
@@ -18,19 +24,17 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 199.0
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Plus_12.pdf
-retrieved: '2026-07-26'
-source_sha256: 29c6a809d95e7d804b6d1516c2664b4b92ed54534c8f7ac33752aff79c8ebf55
-notes: usage-tiered energy charge (0-1350 kWh @ 12.3c, 1351-2000 kWh @ 6.1c, >2000
-  kWh @ 12.3c) -- the schema models one rate per window, so any single rate here would
-  misprice the plan; could not find an Energy Charge rate Not listed by its source
-  on 2026-07-26 -- the source was reached and did not offer this plan. It may have
-  left the market. Not listed by its source on 2026-07-26 -- the source was reached
-  and did not offer this plan. It may have left the market.
+retrieved: '2026-09-01'
+notes: 'could not find an Energy Charge rate; usage-tiered energy charge (0-1350 kWh
+  @ 12.4c, 1351-2000 kWh @ 6.2c, >2000 kWh @ 12.4c) -- the schema models one rate
+  per window, so any single rate here would misprice the plan LLM suggested: energy_charge,
+  free_window (needs human confirmation).'
 needs_review: true
-excludes_solar: false
-unpriceable_reason: usage-tiered energy charge (0-1350 kWh @ 12.3c, 1351-2000 kWh
-  @ 6.1c, >2000 kWh @ 12.3c) -- the schema models one rate per window, so any single
+unpriceable_reason: usage-tiered energy charge (0-1350 kWh @ 12.4c, 1351-2000 kWh
+  @ 6.2c, >2000 kWh @ 12.4c) -- the schema models one rate per window, so any single
   rate here would misprice the plan
+excludes_solar: false

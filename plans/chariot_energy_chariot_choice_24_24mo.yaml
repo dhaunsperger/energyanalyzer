@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.02
+- rate_ckwh: 5.71
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Choice_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 68b8f807a9afd73871208b8e2975be6356e061d74872c89bd59153e703925c47
+retrieved: '2026-09-01'
+source_sha256: 469340346344ed9607f3abad48d1860ded13f0052c23a49309fc02bacca68e27
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN24000016&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

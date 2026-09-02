@@ -14,7 +14,7 @@ energy_rates:
     hours: []
   label: Weekend
   tdu_exempt: false
-- rate_ckwh: 10.9
+- rate_ckwh: 10.6
   label: ''
   tdu_exempt: false
 buyback:
@@ -35,8 +35,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Free_Weekends-24.pdf
-retrieved: '2026-07-26'
-source_sha256: eca49e670ab748bacd9961bf5a08deaf8f876f7708271445c5fd44e22b19666c
+retrieved: '2026-09-01'
+source_sha256: 10a8ffc7af6b195dc30e8d609d7ebaa7b53b5559c66c90da72883c4c5326b50c
 notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
 excludes_solar: false

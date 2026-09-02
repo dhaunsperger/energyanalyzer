@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.9201
+- rate_ckwh: 6.7174
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Saver_12.pdf
-retrieved: '2026-07-26'
-source_sha256: cc3d0a528464eddf1e46abf189dfba8ca212c6b0b18e6a7d09980aa990331e20
+retrieved: '2026-09-01'
+source_sha256: a40b3d8769a53c6242e4c8a9cf7d83679c01d469590d0a61a71255af2de0d263
 enroll_url: https://shop.discountpowertx.com/offer-selection/?txtPromocode=WQ4131&tdspCode=D0004&fromLP=ptc&sid=APTC_1686090020&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

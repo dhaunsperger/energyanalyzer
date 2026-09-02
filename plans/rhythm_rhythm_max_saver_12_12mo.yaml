@@ -27,6 +27,7 @@ source: efl:RHYTHM_Rhythm_Max_Saver_12.pdf
 retrieved: '2026-07-26'
 source_sha256: 24645b49b13c3a4b7d10381b6caba2e5395db26726a64ff3f515dcd1395e9e4e
 enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=RMS12
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

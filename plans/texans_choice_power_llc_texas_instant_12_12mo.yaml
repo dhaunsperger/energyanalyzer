@@ -3,7 +3,7 @@ retailer: Texans Choice Power LLC
 name: Texas Instant 12
 term_months: 12
 tdu: ONCOR
-base_charge_usd: 135.0
+base_charge_usd: 130.0
 energy_rates:
 - rate_ckwh: 14.0
   label: ''
@@ -22,9 +22,9 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Texas_Instant_12.pdf
-retrieved: '2026-07-26'
-source_sha256: c0181729dcb558dcc6147fd97a5884f4c25beec6eef1f236e1aa00a080709057
-enroll_url: https://signup.texanschoicepower.com/?PromoCode=PTC
+retrieved: '2026-09-01'
+source_sha256: 1d88b40b04b98f6dddd13593af0bfd5bac7765503286acb51ac283351a4e9a47
+enroll_url: https://signup.texanschoicepower.com/
 notes: ''
 needs_review: false
 excludes_solar: false

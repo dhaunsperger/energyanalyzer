@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf
-retrieved: '2026-07-26'
-source_sha256: a951c9dc4c3467ddc48130e24b29e2019369a1451c0abf24215812dbc1e7ceb4
+retrieved: '2026-09-01'
+source_sha256: 535dab96853ecc87a4a03607a408f85797722f2fb60ebb8f8b4e4c678ac32d61
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -1,0 +1,30 @@
+id: budget_power_no_gimmicks_18_18mo
+retailer: Budget Power
+name: No Gimmicks 18
+term_months: 18
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 5.502
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 125.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 23.8
+source: efl:Budget_Power_No_Gimmicks_18.pdf
+retrieved: '2026-09-01'
+source_sha256: 6942e41d52e819919193d7ebebe380edef2a832e5fd5d82de3655ac342ea9b67
+enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN18000058&Promo=PTC
+notes: ''
+needs_review: false
+excludes_solar: false

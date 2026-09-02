@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.2
+- rate_ckwh: 7.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CHAMPION_ENERGY_SERVICES_LLC_Champ_Saver-24.pdf
-retrieved: '2026-07-26'
-source_sha256: 12b55a92fe15180ec62f910905036a10634716e2ef248defb87a6afd692dfe2e
+retrieved: '2026-09-01'
+source_sha256: bccb6a478ea9464a823a89a815763393e13f1ecf96c3e086ded94c482056bc9b
 enroll_url: https://www.championenergyservices.com/Residential/Sign-Up?promo=powertochoose
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row

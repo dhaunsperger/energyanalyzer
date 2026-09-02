@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 9.4673
+- rate_ckwh: 9.1574
   window:
     months: []
     weekdays: []
@@ -22,7 +22,7 @@ energy_rates:
     - 5
   label: night
   tdu_exempt: false
-- rate_ckwh: 11.4673
+- rate_ckwh: 11.1574
   label: day
   tdu_exempt: false
 buyback:
@@ -39,8 +39,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Solar_All_Nighter_12.pdf
-retrieved: '2026-07-26'
-source_sha256: dc7544dd6b6f0cf169348f4c03c5ca1dfd0850d14024f2fd97c5c287d8cfbe2b
+retrieved: '2026-09-01'
+source_sha256: d8212bde5483d098b47bc2993d8c184d668f6d8898731c1b61167f9ae261527d
 notes: ''
 needs_review: false
 excludes_solar: false

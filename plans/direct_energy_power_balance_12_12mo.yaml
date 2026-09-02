@@ -25,6 +25,7 @@ source: efl:Direct_Energy_Power_Balance_12.pdf
 retrieved: '2026-07-26'
 source_sha256: 75aff5efda656461cde84eee4d6f528d3d7dff8ed5c9dc060452cd9196223eea
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
-  charge line'
-needs_review: false
+  charge line Not listed by its source on 2026-09-01 -- the source was reached and
+  did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

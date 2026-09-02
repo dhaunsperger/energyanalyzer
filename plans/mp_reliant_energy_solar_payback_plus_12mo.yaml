@@ -22,7 +22,7 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: meterplan
-retrieved: '2026-07-26'
+retrieved: '2026-09-01'
 notes: ''
 needs_review: false
 excludes_solar: false

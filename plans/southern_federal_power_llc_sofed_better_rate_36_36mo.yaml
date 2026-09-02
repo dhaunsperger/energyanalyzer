@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 7.1289
+- rate_ckwh: 7.2695
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Better_Rate_-_36.pdf
-retrieved: '2026-07-26'
-source_sha256: 94f0fded68079b8066448e9494f5dd092e3f9ccc782a5af3f2814a9b7c101f4e
+retrieved: '2026-09-01'
+source_sha256: 4a5f2c17e2a4149113dbab9c750a2e0b4e26eb5a488bdf8dcfd69f5c8d446915
 enroll_url: http://www.southernfederal.com/
 notes: ''
 needs_review: false

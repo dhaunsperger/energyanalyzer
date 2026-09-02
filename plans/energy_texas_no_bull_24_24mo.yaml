@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 7.124
+- rate_ckwh: 6.914
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_No_Bull_24.pdf
-retrieved: '2026-07-26'
-source_sha256: cba726ac96915732788662c965115319be286a0c97776e627782be1ef5ed81e4
+retrieved: '2026-09-01'
+source_sha256: 63e5214bb23a95af6c83aace55718536ad58e721db3c7cd4c9faacfa546b8c5f
 enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=NB24
 notes: ''
 needs_review: false

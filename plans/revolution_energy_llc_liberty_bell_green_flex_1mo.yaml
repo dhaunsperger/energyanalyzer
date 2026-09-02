@@ -5,7 +5,7 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 2.95
 energy_rates:
-- rate_ckwh: 7.046
+- rate_ckwh: 5.006
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,9 +22,9 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:REVOLUTION_ENERGY_LLC_Liberty_Bell_Green_Flex.pdf
-retrieved: '2026-07-26'
-source_sha256: 78e24e1a94b4d1e55b53a19c2318d58515eb154649f9bf6351ee69e48f5cf696
-enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=370237&promotion=NONE&valid=N&referral=&landingpage=ptc
+retrieved: '2026-09-01'
+source_sha256: 6cd8a09ba74dc53c7345381a3c72d4f5c687c2555d32d98a35e3a0ecb0480bea
+enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=375741&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''
 needs_review: false
 excludes_solar: false

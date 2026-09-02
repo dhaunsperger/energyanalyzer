@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 9.3
+- rate_ckwh: 8.8
   label: ''
   tdu_exempt: false
 buyback:
@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_Battery_Benefits_12.pdf
-retrieved: '2026-07-26'
-source_sha256: e8aee1dfe3e4de3ab9d353368aa3ca47068590071685b8ab552341a01e949433
+retrieved: '2026-09-01'
+source_sha256: 9935808e5de9648139b2e6972c4eab539321f99ef6c28c70b1f7b6f025b11454
 notes: ''
 needs_review: false
 excludes_solar: false

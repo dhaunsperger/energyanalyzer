@@ -1,0 +1,31 @@
+id: nec_co_op_energy_residential_electricity_plain_and_simple_1mo
+retailer: NEC Co-op Energy
+name: Residential Electricity... Plain and simple.
+term_months: 1
+tdu: ONCOR
+base_charge_usd: 7.5
+energy_rates:
+- rate_ckwh: 9.44
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 15.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: variable
+renewable_pct: 15.4
+source: efl:NEC_Co-op_Energy_Residential_Electricity_Plain_and_simple.pdf
+retrieved: '2026-09-01'
+source_sha256: 5e3c1d2989f777eb8480a399f6d146f6314b01e521dccda191fa261f4c480541
+enroll_url: https://neccoopenergy.com/residential-service/
+notes: energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider
+  row; base charge derived from the same split 4-column Energy/Base/TDU charge row
+needs_review: false
+excludes_solar: false

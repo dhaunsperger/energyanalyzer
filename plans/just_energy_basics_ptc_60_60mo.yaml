@@ -1,0 +1,31 @@
+id: just_energy_basics_ptc_60_60mo
+retailer: Just Energy
+name: Basics PTC - 60
+term_months: 60
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.5
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 175.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:JUST_ENERGY_Basics_PTC_-_60.pdf
+retrieved: '2026-09-01'
+source_sha256: 1c57b08a52699ee7cbd72796165ac4064df23df73c90b5965ab073dfbc0154f4
+enroll_url: https://justenergy.com/affiliatepartner/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: true
+excludes_solar: false

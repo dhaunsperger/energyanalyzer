@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:DIRECT_ENERGY_Autopay_Texas_36.pdf
-retrieved: '2026-07-26'
-source_sha256: 90feef7d33f12ebc2e4eb14bbd05fb2d5fec4116f2bf601811d7b71205c41077
+retrieved: '2026-09-01'
+source_sha256: 1a74a4b93536bfa20507147380613b8b159b150ec250470e610270095a3431d9
 enroll_url: https://shop.directenergy.com/tx/product-chart-tabs?tdspCode=D0004&promo_code=WHPGCD&sid=APTC_1726591058&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false

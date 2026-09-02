@@ -25,6 +25,7 @@ source: efl:CONSTELLATION_NEWENERGY_INC_Simple_Switch_5.pdf
 retrieved: '2026-07-26'
 source_sha256: b0146b6d389653c58b9bc5092ea8ad40bd22e1fcffa808162a8b76d6d9b63784
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

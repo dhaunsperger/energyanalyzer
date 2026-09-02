@@ -25,6 +25,7 @@ source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_24.pdf
 retrieved: '2026-07-26'
 source_sha256: be1eb94488346082f05d931b9df5baab9269b28a996eb2bff68927cf8d5db9a5
 enroll_url: https://www.sfeenergy.com/texas/
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 19.95
 energy_rates:
-- rate_ckwh: 5.59
+- rate_ckwh: 5.99
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,13 +22,13 @@ bill_credits: []
 tdu_passthrough: true
 etf_usd: 20.0
 etf_per_month_remaining: true
+signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Atlantex_Power_Solar_Buy_Back_Plan.pdf
-retrieved: '2026-07-26'
-source_sha256: 929deb61c81d8191fd3d7c380c2ba66fd13f78b942733d6ce7feff9c3bb01547
+retrieved: '2026-09-01'
+source_sha256: def75cfb475a5fbe4d80e3372e5b380fc2ff055c7cc74fa6376071728794a769
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
-  scan Not listed by its source on 2026-07-26 -- the source was reached and did not
-  offer this plan. It may have left the market.
-needs_review: true
+  scan
+needs_review: false
 excludes_solar: false

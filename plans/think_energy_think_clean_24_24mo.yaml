@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 8.4
+- rate_ckwh: 7.3
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_24.pdf
-retrieved: '2026-07-26'
-source_sha256: 3c2de8b4a25b4f7f7101f34170fe5f7c8e5cc0f4446000643eabb9070b085c20
+retrieved: '2026-09-01'
+source_sha256: 28ffbcddd0e911f483ea453779e7bc3805e531027efc6312d64062af04fddd83
 enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false

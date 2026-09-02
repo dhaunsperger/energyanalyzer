@@ -1,0 +1,30 @@
+id: payless_power_ptc_12_month_postpaid_12mo
+retailer: Payless Power
+name: PTC 12 Month - Postpaid
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.3
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 199.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+source: efl:PAYLESS_POWER_PTC_12_Month_-_Postpaid.pdf
+retrieved: '2026-09-01'
+source_sha256: ce82fa1702ca318c08cf452c6393d1e7c04f3a9ef248a9d6b706de280c351529
+enroll_url: https://paylesspower.com/?affiliate=487447&planType=2
+notes: term_months not found; defaulting to 12; base charge derived from a generic
+  '<label> Charge ... per month' table-line scan
+needs_review: false
+excludes_solar: false

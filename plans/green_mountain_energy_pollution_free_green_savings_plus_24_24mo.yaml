@@ -1,0 +1,30 @@
+id: green_mountain_energy_pollution_free_green_savings_plus_24_24mo
+retailer: Green Mountain Energy
+name: Pollution Free Green Savings Plus 24
+term_months: 24
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 15.2174
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits:
+- min_kwh: 2000.0
+  credit_usd: 150.0
+tdu_passthrough: true
+etf_usd: 295.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+source: efl:Green_Mountain_Energy_Pollution_Free_Green_Savings_Plus_24.pdf
+retrieved: '2026-09-01'
+source_sha256: 8bafd2a37c81dc4d209b95a501debf59e10c5b997a30beb452031b37d3bc4a3b
+notes: ''
+needs_review: false
+excludes_solar: false

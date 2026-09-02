@@ -19,7 +19,7 @@ energy_rates:
     - 5
   label: night
   tdu_exempt: false
-- rate_ckwh: 6.47
+- rate_ckwh: 5.84
   label: day
   tdu_exempt: false
 buyback:
@@ -36,8 +36,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Bright_Nights_12.pdf
-retrieved: '2026-07-26'
-source_sha256: db0da7d95d5b29cae6e66f8b9d9e20a6db59bfafb6661af78b0c9fd147d3aab0
+retrieved: '2026-09-01'
+source_sha256: 5947b1c7319931846c2a04b6dcc900f176fd70061bbbd124a41763f3d5872b83
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR12002711&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false
