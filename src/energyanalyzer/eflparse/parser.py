@@ -207,11 +207,22 @@ def _rate_ckwh_from_snippet(s: str) -> Optional[float]:
     return None
 
 
+# Dollar amounts may carry thousands separators. Without the comma branch,
+# "$1,000" matched only the leading "$1" and a four-figure early termination fee
+# silently became one dollar -- at full confidence, so it auto-promoted.
+_MONEY_PAT = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+
+
+def _money(raw: str) -> float:
+    """Float from a matched money group, tolerating '1,000.50'."""
+    return float(str(raw).replace(",", ""))
+
+
 def _rate_usd_from_snippet(s: str) -> Optional[float]:
     """Parse a flat dollar amount (e.g. base charge, ETF) '$4.95'."""
-    m = re.search(r"\$\s*(\d+(?:\.\d+)?)", s)
+    m = re.search(rf"\$\s*{_MONEY_PAT}", s)
     if m:
-        return float(m.group(1))
+        return _money(m.group(1))
     return None
 
 
@@ -1017,7 +1028,7 @@ def _extract_signup_fee(text: str) -> Extraction:
 def _extract_etf(text: str) -> Extraction:
     # "termination fee ... $X" on the same line - the common case.
     m = re.search(
-        r"(?:termination\s*fee|early\s*termination\s*fee|ETF)[^\n$]{0,80}?\$\s*(\d+(?:\.\d+)?)",
+        rf"(?:termination\s*fee|early\s*termination\s*fee|ETF)[^\n$]{{0,80}}?\$\s*{_MONEY_PAT}",
         text,
         re.I,
     )
@@ -1025,11 +1036,11 @@ def _extract_etf(text: str) -> Extraction:
         tail = text[m.end() : m.end() + 250]
         evidence = _snippet_text(text[m.start() : m.end() + 40])
         if _ETF_PERMO_RE.search(tail):
-            return (float(m.group(1)), True), 0.9, evidence
-        return (float(m.group(1)), False), 0.8, evidence
-    m = re.search(r"\$\s*(\d+(?:\.\d+)?)\s*per\s*month\s*remaining", text, re.I)
+            return (_money(m.group(1)), True), 0.9, evidence
+        return (_money(m.group(1)), False), 0.8, evidence
+    m = re.search(rf"\$\s*{_MONEY_PAT}\s*per\s*month\s*remaining", text, re.I)
     if m:
-        return (float(m.group(1)), True), 0.85, _snippet(m)
+        return (_money(m.group(1)), True), 0.85, _snippet(m)
 
     # In a two-column EFL flattened by pdftotext -layout, the disclosure
     # chart's "Do I have a termination fee..." question label and its

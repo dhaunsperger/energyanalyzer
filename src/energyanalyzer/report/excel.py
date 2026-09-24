@@ -158,6 +158,9 @@ def _write_summary(
         "Other Details",
         "ETF",
         "1st-Year Net Bill",
+        # Only meaningful when the caller deliberately included plans the home
+        # cannot enroll in; blank for every ordinary row.
+        "Eligible?",
     ]
     header_row = 3
     for c, h in enumerate(headers):
@@ -188,6 +191,7 @@ def _write_summary(
             for c in range(1, 8):
                 ws.write(row, c, "?", text_fmt)
             ws.write(row, 8, r.first_year_net, usd_fmt)
+            ws.write(row, 9, "", text_fmt)
             row += 1
             continue
 
@@ -195,7 +199,11 @@ def _write_summary(
         import_label = f"{import_ckwh:.2f}{'*' if star else ''}"
 
         ws.write(row, 0, plan.retailer, text_fmt)
-        name = plan.name + (" ‡" if r.uses_rtw else "")
+        name = (
+            plan.name
+            + (" ‡" if r.uses_rtw else "")
+            + ("~" if getattr(r, "prices_estimated_fraction", 0.0) else "")
+        )
         ws.write(row, 1, name, text_fmt)
         ws.write(row, 2, plan.term_months, text_fmt)
         ws.write(row, 3, plan.base_charge_usd, usd_fmt)
@@ -204,6 +212,12 @@ def _write_summary(
         ws.write(row, 6, plan_other_details(plan), text_fmt)
         ws.write(row, 7, plan_etf_label(plan), text_fmt)
         ws.write(row, 8, r.first_year_net, usd_fmt)
+        ws.write(
+            row,
+            9,
+            "NO - REP excludes rooftop solar" if getattr(plan, "excludes_solar", False) else "",
+            text_fmt,
+        )
         row += 1
 
     warnings = getattr(results, "warnings", [])

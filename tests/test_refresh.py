@@ -1291,3 +1291,73 @@ def test_refresh_never_touches_the_real_quarantine_dir(refresh_dirs):
     )
 
     assert real_quarantine.exists() == existed_before
+
+
+# --------------------------------------------------------------------------- #
+# Superseding must not mistake a sibling product for the same plan
+# --------------------------------------------------------------------------- #
+def _plan(retailer: str, name: str, term: int):
+    from energyanalyzer.core.models import EnergyRate, Plan
+
+    return Plan(
+        id=f"{retailer}_{name}".lower().replace(" ", "_"),
+        retailer=retailer,
+        name=name,
+        term_months=term,
+        energy_rates=[EnergyRate(rate_ckwh=10.0)],
+    )
+
+
+@pytest.mark.parametrize(
+    "syn_name, real_name",
+    [
+        ("Solar Buyback", "Solar Buyback Plus"),
+        ("Solar Buyback", "Solar Buyback Saver"),
+        ("Solar Payback", "Solar Payback Match"),
+        ("Shine", "Shine Plus"),
+        ("Saver", "Saver Max"),
+    ],
+)
+def test_variant_sibling_does_not_supersede(syn_name, real_name):
+    """A differently-priced sibling must not delete the plain plan's row.
+
+    Texas plan families are named this way (TXU Solar Buyback / Plus / Saver),
+    and plain-subset matching quietly removed the plain variant from the
+    comparison because the pricier one existed.
+    """
+    assert not app_common._plan_supersedes(
+        _plan("Gexa Energy", syn_name, 12), _plan("Gexa", real_name, 12)
+    )
+
+
+@pytest.mark.parametrize(
+    "syn_name, real_name",
+    [
+        ("Solar Max", "Renewable Rewards Solar Max"),  # brand-line prefix
+        ("Shine", "Shine"),
+        ("Solar Buyback", "Texas Solar Buyback"),
+    ],
+)
+def test_same_plan_still_supersedes(syn_name, real_name):
+    """Extra *branding* on the real name is still the same product."""
+    assert app_common._plan_supersedes(
+        _plan("Green Mountain", syn_name, 12), _plan("Green Mountain Energy", real_name, 12)
+    )
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Chariot Shine 36", 36),
+        ("Sun Confidence 24 month", 24),
+        ("Just Energy Free Nights Plan - 12", 12),
+        ("e-Plus 12 Choice", 12),
+        ("Twelve Hour Power 24", 24),
+        # Numbers that are plainly not a contract term.
+        ("Free Power Weekends 7 to 7", None),
+        ("Conservation 30 Day Plan", None),
+        ("Free Nights 9pm-6am", None),
+    ],
+)
+def test_term_from_name_ignores_clock_ranges_and_counted_units(name, expected):
+    assert app_common._term_from_name(name) == expected

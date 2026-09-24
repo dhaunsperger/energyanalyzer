@@ -189,8 +189,14 @@ supersede the older copy). Billing every month present would sum a 13th and
 season the two exports straddle, the error is seasonal — it reorders the
 ranking, not just inflates it. `core.models.select_billing_window` trims to the
 most recent 12 **complete** months and returns a `BillingWindow` describing what
-it did; the Compare and Export pages apply it and surface `window.note`. A
-shorter dataset is priced as-is with `is_reliable=False`. `simulate()` warns
+it did; the Compare and Export pages apply it and surface `window.note`. Two
+rules earn their keep: the kept months are applied by **membership**, never as a
+`start..end` range (an incomplete month between two kept ones would slip back
+in), and when fewer than 12 months are complete it still caps at the most recent
+12 **periods** rather than passing everything through — a few short months is
+exactly when the guard used to fail silently. `partial_months` counts kept months
+missing days; their fixed charges prorate and `note` says so. A shorter dataset
+is priced as-is with `is_reliable=False`. `simulate()` warns
 independently, so a caller that skips the trim can't silently report a 14-month
 sum as a first-year cost.
 

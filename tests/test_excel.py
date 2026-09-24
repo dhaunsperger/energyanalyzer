@@ -195,3 +195,42 @@ def test_build_workbook_handles_empty_results(intervals, tdu, plans):
     buf.seek(0)
     wb = openpyxl.load_workbook(buf)
     assert wb.sheetnames == ["Summary", "Monthly Detail", "Usage", "Plan Inputs"]
+
+
+def test_summary_marks_ineligible_plans(intervals, tdu):
+    """A plan the home can't enroll in must say so in the workbook.
+
+    Compare hides these behind a toggle; the workbook had no equivalent, so a
+    free-nights plan the REP won't sell to a solar home could rank at the top
+    of the spreadsheet with nothing indicating it was unbuyable.
+    """
+    import io
+
+    import openpyxl
+
+    from energyanalyzer.core.models import EnergyRate, Plan
+    from energyanalyzer.engine.cost import rank
+    from energyanalyzer.report.excel import build_workbook
+
+    ok = Plan(
+        id="ok", retailer="A", name="Fine", term_months=12,
+        energy_rates=[EnergyRate(rate_ckwh=12.0)],
+    )
+    banned = Plan(
+        id="banned", retailer="B", name="No Solar", term_months=12,
+        energy_rates=[EnergyRate(rate_ckwh=5.0)], excludes_solar=True,
+    )
+    results = rank([ok, banned], intervals, tdu)
+
+    buf = io.BytesIO()
+    build_workbook(results, {p.id: p for p in (ok, banned)}, intervals, tdu, buf)
+    buf.seek(0)
+    ws = openpyxl.load_workbook(buf)["Summary"]
+
+    headers = [c.value for c in ws[4]]
+    assert "Eligible?" in headers
+    col = headers.index("Eligible?") + 1
+    marks = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=col).value
+             for r in range(5, 5 + len(results))}
+    assert marks["B"] and "excludes rooftop solar" in marks["B"]
+    assert not marks["A"]

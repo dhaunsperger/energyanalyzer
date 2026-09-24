@@ -253,9 +253,7 @@ def _source_manifest(source_files: list[Path]) -> list[list]:
     newest-mtime test then silently reuses a cache that is missing a whole
     year of prices. Adding OR removing a file changes this manifest.
     """
-    return sorted(
-        [f.name, f.stat().st_size, int(f.stat().st_mtime)] for f in source_files
-    )
+    return sorted([f.name, f.stat().st_size, f.stat().st_mtime_ns] for f in source_files)
 
 
 def _manifest_path(cache_path: Path) -> Path:

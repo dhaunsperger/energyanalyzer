@@ -369,3 +369,20 @@ def test_cache_rebuilds_for_a_back_dated_new_export(tmp_path):
 
     after, _ = load_intervals(data_dir=tmp_path)
     assert len(after) == 192, "a back-dated export must not be ignored"
+
+
+def test_cache_manifest_survives_sub_second_replacement(tmp_path):
+    """Two files written in the same second must still invalidate the cache.
+
+    The manifest truncated mtime to whole seconds, so a scripted replacement of
+    an export with a different-content file of the same size within one second
+    looked unchanged.
+    """
+    from energyanalyzer.ingest.smt import _source_manifest
+
+    a = tmp_path / "IntervalData.csv"
+    make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    first = _source_manifest([a])
+    # Same size, same second, different content.
+    a.write_text(a.read_text().replace("0.500", "0.600"))
+    assert _source_manifest([a]) != first, "sub-second replacement must be detected"

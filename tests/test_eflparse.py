@@ -1949,3 +1949,41 @@ def test_unrelated_real_time_prose_is_not_a_buyback():
         None,
     )
     assert bb["kind"] == "none"
+
+
+# --------------------------------------------------------------------------- #
+# Dollar amounts with thousands separators
+# --------------------------------------------------------------------------- #
+_MONEY_EFL = """Electricity Facts Label
+ACME POWER - ONCOR
+Energy Charge: 9.5 cents per kWh
+Base Charge: $9.95 per billing cycle
+Contract Term: 12 months
+Early termination fee: {etf}
+"""
+
+
+@pytest.mark.parametrize(
+    "etf_text, expected",
+    [
+        ("$150", 150.0),
+        ("$1,000", 1000.0),      # was parsed as $1.00 -- the "$1" prefix only
+        ("$1,250.50", 1250.50),
+    ],
+)
+def test_etf_handles_thousands_separators(etf_text, expected):
+    """A four-figure ETF must not silently become one dollar.
+
+    The flat-dollar pattern had no comma branch, so "$1,000" matched "$1" and
+    promoted at full confidence -- no needs_review flag to catch it.
+    """
+    plan = parse_efl_text(_MONEY_EFL.format(etf=etf_text), source_name="t.txt").plan_dict
+    assert plan["etf_usd"] == pytest.approx(expected)
+
+
+def test_money_helper_strips_separators():
+    from energyanalyzer.eflparse.parser import _money
+
+    assert _money("1,000") == 1000.0
+    assert _money("1,250.50") == 1250.50
+    assert _money("4.95") == 4.95

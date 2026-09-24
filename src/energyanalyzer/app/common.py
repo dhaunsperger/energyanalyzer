@@ -139,6 +139,18 @@ def _significant_tokens(text: str, extra_drop: frozenset = frozenset()) -> set:
     return out
 
 
+# Tokens that mark a DIFFERENT product in the same family rather than extra
+# branding: if the authoritative plan's name carries one the synthetic's does
+# not, they are siblings, not the same plan.
+_VARIANT_MARKER_TOKENS = frozenset(
+    {
+        "plus", "saver", "max", "match", "pro", "premier", "premium", "select",
+        "advantage", "basic", "lite", "light", "prime", "ultra", "elite",
+        "choice", "preferred", "value", "edge", "flex", "secure", "complete",
+    }
+)
+
+
 def _plan_supersedes(meter_plan: Plan, auth_plan: Plan) -> bool:
     """True if `auth_plan` (a real/authoritative plan) covers the same plan as
     the synthetic meterplan `meter_plan`: same term, overlapping retailer brand
@@ -158,7 +170,16 @@ def _plan_supersedes(meter_plan: Plan, auth_plan: Plan) -> bool:
     n_auth = _significant_tokens(auth_plan.name, extra_drop=frozenset(r_auth | r_meter | {"plan"}))
     if not n_meter:
         return False
-    return n_meter <= n_auth
+    if not n_meter <= n_auth:
+        return False
+    # Subset alone over-matches, because it cannot tell a brand-line PREFIX from
+    # a product VARIANT. "Renewable Rewards Solar Max" really is Green Mountain's
+    # "Solar Max", but "Solar Buyback Plus" is NOT "Solar Buyback" -- and Texas
+    # plan families are named exactly that way (TXU Solar Buyback / Plus / Saver,
+    # Reliant Solar Payback Plus / Match). Superseding on the second kind deletes
+    # a real, differently-priced candidate out of the comparison. So the tokens
+    # the authoritative name adds must all be non-distinguishing.
+    return not (n_auth - n_meter) & _VARIANT_MARKER_TOKENS
 
 
 # Filler/trademark tokens dropped from plan names before comparing identity.
@@ -167,11 +188,40 @@ _NAME_FILLER_TOKENS = frozenset(
 )
 
 
+# Numbers in a plan name that are plainly NOT a contract term: the hours of a
+# free-nights window ("9 to 6", "7pm-7am") and counted units ("30 Day",
+# "12 Hour"). Taking the first integer 1..60 read "Free Power Weekends 7 to 7"
+# as a 7-month contract and "Conservation 30 Day Plan" as a 30-month one.
+_TERM_EXPLICIT_RE = re.compile(r"\b(\d{1,2})\s*-?\s*(?:months?|mos?)\b", re.I)
+_TIME_RANGE_RE = re.compile(
+    r"\b\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)?\s*(?:to|through|until|-|–|—)\s*\d{1,2}\s*"
+    r"(?:a\.?m\.?|p\.?m\.?)?",
+    re.I,
+)
+_COUNTED_UNIT_RE = re.compile(
+    r"\b\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?|days?|hours?|hrs?|weeks?|%|kwh|cents?)\b", re.I
+)
+
+
 def _term_from_name(name: str) -> Optional[int]:
     """Best-effort contract term (months) parsed from a plan name, e.g.
     "Champ Saver 12" -> 12, "Sun Confidence 24 month" -> 24. Returns None when
-    no plausible term (1..60) is present -- REP plan names often omit it."""
-    for match in re.finditer(r"\b(\d{1,2})\b", name or ""):
+    no plausible term (1..60) is present -- REP plan names often omit it, and a
+    wrong term is worse than none (it silently changes which PTC rows a
+    discovered plan is compared against)."""
+    text = name or ""
+    explicit = _TERM_EXPLICIT_RE.search(text)
+    if explicit:
+        val = int(explicit.group(1))
+        if 1 <= val <= 60:
+            return val
+    # Blank out clock ranges and counted units, then prefer a trailing number
+    # ("Chariot Shine 36"), falling back to the first survivor ("e-Plus 12 Choice").
+    masked = _COUNTED_UNIT_RE.sub(" ", _TIME_RANGE_RE.sub(" ", text))
+    trailing = re.search(r"\b(\d{1,2})\s*$", masked.strip())
+    candidates = [trailing] if trailing else []
+    candidates += list(re.finditer(r"\b(\d{1,2})\b", masked))
+    for match in candidates:
         val = int(match.group(1))
         if 1 <= val <= 60:
             return val

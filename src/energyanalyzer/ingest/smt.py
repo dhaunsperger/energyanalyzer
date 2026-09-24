@@ -347,7 +347,7 @@ def _source_manifest(source_paths: list) -> list:
     unzip, or a restored backup carries an old mtime, so a newly added export
     was ignored outright. Adding, removing, or replacing any file changes this.
     """
-    return sorted([p.name, p.stat().st_size, int(p.stat().st_mtime)] for p in source_paths)
+    return sorted([p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in source_paths)
 
 
 def _manifest_path(cache_path: Path) -> Path:

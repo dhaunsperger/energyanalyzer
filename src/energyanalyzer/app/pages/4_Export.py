@@ -54,6 +54,21 @@ if price_err:
 include_review = st.toggle("Include plans flagged `needs_review`", value=False, key="export_include_review")
 usable_plans = [p for p in plans_dict.values() if include_review or not p.needs_review]
 
+# Mirror Compare's eligibility filter. Without it the workbook ranked plans this
+# home cannot enroll in -- REPs that refuse rooftop solar -- unmarked, and those
+# are free-nights plans that score well against a solar export profile, so the
+# spreadsheet could put an unbuyable plan at the top while the screen hid it.
+excluded_plans = [p for p in usable_plans if getattr(p, "excludes_solar", False)]
+if excluded_plans:
+    include_ineligible = st.toggle(
+        "Include plans this home can't enroll in (rooftop solar excluded by the REP)",
+        value=False,
+        key="export_include_ineligible",
+    )
+    if not include_ineligible:
+        usable_plans = [p for p in usable_plans if not getattr(p, "excludes_solar", False)]
+        st.caption(f"{len(excluded_plans)} plan(s) excluded as ineligible for this home.")
+
 results = rank(usable_plans, intervals, tdu, prices)
 for w in getattr(results, "warnings", []):
     st.warning(w)

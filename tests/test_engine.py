@@ -851,3 +851,90 @@ def test_gap_note_is_not_attached_to_fixed_rate_plans():
 
     assert fixed.prices_estimated_fraction == 0.0
     assert fixed.warnings == []
+
+
+def _months_frame(months):
+    """Frame from [(YYYY-MM, days_present), ...] -- days_present < the month's
+    length simulates a meter outage / partial export."""
+    import numpy as np
+
+    parts = [
+        pd.date_range(pd.Timestamp(f"{m}-01"), periods=d * 96, freq="15min")
+        for m, d in months
+    ]
+    idx = (
+        pd.DatetimeIndex(np.concatenate(parts))
+        .tz_localize("America/Chicago", ambiguous=True, nonexistent="shift_forward")
+        .tz_convert("UTC")
+    )
+    df = pd.DataFrame({"import_kwh": 0.3, "export_kwh": 0.2}, index=idx).sort_index()
+    return df[~df.index.duplicated(keep="first")]
+
+
+_FOURTEEN = [
+    ("2025-07", 31), ("2025-08", 31), ("2025-09", 30), ("2025-10", 31),
+    ("2025-11", 30), ("2025-12", 31), ("2026-01", 31), ("2026-02", 28),
+    ("2026-03", 31), ("2026-04", 30), ("2026-05", 31), ("2026-06", 30),
+    ("2026-07", 31), ("2026-08", 31),
+]
+
+
+def test_billing_window_excludes_an_incomplete_month_inside_the_range():
+    """A month the window did NOT keep must not come back via the date range.
+
+    Regression: the kept months were applied as a lexicographic start..end
+    range, so an outage month sitting between two kept months was billed
+    anyway -- the window reported 12 while the engine billed 13.
+    """
+    from energyanalyzer.core.models import select_billing_window
+
+    months = [(m, 10 if m == "2026-02" else d) for m, d in _FOURTEEN]
+    kept, window = select_billing_window(_months_frame(months))
+
+    billed = len(simulate(base_plan(), kept, flat_tdu()).monthly)
+    assert window.months_used == 12
+    assert billed == 12
+    assert "2026-02" not in window.months_kept
+
+
+def test_billing_window_caps_months_even_when_few_are_complete():
+    """Too few complete months must still cap the span at 12, not pass 14.
+
+    Regression: the fallback kept every month and reported is_reliable, so a
+    dataset with a handful of short months silently billed 14 -- the exact
+    failure the window exists to prevent, with no warning at all.
+    """
+    from energyanalyzer.core.models import select_billing_window
+
+    months = [
+        (m, d - 3 if m in ("2025-10", "2026-01", "2026-04") else d) for m, d in _FOURTEEN
+    ]
+    kept, window = select_billing_window(_months_frame(months))
+
+    plan = base_plan(base_charge_usd=19.95, tdu_passthrough=True)
+    monthly = simulate(plan, kept, flat_tdu()).monthly
+    assert window.months_used == 12
+    assert len(monthly) == 12
+    assert window.trimmed and window.partial_months == 3
+    assert "missing some days" in window.note
+    # 12 base charges, minus proration on the three short months -- never 14.
+    assert monthly["base"].sum() < 12 * 19.95
+    assert monthly["base"].sum() > 11 * 19.95
+
+
+def test_billing_window_reported_months_always_match_the_frame():
+    """months_used must equal the month groups the engine actually bills."""
+    from energyanalyzer.core.models import select_billing_window
+
+    for label, months in {
+        "clean 14": _FOURTEEN,
+        "outage": [(m, 10 if m == "2026-02" else d) for m, d in _FOURTEEN],
+        "several short": [
+            (m, d - 3 if m in ("2025-10", "2026-01") else d) for m, d in _FOURTEEN
+        ],
+        "clean 12": _FOURTEEN[2:],
+        "short 6": _FOURTEEN[:6],
+    }.items():
+        kept, window = select_billing_window(_months_frame(months))
+        billed = len(simulate(base_plan(), kept, flat_tdu()).monthly)
+        assert window.months_used == billed == len(window.months_kept), label

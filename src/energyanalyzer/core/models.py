@@ -317,16 +317,29 @@ class BillingWindow(BaseModel):
     start: str  # first billed month, "YYYY-MM"
     end: str  # last billed month
     trimmed: bool  # were whole months dropped to reach months_used?
-    partial_ends: bool  # is either end month incomplete?
+    partial_months: int = 0  # kept months that are missing some days
+    months_kept: list[str] = Field(default_factory=list)  # exactly what is billed
+
+    @property
+    def partial_ends(self) -> bool:
+        """Back-compat: is any kept month incomplete?"""
+        return self.partial_months > 0
 
     @property
     def note(self) -> str:
+        partial_tail = (
+            f" {self.partial_months} of them are missing some days, so their energy "
+            "totals run low and their fixed charges are prorated."
+            if self.partial_months
+            else ""
+        )
         if self.trimmed:
             return (
-                f"Using the most recent {self.months_used} complete calendar months "
+                f"Using the most recent {self.months_used} calendar months "
                 f"({self.start} to {self.end}) of the {self.months_available} months "
                 "loaded. A first-year cost is only comparable over a single year; "
-                "the extra months would double-count a season and change the ranking."
+                "the extra months would double-count a season and change the "
+                f"ranking.{partial_tail}"
             )
         if self.months_used < BILLING_MONTHS:
             return (
@@ -334,10 +347,9 @@ class BillingWindow(BaseModel):
                 f"({self.start} to {self.end}). Costs shown are for that span, NOT a "
                 "full year, and plans whose value is seasonal will rank unreliably."
             )
-        if self.partial_ends:
+        if self.partial_months:
             return (
-                f"Usage spans {self.start} to {self.end}; the first and/or last month "
-                "is partial, so their fixed charges are prorated."
+                f"Usage spans {self.start} to {self.end}.{partial_tail}"
             )
         return f"Using {self.months_used} complete calendar months ({self.start} to {self.end})."
 
@@ -347,33 +359,50 @@ class BillingWindow(BaseModel):
 
 
 def describe_billing_window(df: pd.DataFrame, months: int = BILLING_MONTHS) -> BillingWindow:
-    """Describe the window `select_billing_window` would bill for `df`."""
+    """Describe the window `select_billing_window` would bill for `df`.
+
+    Prefers the most recent `months` COMPLETE calendar months. When fewer than
+    that are complete -- real meter data loses a day here and there -- it falls
+    back to the most recent `months` calendar months whatever their state,
+    rather than passing every month through: billing 14 months as a year is the
+    error this whole function exists to prevent, and a few short months is
+    exactly when it used to slip back in unannounced.
+    """
     local = add_local_columns(df)
     counts = local.groupby("month")["import_kwh"].size()
     periods = list(counts.index)
-    complete = [p for p in periods if counts[p] >= p.days_in_month * 96 * 0.99]
-    keep = [p for p in periods if p in complete][-months:] if len(complete) >= months else periods
+    # 99% rather than 100%: a clean month still loses a few intervals to the
+    # DST transitions, and an SMT export can drop one without being unusable.
+    complete = {p for p in periods if counts[p] >= p.days_in_month * 96 * 0.99}
+    complete_periods = [p for p in periods if p in complete]
+    keep = (
+        complete_periods[-months:] if len(complete_periods) >= months else periods[-months:]
+    )
     return BillingWindow(
         months_available=len(periods),
         months_used=len(keep),
         start=str(keep[0]) if keep else "",
         end=str(keep[-1]) if keep else "",
         trimmed=len(keep) < len(periods),
-        partial_ends=bool(keep) and (keep[0] not in complete or keep[-1] not in complete),
+        partial_months=sum(1 for p in keep if p not in complete),
+        months_kept=[str(p) for p in keep],
     )
 
 
 def select_billing_window(
     df: pd.DataFrame, months: int = BILLING_MONTHS
 ) -> tuple[pd.DataFrame, BillingWindow]:
-    """Trim `df` to the most recent `months` COMPLETE calendar months.
+    """Trim `df` to the months `describe_billing_window` selected.
 
-    Returns the frame unchanged when it doesn't hold that many complete months,
-    so a short dataset still produces numbers -- the returned BillingWindow says
-    what happened and `is_reliable` says whether to trust a first-year total.
+    A frame holding fewer than `months` months is returned whole, so a short
+    dataset still produces numbers -- the returned BillingWindow says what
+    happened and `is_reliable` says whether to trust a first-year total.
     """
     window = describe_billing_window(df, months)
     if not window.trimmed:
         return df, window
     local = add_local_columns(df)
-    return df[local["month"].astype(str).between(window.start, window.end)], window
+    # Membership, not a start..end range: an incomplete month sitting BETWEEN
+    # two kept months is not itself kept, and a lexicographic range let it back
+    # in -- the frame then carried 13 months while the window reported 12.
+    return df[local["month"].astype(str).isin(set(window.months_kept))], window
