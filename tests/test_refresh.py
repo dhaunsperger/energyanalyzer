@@ -408,8 +408,12 @@ def test_price_coverage_warning():
 
 def test_tdu_staleness_warning():
     tariff = TduTariff(effective=dt.date(2025, 1, 1), fixed_usd_month=4.06, volumetric_ckwh=6.12)
+    # A year on, both a March and a September revision have gone by.
     assert app_common.tdu_staleness_warning(tariff, as_of=dt.date(2026, 1, 1)) is not None
-    assert app_common.tdu_staleness_warning(tariff, as_of=dt.date(2025, 3, 1)) is None
+    # Mid-February: no revision date has passed yet, so nothing to chase.
+    assert app_common.tdu_staleness_warning(tariff, as_of=dt.date(2025, 2, 15)) is None
+    # On March 1 itself the new rates are in force -- that must not stay quiet.
+    assert app_common.tdu_staleness_warning(tariff, as_of=dt.date(2025, 3, 1)) is not None
 
 
 def test_plan_is_stale_and_stale_plan_ids():
@@ -1361,3 +1365,31 @@ def test_same_plan_still_supersedes(syn_name, real_name):
 )
 def test_term_from_name_ignores_clock_ranges_and_counted_units(name, expected):
     assert app_common._term_from_name(name) == expected
+
+
+# --------------------------------------------------------------------------- #
+# Oncor revises rates on a calendar, so staleness is a calendar question
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "effective, as_of, should_warn, why",
+    [
+        # The case that prompted this: a March tariff read on 25 Sep is 208 days
+        # old, under any 210-day threshold, while September's rates are already
+        # in force -- silent in exactly the fortnight a renewal is decided.
+        (dt.date(2026, 3, 1), dt.date(2026, 9, 25), True, "September boundary passed"),
+        (dt.date(2026, 3, 1), dt.date(2026, 8, 20), False, "no boundary yet"),
+        (dt.date(2026, 9, 1), dt.date(2026, 9, 25), False, "current tariff"),
+        (dt.date(2026, 9, 1), dt.date(2027, 3, 2), True, "next March passed"),
+        (dt.date(2026, 3, 1), dt.date(2026, 2, 28), False, "future-dated record"),
+    ],
+)
+def test_tdu_staleness_follows_the_march_september_calendar(
+    effective, as_of, should_warn, why
+):
+    from energyanalyzer.core.models import TduTariff
+
+    tariff = TduTariff(effective=effective, fixed_usd_month=4.06, volumetric_ckwh=6.12)
+    warning = app_common.tdu_staleness_warning(tariff, as_of=as_of)
+    assert bool(warning) is should_warn, why
+    if should_warn:
+        assert "March and September" in warning

@@ -2615,10 +2615,39 @@ def price_coverage_warning(prices: Optional[pd.Series], interval_end) -> Optiona
 def tdu_staleness_warning(
     tariff: TduTariff, as_of: Optional[dt.date] = None, threshold_days: int = TDU_STALENESS_DAYS
 ) -> Optional[str]:
-    """Warn if the latest known Oncor tariff record is old enough that a rate
-    change (typically Mar/Sep) may have been missed."""
+    """Warn if a published Oncor rate change has probably been missed.
+
+    Oncor revises delivery rates on a calendar, not on an interval: the changes
+    land each March and September. A fixed age threshold misses that by design
+    -- a March 1 tariff read on September 25 is 208 days old and stays silent at
+    any threshold of 210, which is exactly the fortnight when the new September
+    rates are already in force and a renewal decision is being made. So the test
+    is whether a March/September boundary has passed since the record took
+    effect; `threshold_days` remains as a backstop for a record so old that even
+    the boundary count would look ordinary.
+    """
     as_of = as_of or dt.date.today()
     age_days = (as_of - tariff.effective).days
+
+    def _boundaries_between(start: dt.date, end: dt.date) -> list:
+        out = []
+        for year in range(start.year, end.year + 1):
+            for month in (3, 9):
+                boundary = dt.date(year, month, 1)
+                if start < boundary <= end:
+                    out.append(boundary)
+        return out
+
+    missed = _boundaries_between(tariff.effective, as_of)
+    if missed:
+        latest = missed[-1]
+        return (
+            f"Oncor revises delivery rates each March and September, and "
+            f"{latest:%B %Y} has passed since the tariff on file took effect "
+            f"({tariff.effective}, {age_days} days ago). TDU delivery is a large "
+            "share of every plan's bill, so update tdu/oncor.yaml before trusting "
+            "these totals -- add a new dated entry, don't edit the old one."
+        )
     if age_days > threshold_days:
         return (
             f"Latest Oncor TDU tariff is effective {tariff.effective} ({age_days} days ago) -- "
