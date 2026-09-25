@@ -7,3 +7,8 @@ tariffs:
   - effective: 2026-03-01
     fixed_usd_month: 4.06
     volumetric_ckwh: 6.12
+  # Reported by the account holder from Oncor's published residential delivery
+  # rates, 2026-09-25. Monthly charge unchanged; volumetric down 0.0905c/kWh.
+  - effective: 2026-09-01
+    fixed_usd_month: 4.06
+    volumetric_ckwh: 6.0295
