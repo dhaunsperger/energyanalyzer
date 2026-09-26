@@ -1619,6 +1619,14 @@ def test_reliant_needs_stealth_for_the_akamai_challenge():
     assert rd.RELIANT.stealth is True
 
 
+def test_reliant_needs_a_real_window_too():
+    """A live 2026-09-26 refresh ran this REP headless (the unattended
+    default) and got "found 0 plan(s)" even with stealth on -- the same
+    headless-gets-nothing behavior Direct Energy already needed
+    force_headful for, on the same NRG platform."""
+    assert rd.RELIANT.force_headful is True
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 
@@ -1810,14 +1818,16 @@ def test_tesla_plans_are_all_flagged_buyback():
 
 def test_headful_stays_opt_in_per_rep():
     """Headful pops a real window and is slower, so it is never a default --
-    three REPs ask for it, for two different reasons.
+    four REPs ask for it, for two different reasons.
 
-    REQUIRED for Tesla and Direct Energy: both sit behind Akamai, which serves
-    headless Chromium something useless. Tesla gets a 403 "Access Denied"
-    (verified 2026-07-25: headless 403, headful 200 on the same URL/UA); Direct
-    Energy gets the app shell with ZERO plan cards (2026-07-26: headless 0
-    cards, headful 26), which is why two refreshes reported "found 0 plan
-    card(s)" against a healthy site.
+    REQUIRED for Tesla, Direct Energy, and Reliant: all three sit behind
+    Akamai, which serves headless Chromium something useless. Tesla gets a
+    403 "Access Denied" (verified 2026-07-25: headless 403, headful 200 on
+    the same URL/UA); Direct Energy gets the app shell with ZERO plan cards
+    (2026-07-26: headless 0 cards, headful 26), which is why two refreshes
+    reported "found 0 plan card(s)" against a healthy site; Reliant (the
+    sibling NRG shop) did the same thing on 2026-09-26 -- "found 0 plan(s)"
+    headless even with stealth on, plans found once forced headful.
 
     DIAGNOSTIC for Ambit: its funnel fails intermittently (2026-07-26 -- all 14
     plans at 12:05, a plan-card timeout at 12:50, no code change between) and a
@@ -1826,10 +1836,11 @@ def test_headful_stays_opt_in_per_rep():
     assert rd.TESLA.force_headful is True
     assert rd.DIRECT_ENERGY.force_headful is True
     assert rd.AMBIT.force_headful is True
+    assert rd.RELIANT.force_headful is True
     assert all(
         c.force_headful is False
         for k, c in rd.REP_CONFIGS.items()
-        if k not in ("tesla", "ambit", "direct_energy")
+        if k not in ("tesla", "ambit", "direct_energy", "reliant")
     ), "headful must stay opt-in"
 
 

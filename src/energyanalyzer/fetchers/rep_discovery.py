@@ -2569,7 +2569,11 @@ def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[Dis
     _try(lambda: page.locator("label[for='segmentation-moving-no']").click(timeout=6000))  # type: ignore[attr-defined]
     _try(lambda: page.locator("label[for='segmentation-renting-no']").click(timeout=6000))  # type: ignore[attr-defined]
     _try(lambda: page.get_by_test_id("address-search-submit-button").click(timeout=8000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(6000))  # type: ignore[attr-defined]
+    # "Give us a moment as we populate your recommended plans..." -- a fixed
+    # sleep here is exactly what a 2026-09-26 live refresh looked like: it read
+    # 0 cards because the site was still on that loading screen. Wait for the
+    # cards themselves (up to 30s) instead of guessing a settle time.
+    _try(lambda: page.wait_for_selector("[analyticsproductname]", timeout=30000))  # type: ignore[attr-defined]
 
     cards = page.locator("[analyticsproductname]")  # type: ignore[attr-defined]
     count = cards.count()
@@ -2619,6 +2623,12 @@ RELIANT = RepConfig(
     # very first load (verified 2026-09-26, live) -- the same edge Direct
     # Energy hits. Stealth clears it; see the section comment above.
     stealth=True,
+    # Also required, and easy to miss because stealth alone looked sufficient
+    # in headful manual testing: a real 2026-09-26 refresh ran this REP
+    # headless (the default for an unattended run) and got "found 0 plan(s)"
+    # even with stealth on -- the same headless-gets-nothing behavior Direct
+    # Energy already needed force_headful for, on the same NRG platform.
+    force_headful=True,
 )
 
 
