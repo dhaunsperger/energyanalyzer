@@ -5,7 +5,7 @@ term_months: 36
 tdu: ONCOR
 base_charge_usd: 5.0
 energy_rates:
-- rate_ckwh: 9.6701
+- rate_ckwh: 7.9674
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_36_Choice.pdf
-retrieved: '2026-09-01'
-source_sha256: dcef4a5754fe6690b802c57f0980661341ad462ee05450daac407f4cc9550a13
+retrieved: '2026-09-25'
+source_sha256: dec83e52ecdbb1037579b1b8a5167cac695d3c898154e9d25784da787c8409a9
 enroll_url: https://shop.greenmountainenergy.com/texas/home-energy-solutions/products/?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WA0TEZ&sid=APTC_1726590650&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false

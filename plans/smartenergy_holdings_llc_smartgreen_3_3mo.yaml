@@ -1,0 +1,31 @@
+id: smartenergy_holdings_llc_smartgreen_3_3mo
+retailer: Smartenergy Holdings LLC
+name: SmartGreen 3
+term_months: 3
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 2.87
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 0.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:SMARTENERGY_HOLDINGS_LLC_SmartGreen_3.pdf
+retrieved: '2026-09-25'
+source_sha256: fd97dd1024ce5538aeee8c7f6b6be5b1d38623eb17e8dcf21f05f734779f9c55
+enroll_url: https://texas.smartenergy.com/plans?msid=2001&utility=AEPC
+notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
+  scan
+needs_review: false
+excludes_solar: false

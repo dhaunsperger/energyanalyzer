@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 13.22
+- rate_ckwh: 12.61
   label: ''
   tdu_exempt: false
 buyback:
@@ -24,10 +24,9 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
-retrieved: '2026-07-26'
-source_sha256: cae42393498623b1da3b9ca624d731e277a0ae51864af16fd3f87b1730048350
+retrieved: '2026-09-25'
+source_sha256: 8944f02423a3253da283dfcceec60d07f00b748ec3f21cfe7f718c0caee32282
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN12004288&Promo=GqAtunAVIGY=
-notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
-  offer this plan. It may have left the market.
-needs_review: true
+notes: ''
+needs_review: false
 excludes_solar: false

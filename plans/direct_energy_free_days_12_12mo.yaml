@@ -24,6 +24,7 @@ renewable_pct: 22.0
 source: efl:Direct_Energy_Free_Days_12.pdf
 retrieved: '2026-09-01'
 source_sha256: 1f2791dcf50638d89ad83a8ff642f8e30cac0b5c229d55827ca45f23411816d8
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

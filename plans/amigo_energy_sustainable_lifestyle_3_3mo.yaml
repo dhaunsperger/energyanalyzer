@@ -5,7 +5,7 @@ term_months: 3
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 3.3
+- rate_ckwh: 3.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Sustainable_Lifestyle_-_3.pdf
-retrieved: '2026-09-01'
-source_sha256: 933d36f56bd94ec39f109cbe193f0564a2821989b5ab59d51a256ba4a1de6a19
+retrieved: '2026-09-25'
+source_sha256: 2c8ba37a17550c09fda341b62908a5774b7511549e864dd66a2bf0bcf967ff06
 enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

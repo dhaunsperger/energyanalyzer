@@ -27,6 +27,8 @@ source: efl:Gexa_Energy_Gexa_Simply_Low_Plus_-_12.pdf
 retrieved: '2026-09-01'
 source_sha256: 9809295a880aadb5b29817eaee2048dfe673319a43c358b31efec404d6238bda
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
-  and names only an energy charge and TDU delivery charges'
-needs_review: false
+  and names only an energy charge and TDU delivery charges Not listed by its source
+  on 2026-09-25 -- the source was reached and did not offer this plan. It may have
+  left the market.'
+needs_review: true
 excludes_solar: false

@@ -19,7 +19,7 @@ energy_rates:
     - 15
   label: free
   tdu_exempt: false
-- rate_ckwh: 5.0
+- rate_ckwh: 4.6
   label: ''
   tdu_exempt: false
 buyback:
@@ -36,8 +36,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Balanced_Days_Bundle_-_3.pdf
-retrieved: '2026-09-01'
-source_sha256: 87e250f3f3722d34b08df965d103325c53f7632c7531afbf047c0cb79db84f0e
+retrieved: '2026-09-25'
+source_sha256: 8b7e3cb9668c75cd78cda53bdb95f49fdc37e8a459557db708a8b77271afd58a
 enroll_url: https://taraenergy.com/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'

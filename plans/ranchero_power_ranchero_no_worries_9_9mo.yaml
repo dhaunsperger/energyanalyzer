@@ -1,0 +1,29 @@
+id: ranchero_power_ranchero_no_worries_9_9mo
+retailer: Ranchero Power
+name: Ranchero No Worries - 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 4.4339
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 99.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+source: efl:Ranchero_Power_Ranchero_No_Worries_-_9.pdf
+retrieved: '2026-09-25'
+source_sha256: a5d96b54cf868b325218e09358ce8d1d6be3c0085e4ac27a5fc40a7f5d3f5f79
+enroll_url: http://Rancheropower.com
+notes: ''
+needs_review: false
+excludes_solar: false

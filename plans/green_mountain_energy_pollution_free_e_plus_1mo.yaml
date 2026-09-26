@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus.pdf
-retrieved: '2026-09-01'
-source_sha256: c1cb194ebf1b9cc77d07f125ee56d5f878c04714198c889e4aa3df77f271bad7
+retrieved: '2026-09-25'
+source_sha256: 09ab5f2c0ede6ac527d42f919d5789877077e0537d994a847dacdab83f2c70ef
 notes: ''
 needs_review: false
 excludes_solar: false

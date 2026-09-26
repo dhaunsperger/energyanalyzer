@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 5.0
 energy_rates:
-- rate_ckwh: 8.9701
+- rate_ckwh: 7.7674
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_24_Plan.pdf
-retrieved: '2026-09-01'
-source_sha256: b132927a98b291ba5b07a46b17f49b79b4f23058c1d5df4d2061506b58416505
+retrieved: '2026-09-25'
+source_sha256: c5745b7f4d8ff2bacf94dd345c85c3e58c841ecd100ec0ad6ebc694a38daadd7
 enroll_url: https://shop.reliant.com/plans-for-you/?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=APTC_1686089562&utm_source=None&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_
 notes: ''
 needs_review: false

@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_36_Month_Usage_Bill_Credit.pdf
-retrieved: '2026-09-01'
-source_sha256: 3ef1c9e129aa8ac81cdb4aa3b0999a93835d9514863489a107c7c44eb17961a3
+retrieved: '2026-09-25'
+source_sha256: a8e4a49bb93f0ebf20c37759316abe2212f5ea5e359dc158c249f721500ada09
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

@@ -27,7 +27,8 @@ source_sha256: e94ba8e478800fffd0bc332ee24a12638d39ad1f60123fb7f370dbc21710919e
 notes: multiple differing flat Energy Charge values found [8.0699, 10.0699]; used
   first (10.0699); usage-tiered energy charge (0-1000 kWh @ 10.0699c, >1000 kWh @
   8.0699c) -- the schema models one rate per window, so any single rate here would
-  misprice the plan
+  misprice the plan Not listed by its source on 2026-09-25 -- the source was reached
+  and did not offer this plan. It may have left the market.
 needs_review: true
 unpriceable_reason: usage-tiered energy charge (0-1000 kWh @ 10.0699c, >1000 kWh @
   8.0699c) -- the schema models one rate per window, so any single rate here would

@@ -1,0 +1,31 @@
+id: frontier_utilities_frontier_power_saver_8_8mo
+retailer: Frontier Utilities
+name: Frontier Power Saver 8
+term_months: 8
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 4.01
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 30.4
+source: efl:FRONTIER_UTILITIES_Frontier_Power_Saver_8.pdf
+retrieved: '2026-09-25'
+source_sha256: 0d4502e2223d58687c2b6e854c8b8a16b6de0e62362bb5bd796126d111d4464c
+enroll_url: https://newenroll.frontierutilities.com/?refid=PTCFPS08&ul=1000&tdsp=AEP_CENT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

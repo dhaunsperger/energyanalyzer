@@ -24,6 +24,7 @@ renewable_pct: 22.0
 source: efl:Direct_Energy_Live_Brighter_18_Auto_Pay.pdf
 retrieved: '2026-07-26'
 source_sha256: 9032342da7fd1fc9359d990327f00ec7d153dcfbdbc654cb40aeb9a201f19ef5
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

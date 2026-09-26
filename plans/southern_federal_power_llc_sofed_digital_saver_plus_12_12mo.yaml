@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Digital_Saver_Plus_-_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: a9717da4e8c14850ff597590573d845c62ff75dc91d820783fd1a3c18a9771ba
 enroll_url: http://southernfederal.com
 notes: ''

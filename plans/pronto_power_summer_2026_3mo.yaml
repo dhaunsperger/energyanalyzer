@@ -5,7 +5,7 @@ term_months: 3
 tdu: ONCOR
 base_charge_usd: 11.86
 energy_rates:
-- rate_ckwh: 6.2044
+- rate_ckwh: 6.2945
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 20.0
 source: efl:PRONTO_POWER_Summer_2026.pdf
-retrieved: '2026-09-01'
-source_sha256: b58052ca533a7136c81406cd6597380980fda8e23989ad8bf5c11a23f3ae0850
+retrieved: '2026-09-25'
+source_sha256: 2d81e51882490fc5cfe96c0b0654b8f16c85df0f965fb802acbf9354f6b33238
 enroll_url: https://pronto-enroll.smartgridcis.net/?aid=2026
 notes: base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365
   / 12, rounded to cents)

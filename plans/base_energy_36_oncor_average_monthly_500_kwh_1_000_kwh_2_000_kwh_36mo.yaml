@@ -1,0 +1,29 @@
+id: base_energy_36_oncor_average_monthly_500_kwh_1_000_kwh_2_000_kwh_36mo
+retailer: Base Energy 36, ONCOR
+name: Average monthly 500 kWh 1,000 kWh 2,000 kWh
+term_months: 36
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 7.7
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 20.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Base_Power_Base_Energy_36.pdf
+retrieved: '2026-09-25'
+source_sha256: 5719dc28905993e76ad420b7abe6d0793664ff7603084fb33536eedf5f17e30a
+notes: ''
+needs_review: false
+excludes_solar: false

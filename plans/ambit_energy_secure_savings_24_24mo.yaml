@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Secure_Savings_24.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 notes: 'multiple differing flat Energy Charge values found [13.5, 16.5]; used first
   (16.5); usage-tiered energy charge (0-999 kWh @ 16.5c, >999 kWh @ 13.5c) -- the
   schema models one rate per window, so any single rate here would misprice the plan

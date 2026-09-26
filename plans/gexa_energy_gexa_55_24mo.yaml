@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_55.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 1c6d6ed990447fe5ab0c51213b6fc32e20587819d184a83e6a0746e80c67abd8
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

@@ -37,8 +37,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Free_Nights_Cool_Summer_12.pdf
-retrieved: '2026-09-01'
-source_sha256: 15c0645988e2b0752c07a58fbf6e1148dfaea25d2a972a8f33022c5eebd94308
+retrieved: '2026-09-25'
+source_sha256: 6f33f425dcf3b8fc5af7dc43bbf442ae5ffae87eee37050a7b4684317d9efda8
 notes: 'energy rate derived from a split header/value table (''All kWh <rate>'' row);
   REP excludes homes with rooftop solar from this plan: Customers with electric vehicles,
   batteries, and/or solar panels are ineligible; unmodelled bonus credit (additional

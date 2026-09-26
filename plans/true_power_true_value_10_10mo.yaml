@@ -5,7 +5,7 @@ term_months: 10
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 4.91
+- rate_ckwh: 5.31
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,9 +22,9 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 15.0
 source: efl:TRUE_POWER_True_Value_10.pdf
-retrieved: '2026-09-01'
-source_sha256: 095e4dacf6bf687571d9eee558432be73871e5cfdccacc1816527b0bb3405ba8
-enroll_url: https://portal.truepower.com/signup?ref=PTC
+retrieved: '2026-09-25'
+source_sha256: 5a9e29b7d2140f1ea8ae1fa5a1a8c95bbe66d00ecd4b08ac27e0f59eded870eb
+enroll_url: https://portal.truepower.com/signup?ref=ptc
 notes: ''
 needs_review: false
 excludes_solar: false

@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 6.4
+- rate_ckwh: 7.8
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:GOOD_CHARLIE_CO_LLC_GoodEnergy_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 2d38ae346920fb917f7f8a7ef57ac8804b9369cec26946724fad8a86f4323389
+retrieved: '2026-09-25'
+source_sha256: 13725019747d31b570cb2a06840a8e856397ee2b18a94eb1e3f8a95a86d31ab2
 enroll_url: https://goodcharlie.com/?product_id=2047&utility_code=AEP_Central&utm_campaign=Corporate&utm_source=comparison-site&utm_medium=third-party&utm_content=power-to-choose-aepc
 notes: ''
 needs_review: false

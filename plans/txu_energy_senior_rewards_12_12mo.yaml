@@ -25,5 +25,7 @@ source: efl:TXU_Energy_Senior_Rewards_12.pdf
 retrieved: '2026-09-01'
 source_sha256: 7ebc92de318fa1a7a02dd61dc6deb4decfb8d831a9af782b3ae07b80fd7a99a9
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
-needs_review: false
+  Not listed by its source on 2026-09-25 -- the source was reached and did not offer
+  this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Ultimate_Perks_12.pdf
-retrieved: '2026-09-01'
-source_sha256: 8e72a77c872ff2aa677ae16b7614f12ada1850773368006030bf44d6ed48383d
+retrieved: '2026-09-25'
+source_sha256: a994bba73902bbe214c64529848ab482449041add1d34be082efd4bded5aa37f
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

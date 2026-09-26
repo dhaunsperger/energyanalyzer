@@ -34,7 +34,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:EFL_Just_Energy_Weekends_Free_12_English_Residential_20260726183541.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 15526eeb5728976b247d499ef43ece217a9cbf161e2775c913cddb571f8519a1
 notes: ''
 needs_review: true

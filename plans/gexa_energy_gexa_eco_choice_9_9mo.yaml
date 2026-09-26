@@ -26,6 +26,7 @@ retrieved: '2026-09-01'
 source_sha256: 1e5cfdae6f5a28a02ef59e33901048cf25342bde3036fc4824b85d0273cfb77f
 enroll_url: https://newenroll.gexaenergy.com/?refid=PTC_EcoChoice09&ul=1000&tdsp=AEP_CENT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
-  charge line'
-needs_review: false
+  charge line Not listed by its source on 2026-09-25 -- the source was reached and
+  did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

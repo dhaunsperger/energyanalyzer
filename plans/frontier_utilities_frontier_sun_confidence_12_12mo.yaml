@@ -23,7 +23,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Sun_Confidence_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 86670e94113deb6fd97478209c63b594ae9f912c91112c9dcba88eb14418fefe
 notes: ''
 needs_review: false

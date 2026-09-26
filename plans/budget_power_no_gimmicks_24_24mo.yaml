@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 5.702
+- rate_ckwh: 5.902
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 4895fe1d26cc5dbbb43154821c5f98fd8065066af6f01a68d97a6459cd20bd35
+retrieved: '2026-09-25'
+source_sha256: 4df87eecac05f35de3f8822b5955fa25a253bb14ca1865db4530e2e7b68966a8
 enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN24000133&Promo=PTC
 notes: ''
 needs_review: false

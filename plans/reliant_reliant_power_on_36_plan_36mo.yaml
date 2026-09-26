@@ -25,6 +25,7 @@ source: efl:RELIANT_Reliant_Power_on_36_Plan.pdf
 retrieved: '2026-09-01'
 source_sha256: 2609b1afe4cf160389ed5cf3f23008c18342deb635cb5987006c57dba8aa6e4e
 enroll_url: https://shop.reliant.com/plans-for-you/?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=APTC_1686089562&utm_source=None&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

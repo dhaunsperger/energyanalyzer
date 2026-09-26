@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 10.98
+- rate_ckwh: 10.7
   label: ''
   tdu_exempt: false
 buyback:
@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Meter_Energy_Saver_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 5d5ce9675432b4c9896b4a2edc94f209475abba989b64ae27a67de9f68d0aed8
+retrieved: '2026-09-25'
+source_sha256: 94323867f5586996e030353aad4aba83a7fd187d63aa8d08d2df0f976f022441
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'
 needs_review: false

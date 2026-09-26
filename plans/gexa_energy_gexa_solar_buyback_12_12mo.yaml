@@ -23,7 +23,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_Solar_Buyback_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 86eb2072d41f5d8bd0aec3666d9c5c1f08038e143a88bb71f85249c3184fe5b0
 notes: ''
 needs_review: false

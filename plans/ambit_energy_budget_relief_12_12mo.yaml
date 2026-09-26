@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Budget_Relief_12.pdf
-retrieved: '2026-09-01'
-source_sha256: 6f8285e6e3dbd7877cade682a851aa62365b2017a34b23c1171e87de670da1b0
+retrieved: '2026-09-25'
+source_sha256: 80785632a0e75f04fddb258fda1eab91529c88255fdbbc85f97f4edfc9f991eb
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

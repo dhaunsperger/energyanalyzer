@@ -1,0 +1,29 @@
+id: abundance_energy_fixed_rate_clean_energy_12_12mo
+retailer: Abundance Energy
+name: Fixed Rate – Clean Energy 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 5.0
+energy_rates:
+- rate_ckwh: 5.77
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 200.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Abundance_Energy_Clean_Energy_12.pdf
+retrieved: '2026-09-25'
+source_sha256: 3c733aa9d9aea1bc4083f9deed44f73bfa753cf2cc0835455aa2a39c3e37ebb8
+notes: ''
+needs_review: false
+excludes_solar: false

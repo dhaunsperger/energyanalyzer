@@ -28,7 +28,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Plus_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 notes: 'could not find an Energy Charge rate; usage-tiered energy charge (0-1350 kWh
   @ 12.4c, 1351-2000 kWh @ 6.2c, >2000 kWh @ 12.4c) -- the schema models one rate
   per window, so any single rate here would misprice the plan LLM suggested: energy_charge,

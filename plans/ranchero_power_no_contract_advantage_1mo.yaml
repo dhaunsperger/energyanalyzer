@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Ranchero_Power_No_Contract_Advantage.pdf
-retrieved: '2026-09-01'
-source_sha256: 7f3dc1681365b09eb09d1731b7927384c12958c606b099f4e475ae71ea0e0cd6
+retrieved: '2026-09-25'
+source_sha256: ba7a62462d5a2c2b5a20c0ab32ef34e6e472ec3861c3deb5abed5b0db426e48a
 enroll_url: http://Rancheropower.com
 notes: ''
 needs_review: false

@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 13.907
+- rate_ckwh: 14.408
   label: ''
   tdu_exempt: false
 buyback:
@@ -24,8 +24,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Rhythm_Max_Saver_24.pdf
-retrieved: '2026-09-01'
-source_sha256: ef743777cec42e77c3a1ec74ed674032a6e513e914411afe7d7cd050d9e98f85
+retrieved: '2026-09-25'
+source_sha256: 8b0ef09c883b1ea62219abab131e1e8559ff4c7535c6dcd8aec97293030c9094
 enroll_url: https://www.gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=RMS12
 notes: ''
 needs_review: false

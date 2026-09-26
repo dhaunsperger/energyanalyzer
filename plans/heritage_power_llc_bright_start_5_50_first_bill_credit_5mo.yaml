@@ -25,6 +25,7 @@ source: efl:HERITAGE_POWER_LLC_Bright_Start_5_50_First_Bill_Credit.pdf
 retrieved: '2026-09-01'
 source_sha256: b8360adb22266334820cfcdbac9abac628bbbf2d2c81db77225cba1d50c082c4
 enroll_url: https://signup.heritagepower.com/Home/index?ProductCode=RN05000007&Promo=PTC
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

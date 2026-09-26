@@ -34,6 +34,7 @@ retrieved: '2026-07-26'
 source_sha256: 3d87a68bf349e42a7947a0f8026c4fcbd6482de2203e3347eac5634452b94a2d
 enroll_url: http://southernfederal.com
 notes: Not listed by its source on 2026-09-01 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-25
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

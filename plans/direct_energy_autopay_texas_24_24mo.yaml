@@ -5,7 +5,7 @@ term_months: 24
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 8.8726
+- rate_ckwh: 7.3699
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:DIRECT_ENERGY_Autopay_Texas_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 44c4c38c63f573f854b352d94d22c1330e7ac1b153a83d8513ee99aa326a16dc
+retrieved: '2026-09-25'
+source_sha256: 3ebf1cf3eb2d13b7e73ab594b053c8b298a14de901636186aa11e92223f7464f
 enroll_url: https://shop.directenergy.com/tx/product-chart-tabs?tdspCode=D0004&promo_code=WHPGCD&sid=APTC_1726591058&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false

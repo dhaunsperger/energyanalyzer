@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 11.96
+- rate_ckwh: 12.06
   label: ''
   tdu_exempt: false
 buyback:
@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.pdf
-retrieved: '2026-09-01'
-source_sha256: 1f8ef25ca19c5f7bda1e837fd3397fd87b1485c8013ec4b857165be77363d1f7
+retrieved: '2026-09-25'
+source_sha256: 5947d682a8e4a9e6f6816e60f1782df567126244e507f1c6dd1e499be165137b
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 5.59
+- rate_ckwh: 5.79
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Choose_12.pdf
-retrieved: '2026-09-01'
-source_sha256: fedbfeed724d9eb825dbe6889aea9707de0a15802aa4fad33a67ad58fa7f613a
+retrieved: '2026-09-25'
+source_sha256: cad0defe2771d5e228cbcc249482f600bc98aa9d26978cb949e46a8af0dadd6e
 enroll_url: https://signup.texanschoicepower.com/
 notes: ''
 needs_review: false

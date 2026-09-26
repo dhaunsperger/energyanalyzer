@@ -1,0 +1,29 @@
+id: heritage_power_bright_start_12_12mo
+retailer: Heritage Power
+name: Bright Start 12
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.5
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 75.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 23.9
+source: efl:HERITAGE_POWER_LLC_Bright_Start_12_-_25_credit_on_your_first_bill.pdf
+retrieved: '2026-09-25'
+source_sha256: b30d854679e4e01684b9f451df4fe518cc7f2edbf6290c0ae88a65a26b2ec9dc
+notes: ''
+needs_review: false
+excludes_solar: false

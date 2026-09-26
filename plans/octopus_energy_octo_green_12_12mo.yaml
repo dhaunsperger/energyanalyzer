@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Octopus_Energy_Octo_Green_12.pdf
-retrieved: '2026-09-01'
-source_sha256: b137fce79ce7517b60672beba7700356754dbc4700f2246e0a46d9f2029099d4
+retrieved: '2026-09-25'
+source_sha256: 3b3d885381935c84a41f7bc43bf1e705145563dd899b254eea907dba645045fc
 notes: could not find an Energy Charge rate
 needs_review: true
 excludes_solar: false

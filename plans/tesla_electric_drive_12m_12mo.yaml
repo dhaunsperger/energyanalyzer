@@ -5,7 +5,7 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 8.0
+- rate_ckwh: 5.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Tesla_Electric_Drive_12M.pdf
-retrieved: '2026-09-01'
-source_sha256: 30692f26413487fdbb66f340611580434252029975fd290345cd9c89cd4bd4ea
+retrieved: '2026-09-25'
+source_sha256: e4661c4764671addb26b69940d9b7664ebd837ed9043edb4cbc1d4125427347a
 notes: 'term_months not found; defaulting to 12; base charge inferred as $0.00: the
   EFL states its price components in prose and names only an energy charge and TDU
   delivery charges'

@@ -23,8 +23,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Green_Savings_Plus_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 8bafd2a37c81dc4d209b95a501debf59e10c5b997a30beb452031b37d3bc4a3b
+retrieved: '2026-09-25'
+source_sha256: 1354ef8a094e80064c194f11e5f511e48aaf0210f445b58f385aa57fa7ff6946
 notes: ''
 needs_review: false
 excludes_solar: false

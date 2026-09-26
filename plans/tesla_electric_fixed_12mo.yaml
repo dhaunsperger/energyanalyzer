@@ -26,6 +26,8 @@ retrieved: '2026-09-01'
 source_sha256: 02fe70502e712b578ef3a4d20ae733d28d7e33629f8adaf871a72d6573e3e9b2
 notes: 'term_months not found; defaulting to 12; could not find an Energy Charge rate;
   base charge inferred as $0.00: the EFL states its price components in prose and
-  names only an energy charge and TDU delivery charges'
+  names only an energy charge and TDU delivery charges Not listed by its source on
+  2026-09-25 -- the source was reached and did not offer this plan. It may have left
+  the market.'
 needs_review: true
 excludes_solar: false

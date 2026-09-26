@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Basics_PTC_-_24.pdf
-retrieved: '2026-09-01'
-source_sha256: 0ba1599d3b8e73fa83f6a8a20d80e883c5bc721a3d5b0b7ce1135567e709697b
+retrieved: '2026-09-25'
+source_sha256: 1f85538afe119e6b553aabb0fbc630fbac27a10bf21c3dadaf9320a8ba728106
 enroll_url: https://justenergy.com/affiliatepartner/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

@@ -24,7 +24,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Simple_Saver_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: a05737c1459fd753190ef736f0b11da2fc48dd799df1e1ee42e326ab1037cc02
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

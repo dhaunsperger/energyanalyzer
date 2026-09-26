@@ -5,7 +5,7 @@ term_months: 3
 tdu: ONCOR
 base_charge_usd: 4.95
 energy_rates:
-- rate_ckwh: 3.819
+- rate_ckwh: 2.919
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Ranchero_Power_Ranchero_Cheapskate_-_3.pdf
-retrieved: '2026-09-01'
-source_sha256: 5f9fcf79c5fb70ccf60c5b9c856fc65604a5d73ec46058917a03cc0bc783d464
+retrieved: '2026-09-25'
+source_sha256: fa109a9fcdf2ad45b9e6d14c8e2717b08cebe385efc100ce0894ffc6ed5c971c
 enroll_url: http://Rancheropower.com
 notes: ''
 needs_review: false

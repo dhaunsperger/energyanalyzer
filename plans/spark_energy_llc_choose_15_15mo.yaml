@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_15.pdf
-retrieved: '2026-09-01'
-source_sha256: fca787e619a0164078bb72ea1ee53f61e3308be7c7e18ae23ad7b7acca90703a
+retrieved: '2026-09-25'
+source_sha256: b1ccc4f722247abb4062a63d181dc20e8fa9824022d582aef14fc964d79f6d4c
 enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
 notes: ''
 needs_review: false

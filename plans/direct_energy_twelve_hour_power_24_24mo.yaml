@@ -45,6 +45,8 @@ retrieved: '2026-09-01'
 source_sha256: fd887bd1db44a77e851736510bd872795a38bb12c7ddbe585126ab6971b2368f
 notes: free window (12h) read from prose; it is priced in a different column from
   its label, so no rate table carries it; TDU delivery charge waived during the free
-  window (not be billed for any TDU delivery charges during the Designated Free)
-needs_review: false
+  window (not be billed for any TDU delivery charges during the Designated Free) Not
+  listed by its source on 2026-09-25 -- the source was reached and did not offer this
+  plan. It may have left the market.
+needs_review: true
 excludes_solar: false

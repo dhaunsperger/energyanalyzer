@@ -31,7 +31,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Free_Weekends_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 8121b111d049835ed6b6a72fcda6079709e97cb78fb8d2b98e41d804497c7b09
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line; TDU delivery charge waived during the free window (Delivery Charges

@@ -25,6 +25,7 @@ source: efl:RELIANT_Reliant_Power_On_Flex_plan.pdf
 retrieved: '2026-09-01'
 source_sha256: 9c0f46618969f69e73268e1b66797bb16c6bc1cdd40e4d86b98508f0f5271cf4
 enroll_url: https://shop.reliant.com/plans-for-you/?tdspCodeCCS=D0004&txtPromocode=WF3713&fromLP=ptc&sid=APTC_1686089562&utm_source=None&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

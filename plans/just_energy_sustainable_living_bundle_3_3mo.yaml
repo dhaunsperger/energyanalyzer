@@ -5,7 +5,7 @@ term_months: 3
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 3.3
+- rate_ckwh: 3.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -22,8 +22,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Living_Bundle_-_3.pdf
-retrieved: '2026-09-01'
-source_sha256: 72cbaae5c28e74d31c2e58a2dd6453dd9dd2df70227d146b61c4d13e7c5a5721
+retrieved: '2026-09-25'
+source_sha256: bb551de19690378ac50ac646b88aadc6b7a52d855cab14f07bd118c011e12282
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

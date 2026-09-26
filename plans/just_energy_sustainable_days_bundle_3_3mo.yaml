@@ -19,7 +19,7 @@ energy_rates:
     - 15
   label: free
   tdu_exempt: false
-- rate_ckwh: 5.0
+- rate_ckwh: 4.6
   label: ''
   tdu_exempt: false
 buyback:
@@ -36,8 +36,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Days_Bundle_-_3.pdf
-retrieved: '2026-09-01'
-source_sha256: bfcb61ab44fbf1afd8f42537c7a292bd67a58a2b291856534ee38785a2d5fca1
+retrieved: '2026-09-25'
+source_sha256: 6c713bd354eb328f81ec92ca971cb4fc5924e0154185f3abf321e27c2e5853bc
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'

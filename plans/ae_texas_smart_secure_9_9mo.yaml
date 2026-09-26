@@ -5,7 +5,7 @@ term_months: 9
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 4.99
+- rate_ckwh: 5.390000000000001
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: true
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_9.pdf
-retrieved: '2026-09-01'
-source_sha256: 88ae6b5ba81b6741f2388dee6f9bfd9aae70ece3ccb6981e42f72c8805aa3e82
+retrieved: '2026-09-25'
+source_sha256: a83f1908c99f6b6bcef71e2f1a952c2c603dd9abfbdaa91e9a289c96d9af2144
 enroll_url: https://enroll.aetexasco.com/Enrollment/Default.aspx?&promoCode=AETXPTC1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line

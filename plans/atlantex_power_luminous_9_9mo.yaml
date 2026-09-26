@@ -5,7 +5,7 @@ term_months: 9
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 6.99
+- rate_ckwh: 7.19
   label: ''
   tdu_exempt: false
 buyback:
@@ -21,8 +21,8 @@ etf_per_month_remaining: true
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Atlantex_Power_Luminous_9.pdf
-retrieved: '2026-09-01'
-source_sha256: 82db51ddc34cdf79ce5310602abc9307154284ea1265ff64df7b72b34324bad6
+retrieved: '2026-09-25'
+source_sha256: 1754036a929ff49b58fd062b6f998ff5b6c68809ba5aa465ec3310abd63c93ad
 enroll_url: https://enroll.atlantexpower.com/Enrollment/Default.aspx?promoCode=ATLPTC1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line

@@ -23,6 +23,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 source: meterplan
 retrieved: '2026-09-01'
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

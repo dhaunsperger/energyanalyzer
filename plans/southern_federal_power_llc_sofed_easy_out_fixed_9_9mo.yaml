@@ -1,0 +1,30 @@
+id: southern_federal_power_llc_sofed_easy_out_fixed_9_9mo
+retailer: Southern Federal Power LLC
+name: SoFed Easy Out Fixed - 9
+term_months: 9
+tdu: ONCOR
+base_charge_usd: 4.95
+energy_rates:
+- rate_ckwh: 4.5339
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 99.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 6.0
+source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Easy_Out_Fixed_-_9.pdf
+retrieved: '2026-09-25'
+source_sha256: 007a628d40187353cd140c9f1be98014026f0514c4092fa25739773511bf0d4c
+enroll_url: https://southernfederal.com
+notes: ''
+needs_review: false
+excludes_solar: false

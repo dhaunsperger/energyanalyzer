@@ -1,0 +1,30 @@
+id: reliant_energy_retail_services_llc_reliant_solar_payback_plus_12_plan_12mo
+retailer: Reliant Energy Retail Services, LLC
+name: Reliant Solar Payback Plus 12 plan
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 9.95
+energy_rates:
+- rate_ckwh: 10.1199
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 3.1199
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 22.0
+source: efl:Reliant_Solar_Payback_Plus_12.pdf
+retrieved: '2026-09-25'
+source_sha256: fa6ebce924c71a95ab91b0fe97a416eac30672e1a6da1fb2299a672dc711db27
+notes: ''
+needs_review: false
+excludes_solar: false

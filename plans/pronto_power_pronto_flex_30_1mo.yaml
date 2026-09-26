@@ -5,7 +5,7 @@ term_months: 1
 tdu: ONCOR
 base_charge_usd: 11.86
 energy_rates:
-- rate_ckwh: 18.4
+- rate_ckwh: 0.0
   label: ''
   tdu_exempt: false
 buyback:
@@ -16,15 +16,16 @@ buyback:
   cash_out: false
 bill_credits: []
 tdu_passthrough: true
-etf_usd: 25.0
+etf_usd: 0.01
 etf_per_month_remaining: false
+signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 25.0
 source: efl:PRONTO_POWER_Pronto_Flex_30.pdf
-retrieved: '2026-07-26'
-source_sha256: 63457790da30db2f0e963aad4391166ad44d51357ded55511f99ff024d5cf633
+retrieved: '2026-09-25'
+source_sha256: 81a0d140adab7afc98de74c0c514d51deddcfadad4907c07321a150dc33b8902
+enroll_url: https://pronto-enroll.smartgridcis.net/?aid=ProntoFlex30
 notes: could not find an Energy Charge rate; base_charge_usd ($11.86/mo) derived from
   a per-day customer fee (fee * 365 / 12, rounded to cents)
-needs_review: false
+needs_review: true
 excludes_solar: false
-enroll_url: https://pronto-enroll.smartgridcis.net/?aid=ProntoFlex30

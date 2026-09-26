@@ -1,0 +1,31 @@
+id: gexa_energy_gexa_eco_choice_3_3mo
+retailer: Gexa Energy
+name: Gexa Eco Choice 3
+term_months: 3
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 3.51
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: none
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:GEXA_ENERGY_Gexa_Eco_Choice_3.pdf
+retrieved: '2026-09-25'
+source_sha256: 059d8b714fb1c76a495a57a939fefabda9356c678fb903dd9a87f07cf824e198
+enroll_url: https://newenroll.gexaenergy.com/?refid=PTC_EcoChoice03&ul=1000&tdsp=AEP_CENT
+notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
+  charge line'
+needs_review: false
+excludes_solar: false

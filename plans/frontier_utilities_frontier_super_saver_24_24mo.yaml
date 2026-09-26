@@ -24,7 +24,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Frontier_Utilities_Frontier_Super_Saver_24.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 44b520d35b3960f4c65988bf54baa6ba74e33a778df09cf929cdba4860b70a8b
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'
