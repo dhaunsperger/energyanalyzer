@@ -1443,6 +1443,182 @@ def test_direct_energy_returns_empty_when_no_cards_render():
     assert rd._direct_energy_harvest(_ShellPage([]), "78665", rd.DIRECT_ENERGY) == []
 
 
+# --------------------------------------------------------------------------- #
+# Reliant harvester (fake page; no browser)
+# --------------------------------------------------------------------------- #
+# The 2026-09-26 site rebuild replaced the old address-autocomplete-only funnel
+# with a mandatory service-location tile, changed the segmentation radios to
+# hidden inputs behind styled <label>s, renamed the submit button's testid, and
+# replaced the "Solar Plans" filter + planName-text + popup-EFL flow with a
+# single plan list (cards carry analyticsproductname) whose expanded "Documents
+# & Legal" section links straight to the EFL PDF -- no popup, no filter.
+class _ReliantClickable:
+    def __init__(self, on_click=None, fail=False):
+        self._on_click, self._fail = on_click, fail
+
+    @property
+    def first(self):
+        return self
+
+    def click(self, timeout=None):
+        if self._fail:
+            raise TimeoutError("not actionable")
+        if self._on_click:
+            self._on_click()
+
+    def fill(self, value):
+        self._on_click and self._on_click(value)
+
+
+class _ReliantEflLink:
+    def __init__(self, card):
+        self.card = card
+
+    @property
+    def first(self):
+        return self
+
+    def get_attribute(self, name, timeout=None):
+        assert name == "href"
+        if not self.card["expanded"]:
+            raise TimeoutError("Documents & Legal not rendered yet")
+        return self.card["efl_url"]
+
+
+class _ReliantCard:
+    def __init__(self, card):
+        self.card = card
+
+    def get_attribute(self, name):
+        assert name == "analyticsproductname"
+        return self.card["name"]
+
+    def scroll_into_view_if_needed(self, timeout=None):
+        pass
+
+    def locator(self, selector, has_text=None):
+        if selector == ".analyticsProductViewDetails:visible":
+            def expand():
+                self.card["expanded"] = True
+            return _ReliantClickable(on_click=expand, fail=self.card.get("view_details_broken", False))
+        if selector == "a":
+            assert has_text == "Electricity Fact Label"
+            return _ReliantEflLink(self.card)
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+
+class _ReliantCards:
+    def __init__(self, cards):
+        self._cards = cards
+
+    def count(self):
+        return len(self._cards)
+
+    def nth(self, i):
+        return _ReliantCard(self._cards[i])
+
+
+class _ReliantPage:
+    def __init__(self, names, broken_efl=frozenset()):
+        self.cards = [
+            {"name": n, "expanded": False, "efl_url": f"https://www.reliant.com/files/{i}.pdf",
+             "view_details_broken": n in broken_efl}
+            for i, n in enumerate(names)
+        ]
+        self.goto_urls: list[str] = []
+        self.clicked_testids: list[str] = []
+        self.clicked_labels: list[str] = []
+        self.filled_zip = None
+
+    def goto(self, url, **kw):
+        self.goto_urls.append(url)
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def get_by_test_id(self, tid):
+        if tid == "search_address-textfield":
+            def record(value):
+                self.filled_zip = value
+            return _ReliantClickable(on_click=record)
+        return _ReliantClickable(on_click=lambda: self.clicked_testids.append(tid))
+
+    def locator(self, selector):
+        if selector == "[analyticsproductname]":
+            return _ReliantCards(self.cards)
+        m = re.match(r"label\[for='(segmentation-\w+-\w+)'\]", selector)
+        if m:
+            return _ReliantClickable(on_click=lambda label=m.group(1): self.clicked_labels.append(label))
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+
+_RELIANT_NAMES = [
+    "Reliant Secure Advantage® 12 plan",
+    "Reliant Solar Payback Match 12 plan",
+    "Reliant Truly Free Weekends 12 plan",
+]
+
+
+def test_reliant_clicks_service_location_before_the_zip_field():
+    """The zip field and segmentation questions don't render until a
+    Home/Apartment/Business tile is picked -- skipping it is what made the old
+    selectors resolve to nothing on the rebuilt page."""
+    page = _ReliantPage(_RELIANT_NAMES)
+    rd._reliant_harvest(page, "78665", rd.RELIANT)
+
+    assert page.goto_urls == [rd._RELIANT_SEARCH_URL]
+    assert page.clicked_testids[0] == "service-location-home"
+    assert page.filled_zip == "78665"
+
+
+def test_reliant_clicks_segmentation_labels_not_the_hidden_inputs():
+    """The #segmentation-*-no inputs are visually hidden behind styled pills
+    now; Locator.check() on the input times out, but its <label for=...>
+    is the thing a real user (and now the harvester) clicks."""
+    page = _ReliantPage(_RELIANT_NAMES)
+    rd._reliant_harvest(page, "78665", rd.RELIANT)
+
+    assert page.clicked_labels == ["segmentation-moving-no", "segmentation-renting-no"]
+    assert "address-search-submit-button" in page.clicked_testids
+    assert "show-plans-button" not in page.clicked_testids
+
+
+def test_reliant_harvester_finds_only_the_solar_plan():
+    """There is no more "Solar Plans" filter -- every plan renders in one
+    list, so the name filter alone must separate the buyback plan out."""
+    page = _ReliantPage(_RELIANT_NAMES)
+    plans = rd._reliant_harvest(page, "78665", rd.RELIANT)
+
+    assert [p.plan_name for p in plans] == ["Reliant Solar Payback Match 12 plan"]
+    assert plans[0].is_buyback is True
+
+
+def test_reliant_harvester_reads_the_efl_href_from_the_expanded_card():
+    """No more popup + network-response sniffing: the EFL is a plain <a href>
+    inside the "Documents & Legal" section that appears once the card's "View
+    Details" toggle is clicked."""
+    page = _ReliantPage(_RELIANT_NAMES)
+    plans = rd._reliant_harvest(page, "78665", rd.RELIANT)
+
+    assert plans[0].efl_url == "https://www.reliant.com/files/1.pdf"
+    assert page.cards[1]["expanded"] is True
+
+
+def test_reliant_harvester_skips_plan_when_view_details_never_expands():
+    """A broken toggle must drop the plan, not raise or return a stale href."""
+    page = _ReliantPage(_RELIANT_NAMES, broken_efl={"Reliant Solar Payback Match 12 plan"})
+    plans = rd._reliant_harvest(page, "78665", rd.RELIANT)
+
+    assert plans == []
+
+
+def test_reliant_needs_stealth_for_the_akamai_challenge():
+    """shop.reliant.com hCaptcha-challenges a plain Playwright context on its
+    very first navigation (verified live 2026-09-26) -- the same edge Direct
+    Energy hits as a sibling NRG shop."""
+    assert rd.RELIANT.stealth is True
+
+
 def test_download_discovered_skips_existing(tmp_path, monkeypatch):
     import httpx
 

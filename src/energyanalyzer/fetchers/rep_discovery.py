@@ -2353,6 +2353,16 @@ CHAMPION = RepConfig(
 # The chart also renders each plan TWICE (product-chart-*tabs*: a second,
 # hidden tab duplicates all 13). Harvesting only VISIBLE cards drops those --
 # name dedup would too, but not before spending a 6s click timeout on each.
+#
+# Reworked again 2026-09-26 after the "no plan cards rendered" failure came
+# back on a healthy site (found live, not from a fixture): shop.directenergy.com
+# now serves a plain Playwright context an Akamai/hCaptcha "Additional security
+# check is required" page on the FIRST navigation -- harvest_live's initial
+# goto(config.homepage) is enough to trigger it, and the poisoned context then
+# blocks the chart URL too even though a fresh context hitting the chart URL
+# directly (no homepage visit first) still rendered all 28 cards. stealth=True
+# clears the challenge on the homepage visit itself, same fix as Reliant (the
+# sibling NRG shop hit by the same edge in the same run).
 _DE_PLANS_URL = "https://shop.directenergy.com/tx/product-chart-tabs?zipCode={zip}"
 _DE_EFL_API_RE = re.compile(r"api-oam\.directenergy\.com/api/docs/files/", re.I)
 _DE_LOAD_MORE_RE = re.compile(r"load\s+\d+\s+more", re.I)
@@ -2403,6 +2413,12 @@ def _direct_energy_harvest(
             break
         _try(lambda: page.wait_for_timeout(2500))  # type: ignore[attr-defined]
 
+    # One more settle: the just-expanded cards (6 -> up to 14) can still be
+    # mid-hydration right after the last "Load More" click -- without this, a
+    # 3s-per-name read timeout below silently dropped most of the newly
+    # revealed cards (measured live 2026-09-26: 4 of 14 read, 10 timed out).
+    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
+
     # Visible only: the hidden duplicates belong to the chart's second tab.
     visible = [i for i in range(cards.count()) if _is_visible(cards.nth(i))]
     logger.info(
@@ -2414,7 +2430,10 @@ def _direct_energy_harvest(
     for i in visible:
         card = cards.nth(i)
         try:
-            name = _clean_plan_name(card.locator(".rich-text-body h4").first.inner_text(timeout=3000))
+            # Generous timeout (not the usual few seconds): a freshly-expanded
+            # card can still be hydrating its name text well after it counts
+            # as "visible" -- see the settle wait above.
+            name = _clean_plan_name(card.locator(".rich-text-body h4").first.inner_text(timeout=8000))
         except Exception:  # noqa: BLE001
             continue
         # Discovery targets Direct Energy's solar (buyback) plans; the rest are
@@ -2485,6 +2504,9 @@ DIRECT_ENERGY = RepConfig(
     # refreshes reported "found 0 plan card(s)" against a perfectly healthy site
     # before this was pinned down.
     force_headful=True,
+    # Required as of 2026-09-26: the site now hCaptcha-challenges the very
+    # first navigation under plain Playwright; see the section comment above.
+    stealth=True,
 )
 
 
@@ -2493,23 +2515,42 @@ DIRECT_ENERGY = RepConfig(
 # --------------------------------------------------------------------------- #
 # Reliant (shop.reliant.com) is another NRG shop but a DIFFERENT SPA flow from
 # Direct Energy: enter an address -> pick the first autocomplete result -> answer
-# "moving? no" / "renting? no" -> "show plans" -> a "Solar Plans" filter narrows
-# to the solar plans. Plan cards use build-hashed CSS-module classes
-# (OfferPlanContained-module--plan-container--<hash>) -- fragile -- but the hash
-# is only a suffix, so an xpath class *substring* match ("plan-container") is
-# stable, and the nav/EFL controls have stable data-testids. Each plan's EFL
-# opens from a backend PDF (myaccount.reliant.com/files/<id>.pdf, plain
-# application/pdf) captured from the network response. Targets Reliant's solar
-# plans ("Reliant Solar Payback Match ...").
+# "moving? no" / "renting? no" -> "show plans" -> the plan list (no separate
+# solar filter any more; every plan renders in one list, tagged by name).
+#
+# 2026-09-26 site rebuild (found live, not from a fixture -- see the handoff
+# doc this replaced): shop.reliant.com now sits behind the same Akamai/hCaptcha
+# edge as Direct Energy (both NRG shops) -- a plain Playwright context gets
+# "Additional security check is required" on the FIRST page it loads, which is
+# what made this harvester return 0 plans while the site itself was healthy.
+# stealth=True on the config clears it, same fix as Direct Energy.
+#
+# The funnel past that gate also changed shape: there is now a mandatory
+# "Where do you need service?" tile (Home/Apartment/Business, data-testid
+# service-location-home) before the moving/renting questions render at all;
+# those questions kept their #segmentation-moving-no / #segmentation-renting-no
+# ids but the inputs are visually hidden behind styled pills now, so
+# Locator.check() times out on them -- click the associated <label for=...>
+# instead, which is what a user actually clicks. The submit button's testid
+# changed from show-plans-button to address-search-submit-button.
+#
+# Biggest simplification: there is no more "Solar Plans" filter or
+# planName-text testid. Every plan (solar included) renders in one list as a
+# div carrying analyticsproductname="<plan name>" -- a plain semantic
+# attribute, not a build-hashed CSS-module class, so it survives a frontend
+# rebuild better than the old plan-container substring match did. Clicking
+# that card's still-present .analyticsProductViewDetails control expands a
+# "Documents & Legal" section with a direct <a href=".../files/<id>.pdf">
+# Electricity Fact Label</a> -- a real PDF href, not a popup, so the EFL URL
+# is just an attribute read, no network-response sniffing needed. Targets
+# Reliant's solar plan ("Reliant Solar Payback Match ...").
 _RELIANT_SEARCH_URL = "https://shop.reliant.com/search-for-plans/"
-_RELIANT_EFL_RESP_RE = re.compile(r"reliant\.com/[^\"']*?files/[^\"'?]+\.pdf", re.I)
 
 
 def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[DiscoveredPlan]:
     """Interactive harvester for Reliant (see the section comment). ``harvest_live``
-    handles the initial goto()/lifecycle; this runs the address/segmentation
-    prelude, applies the Solar Plans filter, and captures each solar plan's
-    backend EFL PDF URL from the network."""
+    handles the initial goto()/lifecycle; this runs the service-location/address/
+    segmentation prelude and captures each solar plan's EFL PDF href."""
 
     def _try(action) -> bool:
         try:
@@ -2520,57 +2561,39 @@ def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[Dis
 
     _try(lambda: page.goto(_RELIANT_SEARCH_URL, wait_until="domcontentloaded", timeout=60000))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(4000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("service-location-home").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.wait_for_timeout(1000))  # type: ignore[attr-defined]
     _try(lambda: page.get_by_test_id("search_address-textfield").fill(zip_code))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(2500))  # type: ignore[attr-defined]
     _try(lambda: page.get_by_test_id("search-results__0-text").click(timeout=8000))  # type: ignore[attr-defined]
-    _try(lambda: page.locator("#segmentation-moving-no").check(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.locator("#segmentation-renting-no").check(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_test_id("show-plans-button").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.locator("label[for='segmentation-moving-no']").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.locator("label[for='segmentation-renting-no']").click(timeout=6000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_test_id("address-search-submit-button").click(timeout=8000))  # type: ignore[attr-defined]
     _try(lambda: page.wait_for_timeout(6000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_test_id("Solar Plans-check-box").check(timeout=6000))  # type: ignore[attr-defined]
-    _try(lambda: page.wait_for_timeout(3000))  # type: ignore[attr-defined]
 
-    # The EFL PDF is fetched inside the popup the "efl-text" click opens, so a
-    # page-scoped expect_response never sees it -- listen at the CONTEXT level.
-    efl_seen: list[str] = []
-    ctx = getattr(page, "context", None)
-    if ctx is not None:
-        ctx.on("response", lambda r: efl_seen.append(r.url) if _RELIANT_EFL_RESP_RE.search(r.url) else None)
-
-    names = page.get_by_test_id("planName-text")  # type: ignore[attr-defined]
-    count = names.count()
-    logger.info("Reliant Energy: found %d plan(s) after Solar filter; capturing EFLs", count)
+    cards = page.locator("[analyticsproductname]")  # type: ignore[attr-defined]
+    count = cards.count()
+    logger.info("Reliant Energy: found %d plan(s); capturing solar EFLs", count)
     plans: list[DiscoveredPlan] = []
     seen: set[str] = set()
     for i in range(count):
-        try:
-            raw = names.nth(i).inner_text(timeout=3000)
-        except Exception:  # noqa: BLE001
-            continue
-        name = _clean_plan_name(re.sub(r"\bplan\s*$", "", raw, flags=re.I).strip())
+        card = cards.nth(i)
+        name = _clean_plan_name(card.get_attribute("analyticsproductname") or "")
         if "solar" not in _normalize_name(name) or name in seen:
             continue
         seen.add(name)
         logger.info("Reliant Energy: capturing EFL for %r", name)
-        # Nearest ancestor plan card (class *contains* the hashed "plan-container").
-        card = names.nth(i).locator(
-            "xpath=ancestor::div[contains(@class,'plan-container')][1]"
-        )
-        # A card carries desktop + mobile view-details; click a visible one.
+        _try(lambda card=card: card.scroll_into_view_if_needed(timeout=5000))
         if not _try(lambda card=card: card.locator(".analyticsProductViewDetails:visible").first.click(timeout=6000)):
             continue
         _try(lambda: page.wait_for_timeout(800))  # type: ignore[attr-defined]
-        before = len(efl_seen)
-        _try(lambda card=card: card.locator('[data-testid="efl-text"]:visible').first.click(timeout=8000))
         efl_url: Optional[str] = None
-        for _ in range(24):  # wait up to ~12s for the popup's PDF fetch
-            if len(efl_seen) > before:
-                efl_url = efl_seen[-1].split("?")[0]  # drop the ?_gl= analytics query
-                break
-            _try(lambda: page.wait_for_timeout(500))  # type: ignore[attr-defined]
-        for extra in list(ctx.pages if ctx else [])[1:]:
-            _try(lambda extra=extra: extra.close())
-        _try(lambda: page.keyboard.press("Escape"))  # type: ignore[attr-defined]
+        try:
+            efl_url = card.locator("a", has_text="Electricity Fact Label").first.get_attribute(
+                "href", timeout=5000
+            )
+        except Exception:  # noqa: BLE001
+            efl_url = None
         if not efl_url:
             continue
         plans.append(
@@ -2580,7 +2603,7 @@ def _reliant_harvest(page: object, zip_code: str, config: RepConfig) -> list[Dis
                 efl_url=efl_url,
                 is_buyback=True,
                 extraction_method="harvest",
-                context="Reliant solar plan; EFL PDF via myaccount.reliant.com/files",
+                context="Reliant solar plan; EFL PDF href from the expanded plan card",
             )
         )
     return plans
@@ -2591,6 +2614,11 @@ RELIANT = RepConfig(
     retailer="Reliant Energy",
     homepage="https://shop.reliant.com/",
     harvester=_reliant_harvest,
+    # Required: shop.reliant.com now serves a plain Playwright context an
+    # Akamai/hCaptcha "Additional security check is required" page on the
+    # very first load (verified 2026-09-26, live) -- the same edge Direct
+    # Energy hits. Stealth clears it; see the section comment above.
+    stealth=True,
 )
 
 
