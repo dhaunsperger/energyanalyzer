@@ -386,3 +386,52 @@ def test_cache_manifest_survives_sub_second_replacement(tmp_path):
     # Same size, same second, different content.
     a.write_text(a.read_text().replace("0.500", "0.600"))
     assert _source_manifest([a]) != first, "sub-second replacement must be detected"
+
+
+def test_newer_export_wins_an_overlapping_interval(tmp_path):
+    """Where two exports disagree about the same interval, keep the newer read.
+
+    Usually they agree, so this rarely bites -- but a blank in an earlier export
+    becomes 0.0 kWh, and an estimated read later settles to an actual. Those are
+    exactly the intervals where the values differ, and the fresher pull is right.
+
+    Regression: dedup ran after sort_index, which pandas does not sort stably
+    across a mix of unique and duplicated keys, so the survivor of an overlap
+    was decided by the sort's internals rather than by any rule.
+    """
+    import os
+    import time
+
+    old = make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    # Same day, same ESIID, different reading -- and a name that sorts LATER,
+    # so filename order cannot be what decides this.
+    new = make_smt_csv(
+        tmp_path, "07/01/2025", kind="normal", filename="IntervalDataNEW.csv"
+    )
+    new.write_text(new.read_text().replace("0.500", "0.900"))
+    now = time.time()
+    os.utime(old, (now - 600, now - 600))
+    os.utime(new, (now, now))
+
+    df, report = load_intervals(data_dir=tmp_path)
+
+    assert len(df) == 96, "the overlap must be deduplicated, never double-counted"
+    assert df["import_kwh"].iloc[0] == pytest.approx(0.9), "newest export wins"
+    assert any("most recently downloaded" in w for w in report.warnings)
+
+
+def test_overlap_is_deduplicated_regardless_of_which_export_is_newer(tmp_path):
+    """The load-bearing guarantee: one row per interval, whichever file is newer."""
+    import os
+    import time
+
+    a = make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    b = make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData (3).csv")
+    now = time.time()
+    for older, newer in ((a, b), (b, a)):
+        os.utime(older, (now - 600, now - 600))
+        os.utime(newer, (now, now))
+        (tmp_path / "intervals.parquet").unlink(missing_ok=True)
+        df, _ = load_intervals(data_dir=tmp_path)
+        assert len(df) == 96
+        assert df["import_kwh"].sum() == pytest.approx(96 * 0.5)

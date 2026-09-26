@@ -402,9 +402,21 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
         return df, report
 
     if csv_paths:
+        # Merge oldest download first so the NEWEST one wins any interval both
+        # cover. SMT re-exports carry revised readings (an estimate settling to
+        # an actual, a correction), so the later pull is the better number --
+        # and a partial "since last time" export is expected to overwrite the
+        # tail of the previous one. Ordering by mtime rather than by filename
+        # because the filenames SMT produces carry no reliable sequence.
+        #
+        # Deduplicating BEFORE sorting is deliberate: pandas' sort_index is not
+        # stable for a mix of unique and duplicated keys, so which file survived
+        # an overlap used to depend on the sort's internals rather than on any
+        # rule -- the older export won or lost by luck.
+        merge_order = sorted(csv_paths, key=lambda p: p.stat().st_mtime)
         frames = []
-        report = QualityReport(source=", ".join(str(p) for p in csv_paths))
-        for p in csv_paths:
+        report = QualityReport(source=", ".join(str(p) for p in merge_order))
+        for p in merge_order:
             d, r = load_smt_csv(p)
             frames.append(d)
             report.warnings.extend(r.warnings)
@@ -413,8 +425,17 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
             report.duplicate_count += r.duplicate_count
             for k, v in r.rows_per_channel.items():
                 report.rows_per_channel[k] = report.rows_per_channel.get(k, 0) + v
-        df = pd.concat(frames).sort_index() if len(frames) > 1 else frames[0]
-        df = df[~df.index.duplicated(keep="first")]
+        if len(frames) > 1:
+            df = pd.concat(frames)
+            superseded = int(df.index.duplicated(keep="last").sum())
+            df = df[~df.index.duplicated(keep="last")].sort_index()
+            if superseded:
+                report.warnings.append(
+                    f"{superseded} interval(s) appeared in more than one export; kept the "
+                    f"reading from the most recently downloaded file ({merge_order[-1].name})"
+                )
+        else:
+            df = frames[0]
     else:
         df, report = load_greenbutton_xml(xml_paths)
 
