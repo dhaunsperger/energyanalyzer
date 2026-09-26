@@ -25,6 +25,7 @@ rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Green_Savings_Plus_24.pdf
 retrieved: '2026-09-25'
 source_sha256: 1354ef8a094e80064c194f11e5f511e48aaf0210f445b58f385aa57fa7ff6946
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

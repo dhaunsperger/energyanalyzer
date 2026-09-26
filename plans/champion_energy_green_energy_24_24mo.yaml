@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Champion_Energy_Green_Energy-24.pdf
-retrieved: '2026-09-25'
-source_sha256: 3bfd93d0b74b5a0c8bb050fdff38adc9a0ee4c071874964a78d193a073820658
+retrieved: '2026-09-26'
+source_sha256: e679d3c6b03221e2696eeb08b7c5e7a10d6494bdb0b8800e9c445bbda5824684
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

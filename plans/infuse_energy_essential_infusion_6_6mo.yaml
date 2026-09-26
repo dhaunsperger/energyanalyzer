@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_Essential_Infusion_6.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: ef145d3d89b7c8aea6bb8fc3a60f992111fff935f8f43e0a23a8682927b9c2a8
 enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1685556&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''

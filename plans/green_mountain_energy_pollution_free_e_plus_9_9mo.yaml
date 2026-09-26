@@ -23,6 +23,7 @@ rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_9.pdf
 retrieved: '2026-09-25'
 source_sha256: 3001144018466c447666cb8db179ccdc108800534e5559c638a6582f2d93337a
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -24,6 +24,7 @@ renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_11.pdf
 retrieved: '2026-09-25'
 source_sha256: 67a830eea25486626a102b83eb7d237e09ed82267b3a937a8682f655cc34b7b2
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -21,8 +21,8 @@ etf_per_month_remaining: true
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Atlantex_Power_Luminous_36.pdf
-retrieved: '2026-09-25'
-source_sha256: 0bfac6e2fbb8350cafac3449e7938b5ef93f401f2d85b08466e64e157c0dfd5f
+retrieved: '2026-09-26'
+source_sha256: c7397af44f0b80eec808fd124b63a41458fe54afe30e237860807b2b603568f4
 enroll_url: https://enroll.atlantexpower.com/Enrollment/Default.aspx?promoCode=ATLPTC1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line

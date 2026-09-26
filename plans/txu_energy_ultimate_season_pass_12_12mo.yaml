@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Ultimate_Season_Pass_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 3eb30397fe9eb2b5f08e87371538d25baeffe4b0d93f411329a3b6f8b07b6e98
+retrieved: '2026-09-26'
+source_sha256: 4b15dc7760bf5b5076a1a2d2777563c31295e7d94910a7ce8e89ff670e8bbfe5
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

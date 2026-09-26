@@ -39,6 +39,7 @@ source: efl:TARA_ENERGY_Balanced_Days_Bundle_-_5.pdf
 retrieved: '2026-09-25'
 source_sha256: f8b26bdf8e9b677e9f295164e24ec3b372606a57d758d15ea1672aa096f05829
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
-  no recurring REP monthly charge (only the TDSP''s)'
-needs_review: false
+  no recurring REP monthly charge (only the TDSP''s) Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

@@ -26,6 +26,7 @@ retrieved: '2026-09-01'
 source_sha256: 3c733aa9d9aea1bc4083f9deed44f73bfa753cf2cc0835455aa2a39c3e37ebb8
 enroll_url: https://join.abundanceenergy.com/?promoCode=PTC
 notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

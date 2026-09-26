@@ -29,6 +29,7 @@ source_sha256: 2ed0f681969679a4fc309f9720d7691fc5447c9298c5f1afc8920f74ec997a56
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges Not listed by its source
   on 2026-09-25 -- the source was reached and did not offer this plan. It may have
-  left the market.'
+  left the market. Not listed by its source on 2026-09-26 -- the source was reached
+  and did not offer this plan. It may have left the market.'
 needs_review: true
 excludes_solar: false

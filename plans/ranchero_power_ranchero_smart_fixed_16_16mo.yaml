@@ -23,6 +23,7 @@ rate_type: fixed
 source: efl:Ranchero_Power_Smart_Fixed_-_16.pdf
 retrieved: '2026-09-25'
 source_sha256: 97740d21c2d06611cc8abb04fc6db5b24eb36cd10270d535de2878a1097d91f0
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

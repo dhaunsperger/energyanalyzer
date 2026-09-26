@@ -25,6 +25,7 @@ source: efl:Direct_Energy_Live_Brighter_9_Auto_Pay.pdf
 retrieved: '2026-09-01'
 source_sha256: ef605bde70e030ec665cb0542cbd29fca302a275fe187b66a1839e61f10e8dd1
 notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

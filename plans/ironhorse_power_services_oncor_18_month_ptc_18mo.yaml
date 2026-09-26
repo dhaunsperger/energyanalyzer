@@ -24,6 +24,7 @@ renewable_pct: 5.85
 source: efl:IRONHORSE_POWER_SERVICES_LLC_Giddy_Up_18.pdf
 retrieved: '2026-09-25'
 source_sha256: e7912a5a11d8bc9dc3f97c6e9d90c438d8676b91ec9920da7084e887126c9e79
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

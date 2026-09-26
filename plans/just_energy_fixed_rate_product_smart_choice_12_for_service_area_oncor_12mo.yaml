@@ -24,7 +24,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Smart_Choice_-_12.pdf
-retrieved: '2026-09-01'
+retrieved: '2026-09-25'
 source_sha256: 34087f0e617ad148ef3c6ab2bc097cea0fa723692fef2a2bf358266e288152b3
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=UP
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer

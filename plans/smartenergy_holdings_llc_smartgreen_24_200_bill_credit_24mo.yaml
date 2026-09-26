@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:SMARTENERGY_HOLDINGS_LLC_SmartGreen_24_200_Bill_Credit.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: e93f60fc7203377fc26deb7fc6d70714bbc1e16e680688df9bd505b2cbc86d21
 enroll_url: https://texas.smartenergy.com/plans?msid=2001&utility=AEPC
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line

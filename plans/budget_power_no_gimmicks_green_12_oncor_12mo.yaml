@@ -24,6 +24,7 @@ renewable_pct: 100.0
 source: efl:Budget_Power_No_Gimmicks_Green_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 7110a182be47eef818e96b864ff19174662fa36a293faec6a706403757121630
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -26,6 +26,7 @@ retrieved: '2026-09-01'
 source_sha256: 1d23acfe127c75bdfe3e5e1fdc96ac8f0485fabb9b26bb5130feb36e18ccc05b
 enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBTX_AEC_NA_NA_RES_FPR_SD0_T4_NEW&deploymentName=TX%20State%20Rate%20Board
 notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

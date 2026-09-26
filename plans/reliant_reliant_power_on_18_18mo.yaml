@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_18.pdf
-retrieved: '2026-09-25'
-source_sha256: 4ae602dcdea2c4bb4a034fd8bc48d616b9d284113f466c445e5acfc347e2bacb
+retrieved: '2026-09-26'
+source_sha256: 7c4acdd49a0fad0989ad004a36cc79d2cc5a70af4ec6e4a0674c723973362c0b
 enroll_url: http://www.reliant.com/public/startOEProcess.htm?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=A3P_1562314131
 notes: ''
 needs_review: false

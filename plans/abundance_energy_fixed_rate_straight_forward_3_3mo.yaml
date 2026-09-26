@@ -24,6 +24,7 @@ renewable_pct: 25.5
 source: efl:Abundance_Energy_Straight_Forward_3.pdf
 retrieved: '2026-09-25'
 source_sha256: 9b61b8d9473486b65443b1da1ab7508cdea7b5d80fc5fa827556127fe1d7efe5
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:FRONTIER_UTILITIES_Frontier_Power_Saver_3.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: b28f62284c6fa91fb5d5cf9cbe65fa21885746cbf3aefa71d8e4ff3eda45f9bb
 enroll_url: https://newenroll.frontierutilities.com/?refid=PTCFPS03&ul=1000&tdsp=AEP_CENT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer

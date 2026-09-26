@@ -25,6 +25,7 @@ retrieved: '2026-09-01'
 source_sha256: 1aa015a31b574d2010e7f2277a802d16223f033ae45cce4f320fded23801e965
 enroll_url: http://Rancheropower.com
 notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

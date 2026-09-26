@@ -24,8 +24,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Value_Choice_-_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 256b317d6d83976f87fbe35999482a5c81e3ec7197f4d15c94fbfde6da9cc843
+retrieved: '2026-09-26'
+source_sha256: 674395b6de0fea578c3cd8ea767fa6af9ab1654d884e392d9197c12a00174df3
 enroll_url: https://taraenergy.com/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=UP
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

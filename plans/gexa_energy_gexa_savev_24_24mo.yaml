@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_SavEV_24.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: a3169cbaaafc0be7ab714f813d0e44f27e2adc9dcfbad8ac72cf0d49add5d381
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'

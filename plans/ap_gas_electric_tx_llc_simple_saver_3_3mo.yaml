@@ -24,7 +24,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_Simple_Saver_3.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: d0025fd03d5d165c479c4f8f71c3383622b79481246443c528d07ee72152fc9d
 enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBBUC_AEC_NA_NA_RES_F125M_SD0_T3_NEW&deploymentName=TX%20State%20Rate%20Board
 notes: ''

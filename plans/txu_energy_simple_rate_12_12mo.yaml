@@ -25,5 +25,7 @@ source: efl:TXU_Energy_Simple_Rate_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 1aebda1e385ef31dc1cfc9e6db0f898a0174ae88ac729fa5a4cc56da531e867d
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
-needs_review: false
+  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
+  this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

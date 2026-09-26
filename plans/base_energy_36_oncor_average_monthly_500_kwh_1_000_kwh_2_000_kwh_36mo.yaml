@@ -24,6 +24,7 @@ renewable_pct: 100.0
 source: efl:Base_Power_Base_Energy_36.pdf
 retrieved: '2026-09-25'
 source_sha256: 5719dc28905993e76ad420b7abe6d0793664ff7603084fb33536eedf5f17e30a
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

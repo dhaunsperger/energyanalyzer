@@ -22,8 +22,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Living_Bundle_-_3.pdf
-retrieved: '2026-09-25'
-source_sha256: bb551de19690378ac50ac646b88aadc6b7a52d855cab14f07bd118c011e12282
+retrieved: '2026-09-26'
+source_sha256: 2db74ce6f4a09ef9104c93598d1779fec587ac6bafb61d844da669a756b31dd1
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

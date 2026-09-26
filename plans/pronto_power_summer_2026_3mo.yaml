@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 20.0
 source: efl:PRONTO_POWER_Summer_2026.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 2d81e51882490fc5cfe96c0b0654b8f16c85df0f965fb802acbf9354f6b33238
 enroll_url: https://pronto-enroll.smartgridcis.net/?aid=2026
 notes: base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365

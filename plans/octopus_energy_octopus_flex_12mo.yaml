@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Octopus_Energy_Octopus_Flex.pdf
-retrieved: '2026-09-25'
-source_sha256: 7db70297159e96abad2a534e5bd6a544fb54434f0270a6b535a4fb82dd1260e8
+retrieved: '2026-09-26'
+source_sha256: 46a4569a9ff7be6b2c3c753bfc85feebac557e441ddc2b4e1580978be324fb99
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan
 needs_review: true

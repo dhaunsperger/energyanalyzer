@@ -27,6 +27,7 @@ source_sha256: 0192f48f1ff7cc6923dc3946a0212d31f084c625664c2ef6eb878b685d35633e
 enroll_url: https://signup.varsityenergy.com/Home/index?ProductCode=RN16000002&Promo=PTC
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

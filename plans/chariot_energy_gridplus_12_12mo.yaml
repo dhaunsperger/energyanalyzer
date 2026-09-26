@@ -24,8 +24,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_GridPlus_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 8944f02423a3253da283dfcceec60d07f00b748ec3f21cfe7f718c0caee32282
+retrieved: '2026-09-26'
+source_sha256: 016479f55df7b2db5221fc5468130d61d37098232458532d3df357a4596f14f2
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN12004288&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

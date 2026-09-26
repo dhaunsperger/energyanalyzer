@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 30.4
 source: efl:Companion_Energy_Companion_Perks_12.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 39fea2abc2eef46c5e96739b680852c86be1edce39ec1ea2a53cab6db65ff920
 enroll_url: https://newenroll.companionenergy.com/?refid=PTCPERKS12&ul=1000&tdsp=AEP_CENT&utm_source=power_to_choose&utm_medium=referral&utm_campaign=PTC-PTCPERKS12&utm_content=AEP_CENT&utm_term=additional_info
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer

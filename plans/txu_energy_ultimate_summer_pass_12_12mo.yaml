@@ -25,5 +25,7 @@ source: efl:TXU_Energy_Ultimate_Summer_Pass_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 6b0d8cad60c26bf1ee37ab1eb2fb1d4dd1fbf299f10fdf3dfd6c7d22857c5ace
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
-needs_review: false
+  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
+  this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

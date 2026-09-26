@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Stars_and_Stripes_24.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: e4e98b66835159750eaab0fc60d1803945d3fa1153b8555149f14aa57e330a28
 enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=385110&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''

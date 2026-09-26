@@ -42,6 +42,8 @@ source_sha256: 6f33f425dcf3b8fc5af7dc43bbf442ae5ffae87eee37050a7b4684317d9efda8
 notes: 'energy rate derived from a split header/value table (''All kWh <rate>'' row);
   REP excludes homes with rooftop solar from this plan: Customers with electric vehicles,
   batteries, and/or solar panels are ineligible; unmodelled bonus credit (additional
-  25% credit) -- the schema has no way to express it, so this plan''s cost is OVERstated'
+  25% credit) -- the schema has no way to express it, so this plan''s cost is OVERstated
+  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
+  this plan. It may have left the market.'
 needs_review: true
 excludes_solar: true

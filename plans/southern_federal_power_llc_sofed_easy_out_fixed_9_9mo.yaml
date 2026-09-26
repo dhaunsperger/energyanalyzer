@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 6.0
 source: efl:SOUTHERN_FEDERAL_POWER_LLC_SoFed_Easy_Out_Fixed_-_9.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 007a628d40187353cd140c9f1be98014026f0514c4092fa25739773511bf0d4c
 enroll_url: https://southernfederal.com
 notes: ''

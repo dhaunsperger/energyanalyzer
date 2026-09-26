@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Sure_Saver_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 9a2e761aa043a478f260e58dc2f8914c5027786cc892282ae58512527b726bfd
+retrieved: '2026-09-26'
+source_sha256: fc935ea15ff350bd7aa89999d81379bb44b8d6ce5b21962e208aa9e1ee00a8f8
 enroll_url: https://www.sparkenergy.com/products-and-services/
 notes: ''
 needs_review: false

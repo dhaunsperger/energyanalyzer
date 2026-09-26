@@ -5,14 +5,17 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 9.95
 energy_rates:
-- rate_ckwh: 12.1
+- rate_ckwh: 0.0
   label: ''
+  tdu_exempt: false
+- rate_ckwh: 12.1
+  label: 0 - 1200 kWh
   tdu_exempt: false
 - rate_ckwh: 6.1
-  label: ''
+  label: 1201 - 2000 kWh
   tdu_exempt: false
 - rate_ckwh: 12.7
-  label: ''
+  label: Price > 2000 kWh
   tdu_exempt: false
 buyback:
   kind: none
@@ -28,7 +31,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Saver_s_Choice_12.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 notes: 'could not find an Energy Charge rate; usage-tiered energy charge (0-1200 kWh
   @ 12.1c, 1201-2000 kWh @ 6.1c, >2000 kWh @ 12.7c) -- the schema models one rate
   per window, so any single rate here would misprice the plan LLM suggested: energy_charge,

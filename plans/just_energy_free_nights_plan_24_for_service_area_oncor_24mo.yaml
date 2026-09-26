@@ -39,7 +39,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:EFL_Just_Energy_Free_Nights_24_English_Residential_20260726183612.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 007a30695654aa062e270b61cf175ff23afe6a9d63bcc90ac4b37308cfc9eaa3
 notes: ''
 needs_review: true

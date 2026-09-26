@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Energy_Texas_No_Bull_24.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: a9a5de18e656511e444ac7f6e4768f13c228c3d3835375bedce887a0faa88289
 enroll_url: https://www.energytexas.com/?rcid=power-to-choose&utm_source=powertochoose&utm_content=aep-central&utm_campaign=powertochoose&utm_medium=state-shopping&utm_term=NB24
 notes: ''

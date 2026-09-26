@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:GOOD_CHARLIE_CO_LLC_GoodEnergy_36.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 88ee65ef2fa9c94866f8a51630fc19be931ac09058f4dd989f7bccf7a4f0b5ea
 enroll_url: https://goodcharlie.com/?product_id=2048&utility_code=AEP_Central&utm_campaign=Corporate&utm_source=comparison-site&utm_medium=third-party&utm_content=power-to-choose-aepc
 notes: ''

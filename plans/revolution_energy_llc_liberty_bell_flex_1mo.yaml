@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 24.7
 source: efl:REVOLUTION_ENERGY_LLC_Liberty_Bell_Flex.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: db0db18890bd2b927294145b2672deb2cf050fae7669872a8b269a24aba24974
 enroll_url: https://www.joinarevolution.com/signup/signup-step1/?id=379272&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''

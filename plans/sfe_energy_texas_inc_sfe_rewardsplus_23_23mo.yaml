@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.9
 source: efl:SFE_ENERGY_TEXAS_INC_SFE_RewardsPlus_-_23.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 8748a3886c105c1aa83fb5da2d97bd6b132f5fa67962480b5fc16ee716a69551
 enroll_url: https://www.sfeenergy.com/texas/
 notes: ''

@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_Simple_Switch_3.pdf
-retrieved: '2026-09-25'
-source_sha256: b853be2e0189d88286d734497ae0081b3fa45f58dfade4d337ee84a7512037bb
+retrieved: '2026-09-26'
+source_sha256: dacea95effb1c3593ecafec1dff0877e18ecc4367927893d1e298e6637514953
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

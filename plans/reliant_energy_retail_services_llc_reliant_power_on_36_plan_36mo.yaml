@@ -24,6 +24,7 @@ renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_on_36_Plan.pdf
 retrieved: '2026-09-25'
 source_sha256: 2609b1afe4cf160389ed5cf3f23008c18342deb635cb5987006c57dba8aa6e4e
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Tesla_Electric_Backup.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: fe4cb5494dfea4052010d7f388cacf34a46b621a39d8b7d083792f5cf5fcb341
 notes: 'term_months not found; defaulting to 12; base charge inferred as $0.00: the
   EFL states its price components in prose and names only an energy charge and TDU

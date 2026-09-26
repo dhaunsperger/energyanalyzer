@@ -31,6 +31,8 @@ notes: 'Simple Value Credit $50/bill cycle at >=500 kWh billed usage. Verified: 
   as $0.00: itemized price-components list has no REP base/customer charge line Not
   listed by its source on 2026-09-01 -- the source was reached and did not offer this
   plan. It may have left the market. Not listed by its source on 2026-09-25 -- the
-  source was reached and did not offer this plan. It may have left the market.'
+  source was reached and did not offer this plan. It may have left the market. Not
+  listed by its source on 2026-09-26 -- the source was reached and did not offer this
+  plan. It may have left the market.'
 needs_review: true
 excludes_solar: false

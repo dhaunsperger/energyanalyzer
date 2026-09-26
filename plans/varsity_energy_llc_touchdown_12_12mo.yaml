@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 31.1
 source: efl:VARSITY_ENERGY_LLC_TOUCHDOWN_12.pdf
-retrieved: '2026-09-25'
-source_sha256: dc53d574cd099ccbe199ec5eaf273f79fe205acf70a10cef353870d26abc8afd
+retrieved: '2026-09-26'
+source_sha256: bd07842a22996a0b7701d6024b44e3727f44cae0336c2974ff094c7de4cc0081
 enroll_url: https://signup.varsityenergy.com/Home/index?ProductCode=RN12000162&Promo=PTC
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan

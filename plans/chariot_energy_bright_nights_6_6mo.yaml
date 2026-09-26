@@ -40,6 +40,7 @@ retrieved: '2026-09-01'
 source_sha256: dd50b26f7bd02e4cf340c49ff552f6dda6f4f944f8f9356fd9f85e359c7c5fc9
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR06000900&Promo=GqAtunAVIGY=
 notes: Not listed by its source on 2026-09-25 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

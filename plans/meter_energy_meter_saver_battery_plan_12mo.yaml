@@ -1,0 +1,31 @@
+id: meter_energy_meter_saver_battery_plan_12mo
+retailer: Meter Energy
+name: Meter Saver + Battery Plan
+term_months: 12
+tdu: ONCOR
+base_charge_usd: 0.0
+energy_rates:
+- rate_ckwh: 8.98
+  label: ''
+  tdu_exempt: false
+buyback:
+  kind: fixed
+  rate_ckwh: 3.0
+  rates: []
+  offset_scope: all_charges
+  rollover: true
+  cash_out: false
+bill_credits: []
+tdu_passthrough: true
+etf_usd: 150.0
+etf_per_month_remaining: false
+signup_fee_usd: 0.0
+rate_type: fixed
+renewable_pct: 100.0
+source: efl:Meter_Energy_saver_battery_12mo_oncor.pdf
+retrieved: '2026-09-26'
+source_sha256: 645e99eb8c1a8c83cd2d603c837c8b1f748f57b3872a07465e0bcfaf8aee42b1
+notes: 'base charge inferred as $0.00: the EFL states its price components in prose
+  and names only an energy charge and TDU delivery charges'
+needs_review: false
+excludes_solar: false

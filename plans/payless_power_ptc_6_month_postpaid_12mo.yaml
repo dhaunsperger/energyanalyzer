@@ -21,7 +21,7 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:PAYLESS_POWER_PTC_6_Month_-_Postpaid.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 9c079d256986c33f8718b8c57f59aab1766d52855dd0f8f559cf4536c3553584
 enroll_url: https://paylesspower.com/?affiliate=487447&planType=2
 notes: term_months not found; defaulting to 12; base charge derived from a generic

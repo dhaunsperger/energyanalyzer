@@ -28,6 +28,7 @@ renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 982a586deb27d79e67dd0402df67dd633b7602dc9158035a49ac95ce9836849b
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

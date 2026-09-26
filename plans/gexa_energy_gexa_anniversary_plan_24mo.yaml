@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Gexa_Energy_Gexa_Anniversary_Plan.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: c8d9483186c996cfa49622dc320de7e2ed8e62c4e38964d35dd39bbcdfb0ea92
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
   and names only an energy charge and TDU delivery charges'

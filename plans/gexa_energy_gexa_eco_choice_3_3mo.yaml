@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:GEXA_ENERGY_Gexa_Eco_Choice_3.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 059d8b714fb1c76a495a57a939fefabda9356c678fb903dd9a87f07cf824e198
 enroll_url: https://newenroll.gexaenergy.com/?refid=PTC_EcoChoice03&ul=1000&tdsp=AEP_CENT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer

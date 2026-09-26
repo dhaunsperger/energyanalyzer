@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 15.0
 source: efl:TRUE_POWER_True_Value_24.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 189fb66d725164f884452214e9265e57374fbd74309f13bab012b366175b2687
 enroll_url: https://portal.truepower.com/signup?ref=ptc
 notes: ''

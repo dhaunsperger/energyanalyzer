@@ -25,6 +25,7 @@ renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Credit_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 1353d8c70a7816f47de12e0c0e042c7717b50007f322157ed3711630f08ad3dd
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

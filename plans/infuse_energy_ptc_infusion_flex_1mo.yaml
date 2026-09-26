@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 24.7
 source: efl:INFUSE_ENERGY_PTC_Infusion_Flex.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 0e9eac5c9f08dab96bb140dfca8f2990d9ee21c235a5447e4b31c4f5aba9d25e
 enroll_url: https://www.infuseenergy.com/signup/signup-step1/?id=1679115&promotion=NONE&valid=N&referral=&landingpage=ptc
 notes: ''

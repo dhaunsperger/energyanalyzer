@@ -40,6 +40,7 @@ source: efl:Green_Mountain_Energy_Pollution_Free_Nights_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 89fc64d87ec686538d96f68b5a1f118cca24d677820bb169d74ec39458fbe0f3
 notes: TDU delivery charge waived during the free window (Nighttime Delivery Charges
-  $0.00)
-needs_review: false
+  $0.00) Not listed by its source on 2026-09-26 -- the source was reached and did
+  not offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

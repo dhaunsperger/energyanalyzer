@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:RHYTHM_Digital_Choice_8.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: dc120ae9d5f9a5713ebb0246df868e57e7f346ff80fb3ba4b0a5df7d06077892
 enroll_url: https://gotrhythm.com/?rcid=power-to-choose&utm_source=powertochoose&utm_campaign=aep-central&utm_medium=state-shopping&utm_term=DC8
 notes: ''

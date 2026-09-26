@@ -25,8 +25,8 @@ etf_per_month_remaining: true
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Atlantex_Power_Solar_Buy_Back_Plan.pdf
-retrieved: '2026-09-25'
-source_sha256: 623ad2be45bd23c33216df001c9a4bdad25f6128f29fc0cbf9fca038f9ded36c
+retrieved: '2026-09-26'
+source_sha256: 0359d76bff5a293c9ba3a47f56ba81b9ddca4536a17a0726871cf6308e6b0a87
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

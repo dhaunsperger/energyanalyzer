@@ -21,7 +21,7 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Ranchero_Power_Smart_Fixed_-_36.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 1c7b496e291ae84c1bab053294195421fbb4c3572431b50b5663bac1aec966ff
 enroll_url: http://Rancheropower.com
 notes: ''

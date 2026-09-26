@@ -25,6 +25,7 @@ source: efl:AMIGO_ENERGY_Sustainable_Lifestyle_-_5.pdf
 retrieved: '2026-09-25'
 source_sha256: e90073312e7afd0b67b4657626e65f51cad2d53c79f4fdcb43f10ee9868a73fb
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
-  charge line'
-needs_review: false
+  charge line Not listed by its source on 2026-09-26 -- the source was reached and
+  did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

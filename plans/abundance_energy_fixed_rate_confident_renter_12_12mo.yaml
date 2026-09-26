@@ -24,6 +24,7 @@ renewable_pct: 25.5
 source: efl:Abundance_Energy_Confident_Renter_12.pdf
 retrieved: '2026-09-25'
 source_sha256: 83d69ff7cd8c55d1fed0d4488f61349ca2cbce37651ae697b815b58ad8ff1693
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

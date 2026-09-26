@@ -22,8 +22,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Sustainable_Lifestyle_-_3.pdf
-retrieved: '2026-09-25'
-source_sha256: 2c8ba37a17550c09fda341b62908a5774b7511549e864dd66a2bf0bcf967ff06
+retrieved: '2026-09-26'
+source_sha256: 94d3673e91b492ae7f8e3d16e0224e96e3f5a2576c1c30b536ea0528c850c035
 enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

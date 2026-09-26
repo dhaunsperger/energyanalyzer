@@ -5,8 +5,8 @@ term_months: 12
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 0.0
-  label: ''
+- rate_ckwh: 15.0
+  label: Average price per kWh (without smart device(s) connected)
   tdu_exempt: false
 buyback:
   kind: rtw
@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Octopus_Energy_Octo_Green_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 3b3d885381935c84a41f7bc43bf1e705145563dd899b254eea907dba645045fc
-notes: could not find an Energy Charge rate
+retrieved: '2026-09-26'
+notes: 'could not find an Energy Charge rate LLM suggested: energy_charge (needs human
+  confirmation).'
 needs_review: true
 excludes_solar: false

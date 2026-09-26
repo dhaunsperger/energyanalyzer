@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 15.4
 source: efl:NEC_Co-op_Energy_Residential_Electricity_Plain_and_simple.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 source_sha256: 5e3c1d2989f777eb8480a399f6d146f6314b01e521dccda191fa261f4c480541
 enroll_url: https://neccoopenergy.com/residential-service/
 notes: energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider

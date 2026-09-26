@@ -36,5 +36,7 @@ source_sha256: 192f634ba7b95a7e334e16572f1da9cfb4e676a5ef2d8a8d3d198bd378250540
 notes: TDU delivery charge waived during the free window (not be billed for any TDU
   delivery charges during the Designated Free) Not listed by its source on 2026-09-25
   -- the source was reached and did not offer this plan. It may have left the market.
+  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
+  this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

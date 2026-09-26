@@ -1,7 +1,7 @@
 id: pronto_power_power_to_choose_12mo
 retailer: Pronto Power
 name: Power To Choose
-term_months: 12
+term_months: 1
 tdu: ONCOR
 base_charge_usd: 11.86
 energy_rates:
@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 25.0
 source: efl:PRONTO_POWER_Power_To_Choose.pdf
-retrieved: '2026-09-25'
+retrieved: '2026-09-26'
 enroll_url: https://pronto-enroll.smartgridcis.net/?aid=PowertoChoose&?lang=es
 notes: 'term_months not found; defaulting to 12; could not find an Energy Charge rate;
   base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365 / 12,

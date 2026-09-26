@@ -24,6 +24,7 @@ renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_Flex_plan.pdf
 retrieved: '2026-09-25'
 source_sha256: 9c0f46618969f69e73268e1b66797bb16c6bc1cdd40e4d86b98508f0f5271cf4
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Champ_Silver-24.pdf
-retrieved: '2026-09-25'
-source_sha256: e07b8971c4832c68c678cf87111d0db4892718c7b6c5e91d4769826c11e21cfe
+retrieved: '2026-09-26'
+source_sha256: 7aef16bda670413d4bfbc15c3c53758ea81aa0b552adfab7f575b9d91b9a92a5
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
