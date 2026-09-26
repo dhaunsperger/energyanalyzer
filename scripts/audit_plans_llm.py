@@ -186,7 +186,7 @@ def audit_one(path: Path, model: str, timeout: float) -> Optional[dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default=llm.OLLAMA_MODEL)
+    ap.add_argument("--model", default=None, help="Ollama model (default: configured)")
     ap.add_argument("--include-drafts", action="store_true")
     ap.add_argument("--limit", type=int, help="audit only the first N plans (smoke test)")
     ap.add_argument("--timeout", type=float, default=180.0)

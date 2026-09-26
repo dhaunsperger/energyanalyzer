@@ -22,7 +22,14 @@ data/
                           created alongside.
   efl/                 ← EFL PDFs downloaded by the Power to Choose fetcher
   ptc/                 ← Power to Choose CSV snapshots
-  config.yaml          ← optional settings, e.g.  load_zone: LZ_NORTH
+  config.yaml          ← optional settings:
+                          load_zone: LZ_NORTH        (ERCOT zone; look yours up)
+                          llm_model: gemma3:4b       (Ollama model for EFL assist)
+                          llm_url: http://localhost:11434/api/chat
+                          discovery_llm_model:       (only if it must differ
+                                                      from llm_model)
+                          Env overrides: EA_LLM_MODEL, EA_LLM_URL,
+                          EA_DISCOVERY_LLM_MODEL.
 ```
 
 Getting the inputs:

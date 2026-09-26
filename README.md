@@ -53,6 +53,27 @@ $19.95 per ill`). A small local model reads those easily. Install
 ollama pull gemma3:4b        # ~2.5 GB, the benchmarked default
 ```
 
+To use a different model, set it in the gitignored `data/config.yaml` (no code
+change):
+
+```yaml
+llm_model: gemma4:7b         # EFL field repair + plan-identity adjudication
+# discovery_llm_model:       # only if REP-site discovery must differ
+```
+
+or `EA_LLM_MODEL=gemma4:7b` for a single run. **Benchmark before you switch** --
+two of the four models tested were *worse than no LLM*, each introducing a
+confidently-wrong value the regex parser never produced:
+
+```bash
+python scripts/eval_efl.py --compare gemma3:4b gemma4:7b
+```
+
+The headline metric is **silent-wrong** (confidence >= 0.8 but the value is
+wrong), not review-queue size. The model must also fit entirely in VRAM
+alongside an 8192-token KV cache -- see the constraint note in
+`src/energyanalyzer/llm.py`.
+
 Tick **"Pre-fill unreadable fields with the local LLM"** on the Plans page before
 parsing. Suggested fields are badged with the model's reasoning and **always
 still require your review** — the LLM never promotes a plan on its own. Nothing

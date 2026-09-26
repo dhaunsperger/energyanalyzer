@@ -248,8 +248,8 @@ def _llm_same_plan(
     *,
     min_confidence: float = 0.7,
     chat_fn=None,
-    model: str = _llm.OLLAMA_MODEL,
-    ollama_url: str = _llm.OLLAMA_URL,
+    model: Optional[str] = None,  # None -> configured model
+    ollama_url: Optional[str] = None,
     timeout: float = 60.0,
 ) -> Optional[bool]:
     """Ask the local LLM whether two plan listings are the same plan.
@@ -291,8 +291,8 @@ def _discovered_plan_in_ptc(
     llm_adjudicate: bool = False,
     max_llm_candidates: int = 3,
     chat_fn=None,
-    model: str = _llm.OLLAMA_MODEL,
-    ollama_url: str = _llm.OLLAMA_URL,
+    model: Optional[str] = None,  # None -> configured model
+    ollama_url: Optional[str] = None,
     timeout: float = 60.0,
 ) -> bool:
     """True if a discovered REP plan is already covered by the PTC listing.
@@ -1022,7 +1022,7 @@ def parse_downloaded_efls(
     Plans review UI with the model's reasoning. Best-effort throughout -- if
     Ollama is down the drafts are saved exactly as the parser produced them, and
     a per-draft failure never aborts the batch. Costs roughly 1s per weak draft
-    (see `llm.OLLAMA_MODEL` for the benchmark).
+    (see `energyanalyzer.llm` for the benchmark table).
 
     Returns `{'parsed': [plan_id, ...], 'skipped': [filename, ...],
     'failed': [{'file': filename, 'error': str}, ...],

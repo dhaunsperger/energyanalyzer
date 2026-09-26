@@ -1393,3 +1393,73 @@ def test_tdu_staleness_follows_the_march_september_calendar(
     assert bool(warning) is should_warn, why
     if should_warn:
         assert "March and September" in warning
+
+
+# --------------------------------------------------------------------------- #
+# LLM model selection: env > data/config.yaml > code default
+# --------------------------------------------------------------------------- #
+def test_llm_model_resolution_order(tmp_path, monkeypatch):
+    from energyanalyzer.core import config as ea_config
+
+    cfg = tmp_path / "config.yaml"
+    monkeypatch.delenv("EA_LLM_MODEL", raising=False)
+
+    # 1. Nothing set -> the benchmarked default.
+    assert ea_config.llm_model(cfg) == ea_config.DEFAULT_LLM_MODEL
+
+    # 2. config.yaml wins over the default.
+    cfg.write_text("llm_model: gemma4:7b\n")
+    assert ea_config.llm_model(cfg) == "gemma4:7b"
+
+    # 3. Environment wins over the file (for one-off comparison runs).
+    monkeypatch.setenv("EA_LLM_MODEL", "qwen3:4b")
+    assert ea_config.llm_model(cfg) == "qwen3:4b"
+
+
+def test_discovery_model_follows_the_shared_setting_unless_overridden(tmp_path, monkeypatch):
+    """One setting by default; two only when you mean it.
+
+    Discovery used to carry its own hardcoded constant, so changing the EFL
+    model silently left the site classifier on a different one.
+    """
+    from energyanalyzer.core import config as ea_config
+
+    for var in ("EA_LLM_MODEL", "EA_DISCOVERY_LLM_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = tmp_path / "config.yaml"
+
+    cfg.write_text("llm_model: gemma4:7b\n")
+    assert ea_config.discovery_llm_model(cfg) == "gemma4:7b"
+
+    cfg.write_text("llm_model: gemma4:7b\ndiscovery_llm_model: qwen3:4b\n")
+    assert ea_config.discovery_llm_model(cfg) == "qwen3:4b"
+
+
+def test_malformed_config_degrades_to_defaults(tmp_path, monkeypatch):
+    """A typo in a gitignored settings file must not break the app."""
+    from energyanalyzer.core import config as ea_config
+
+    monkeypatch.delenv("EA_LLM_MODEL", raising=False)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("llm_model: [unclosed\n")
+    assert ea_config.llm_model(cfg) == ea_config.DEFAULT_LLM_MODEL
+
+
+def test_configured_model_is_used_without_reimport(tmp_path, monkeypatch):
+    """Resolution happens at call time, not import time.
+
+    A module constant captured into a default argument freezes at import and
+    silently ignores the config -- the trap that made the refresh quarantine
+    reconcile the wrong directory.
+    """
+    from energyanalyzer import llm
+
+    monkeypatch.setenv("EA_LLM_MODEL", "gemma4:7b")
+    seen = {}
+
+    def fake_chat(messages, model, ollama_url, timeout):
+        seen["model"] = model
+        return {"message": {"content": "{}"}}
+
+    llm.chat_json([{"role": "user", "content": "hi"}], chat_fn=fake_chat)
+    assert seen["model"] == "gemma4:7b"

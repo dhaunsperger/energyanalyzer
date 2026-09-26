@@ -1496,11 +1496,11 @@ def _ollama_available() -> bool:
     try:
         import httpx
 
-        base = rd.OLLAMA_URL.rsplit("/api/", 1)[0]
+        base = rd.ollama_url().rsplit("/api/", 1)[0]
         resp = httpx.get(f"{base}/api/tags", timeout=2.0)
         resp.raise_for_status()
         names = [m.get("name", "") for m in resp.json().get("models", [])]
-        return any(rd.OLLAMA_MODEL in n for n in names)
+        return any(rd.ollama_model() in n for n in names)
     except Exception:
         return False
 

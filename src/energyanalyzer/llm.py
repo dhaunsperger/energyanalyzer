@@ -21,9 +21,10 @@ import json
 import logging
 from typing import Callable, Optional
 
+from energyanalyzer.core import config as _config
+
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
 # Model choice is MEASURED, not assumed -- see scripts/eval_efl.py, which scores
 # each candidate against the hand-verified corpus in
 # tests/fixtures/efl_texts/real/ground_truth.yaml. Results on the dev box
@@ -59,10 +60,15 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 # what hung this machine with the 8.5B `lfm2.5` (5.2 GB). Stay at or below ~3 GB
 # of weights unless you have measured otherwise. Do not switch models without
 # re-running scripts/eval_efl.py --compare.
-OLLAMA_MODEL = "gemma3:4b"
-# Ollama's model-list endpoint, derived from OLLAMA_URL, for the availability
-# probe (a cheap GET that doesn't run inference).
-OLLAMA_TAGS_URL = OLLAMA_URL.replace("/api/chat", "/api/tags")
+# The model and endpoint are settings, not constants: `llm_model` / `llm_url` in
+# data/config.yaml, or EA_LLM_MODEL / EA_LLM_URL for a one-off run. Resolved at
+# CALL time -- binding one into a default argument would freeze it at import and
+# quietly ignore the config. See energyanalyzer.core.config.
+ollama_model = _config.llm_model
+ollama_url = _config.llm_url
+# Ollama's model-list endpoint, for the availability probe (a cheap GET that
+# doesn't run inference).
+ollama_tags_url = _config.llm_tags_url
 
 
 # Ollama's own defaults are wrong for this workload and must be set explicitly.
@@ -82,14 +88,20 @@ _OPTIONS = {"temperature": 0.0, "num_ctx": 8192}
 
 def ollama_chat(
     messages: list[dict],
-    model: str = OLLAMA_MODEL,
-    ollama_url: str = OLLAMA_URL,
+    model: Optional[str] = None,
+    ollama_url: Optional[str] = None,
     timeout: float = 60.0,
 ) -> dict:
     """POST a chat completion to Ollama with JSON-forced output. Raises on any
-    transport/HTTP error (server down, model not pulled)."""
+    transport/HTTP error (server down, model not pulled).
+
+    `model` / `ollama_url` default to the configured values (see
+    energyanalyzer.core.config), resolved here rather than in the signature so a
+    config change takes effect without reimporting."""
     import httpx
 
+    model = model or _config.llm_model()
+    ollama_url = ollama_url or _config.llm_url()
     payload = {
         "model": model,
         "messages": messages,
@@ -105,8 +117,8 @@ def ollama_chat(
 
 def chat_json(
     messages: list[dict],
-    model: str = OLLAMA_MODEL,
-    ollama_url: str = OLLAMA_URL,
+    model: Optional[str] = None,
+    ollama_url: Optional[str] = None,
     timeout: float = 60.0,
     chat_fn: Optional[Callable[[list[dict], str, str, float], dict]] = None,
 ) -> Optional[dict]:
@@ -116,6 +128,8 @@ def chat_json(
     Never raises -- this is the graceful entry point callers use so a missing/
     broken Ollama simply means "no LLM help this time", not a crashed refresh.
     """
+    model = model or _config.llm_model()
+    ollama_url = ollama_url or _config.llm_url()
     fn = chat_fn or ollama_chat
     try:
         resp = fn(messages, model, ollama_url, timeout)
@@ -141,12 +155,12 @@ def chat_json(
     return parsed if isinstance(parsed, dict) else None
 
 
-def available(ollama_url: str = OLLAMA_URL, timeout: float = 3.0) -> bool:
+def available(ollama_url: Optional[str] = None, timeout: float = 3.0) -> bool:
     """Best-effort check that an Ollama server is reachable (a cheap GET to
     /api/tags, no inference). Used to skip LLM stages up front when it's down."""
     import httpx
 
-    tags_url = ollama_url.replace("/api/chat", "/api/tags")
+    tags_url = (ollama_url or _config.llm_url()).replace("/api/chat", "/api/tags")
     try:
         with httpx.Client(timeout=timeout) as client:
             return client.get(tags_url).status_code == 200

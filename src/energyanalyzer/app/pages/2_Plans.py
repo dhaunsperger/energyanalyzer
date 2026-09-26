@@ -46,6 +46,7 @@ from energyanalyzer.app.refresh_state import (  # noqa: E402
     read_log_tail,
     was_interrupted,
 )
+from energyanalyzer.core import config as _llm_config  # noqa: E402
 from energyanalyzer.core.models import Plan  # noqa: E402
 from energyanalyzer.eflparse.parser import plan_fields  # noqa: E402
 from energyanalyzer.core.plans_io import DRAFTS_DIR, PLANS_DIR, save_plan  # noqa: E402
@@ -545,6 +546,12 @@ refresh_llm_assist = st.checkbox(
         "full refresh.)"
     ),
 )
+
+if refresh_llm_assist:
+    st.caption(
+        f"Model: `{_llm_config.llm_model()}` at `{_llm_config.llm_url()}` "
+        "— set `llm_model` in `data/config.yaml` (or `EA_LLM_MODEL`) to change it."
+    )
 discovery_zip = st.text_input(
     "Discovery ZIP code",
     value="78665",
@@ -1079,6 +1086,11 @@ if efl_pdfs:
             "roughly a second per unreadable draft. Skipped silently if Ollama is unreachable."
         ),
     )
+    if use_llm_assist:
+        st.caption(
+            f"Model: `{_llm_config.llm_model()}` at `{_llm_config.llm_url()}` "
+            "— set `llm_model` in `data/config.yaml` (or `EA_LLM_MODEL`) to change it."
+        )
     if st.button("Parse all downloaded EFLs into drafts", key="parse_all_efls_btn"):
         progress_bar = st.progress(0.0)
         status_line = st.empty()

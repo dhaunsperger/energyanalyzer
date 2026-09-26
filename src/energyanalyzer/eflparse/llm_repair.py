@@ -31,7 +31,7 @@ The rest of the safety model is deterministic-first and conservative:
 * If Ollama is unreachable or returns junk, the draft is returned unchanged.
 
 Which model to use is measured, not assumed -- see ``energyanalyzer.llm`` for the
-benchmark table behind the ``OLLAMA_MODEL`` default and the VRAM constraint.
+benchmark table behind the default model choice and the VRAM constraint.
 
 This module is import-safe without Ollama (all LLM I/O goes through
 ``llm.chat_json``, which returns ``None`` on any failure) and fully mockable via
@@ -287,8 +287,8 @@ def llm_repair_draft(
     cap_confidence: float = 0.85,
     verified_confidence: float = 0.8,
     chat_fn: Optional[Callable[[list[dict], str, str, float], dict]] = None,
-    model: str = llm.OLLAMA_MODEL,
-    ollama_url: str = llm.OLLAMA_URL,
+    model: Optional[str] = None,
+    ollama_url: Optional[str] = None,
     timeout: float = 90.0,
 ) -> tuple[DraftPlan, dict]:
     """Fill a draft's weak load-bearing fields from an LLM read of the EFL text.

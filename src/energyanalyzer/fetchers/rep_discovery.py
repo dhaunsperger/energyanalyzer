@@ -64,6 +64,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
 
+from energyanalyzer.core import config as _config
 from energyanalyzer.fetchers import hostpool
 
 # Discovery is slow (live browser per REP). These INFO logs narrate each step so
@@ -77,9 +78,15 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-# Ollama defaults for the LLM fallback classifier.
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "lfm2.5"
+# Ollama settings for the LLM fallback classifier. These follow the shared
+# config (`llm_model` / `llm_url`, or EA_LLM_MODEL / EA_LLM_URL) so switching
+# models is one change, not two -- discovery used to carry its own hardcoded
+# constant, so changing the EFL model left this classifier on whatever it had
+# been pinned to. Set `discovery_llm_model` in data/config.yaml only if you
+# genuinely want the two to differ. Resolved at CALL time, never bound into a
+# default argument.
+ollama_url = _config.llm_url
+ollama_model = _config.discovery_llm_model
 
 # Politeness: minimum seconds between successive live requests to the same
 # host (both browser navigations and EFL downloads share this throttle).
@@ -886,8 +893,8 @@ def classify_link_llm(
     link_text: str,
     context: str,
     url: str = "",
-    model: str = OLLAMA_MODEL,
-    ollama_url: str = OLLAMA_URL,
+    model: Optional[str] = None,
+    ollama_url: Optional[str] = None,
     timeout: float = 60.0,
     chat_fn: Optional[Callable[[list[dict], str, str, float], dict]] = None,
 ) -> dict:
@@ -908,6 +915,8 @@ def classify_link_llm(
         f"URL: {url!r}\n"
         f"Surrounding page context:\n{context.strip()[:2000]}"
     )
+    model = model or _config.discovery_llm_model()
+    ollama_url = ollama_url or _config.llm_url()
     messages = [
         {"role": "system", "content": _CLASSIFIER_SYSTEM},
         {"role": "user", "content": user},
