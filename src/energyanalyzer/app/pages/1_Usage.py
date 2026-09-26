@@ -31,7 +31,7 @@ st.title("Usage")
 # --------------------------------------------------------------------------- #
 st.subheader("Upload interval data")
 st.caption(
-    "SmartMeter Texas (SMT) interval CSV export, or NAESB Green Button XML. "
+    "SmartMeter Texas (SMT) interval CSV export. "
     "Multiple files are merged automatically."
 )
 uploaded_files = st.file_uploader(
@@ -46,7 +46,12 @@ if uploaded_files:
             if suffix == ".csv":
                 target_name = f.name if f.name.startswith("IntervalData") else f"IntervalData_{f.name}"
             elif suffix == ".xml":
-                target_name = f.name if f.name.startswith("GreenButton") else f"GreenButton_{f.name}"
+                st.warning(
+                    f"Skipping {f.name}: Green Button XML is no longer read. Export the "
+                    "interval CSV from SmartMeter Texas -- it carries both the consumption "
+                    "and surplus-generation channels, which Green Button does not."
+                )
+                continue
             else:
                 st.warning(f"Skipping unrecognized file type: {f.name}")
                 continue

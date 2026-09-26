@@ -66,7 +66,7 @@ data/                      ← gitignored: user CSVs, parquet cache, ERCOT price
 src/energyanalyzer/
   core/models.py           ← DONE (lead). Pydantic schema — THE contract.
   core/plans_io.py         ← DONE (lead). Load/save plan YAMLs, TDU tariffs.
-  ingest/                  ← Task 2: SMT CSV + Green Button XML → canonical frame
+  ingest/                  ← Task 2: SMT interval CSV → canonical frame
   prices/                  ← Task 4: ERCOT RTM settlement price loading
   fetchers/                ← Task 4: Power to Choose CSV + EFL PDF downloads
   engine/                  ← Task 3: billing simulation
@@ -104,10 +104,20 @@ ESIID,USAGE_DATE,REVISION_DATE,USAGE_START_TIME,USAGE_END_TIME,USAGE_KWH,ESTIMAT
 - `USAGE_END_TIME` of `00:00` means midnight of the next day.
 - `ESTIMATED_ACTUAL`: 'A' actual, 'E' estimated (keep, count in QualityReport).
 
-Green Button XML (secondary): NAESB ESPI Atom feed; `<IntervalReading>` has
-`start` epoch seconds (UTC), `duration` 900, `value` in **Wh** (÷1000);
-`flowDirection` 1 = delivered (import), 19 = received (export). A file may
-contain only one channel; the loader must merge multiple files.
+**Several exports merge**, so a partial "since last time" download can sit
+beside a full year. Intervals that appear in more than one file are
+deduplicated (never summed) and the most recently downloaded file supplies the
+surviving reading — values normally agree for one ESIID, but a blank reads as
+0.0 kWh and an estimate later settles to an actual, and the fresher pull is
+right in both. Merge order is by mtime, and deduplication happens *before*
+sorting because pandas' `sort_index` is not stable across a mix of unique and
+duplicated keys.
+
+**Green Button XML is not supported** (dropped 2026-09). Each file carries a
+single `flowDirection`, so it cannot describe a solar home's import and export
+together, and mixing it with CSVs raised precedence questions the richer format
+does not pose. `load_intervals` raises a FileNotFoundError naming the CSV export
+if it finds only XML.
 
 ## 5. Plan schema (see `core/models.py` — authoritative)
 
@@ -849,7 +859,7 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
 | Module | Task | Status | Notes |
 |---|---|---|---|
 | core models + plans_io + seeds | #1 | DONE (lead) | schema is the contract |
-| ingest | #2 | DONE | CSV position-based DST handling + GreenButton merge; parquet cache |
+| ingest | #2 | DONE | CSV position-based DST handling; multi-export merge; parquet cache |
 | engine | #3 | DONE | simulate()/rank() implemented per §6; validated against real CSV (see open Q below re: TDU during free windows). Report-benchmark regression (`test_integration_report_benchmarks`) now reads ALL its inputs -- the 7 `report-2026-07` plan YAMLs, the Oncor tariff, and the interval CSV -- from a frozen archive (`tests/fixtures/benchmark_2026_07/`, see its README; CSV gitignored/private, test skips when absent) so refreshing live usage data / tariffs / plans can't move the expected dollars. |
 | prices + fetchers | #4 | DONE | ercot.py: xlsx (NP6-785-ER) + 12301 CSV shapes, parquet cache; ptc.py: fuzzy-column loader, filter_plans, download_efls. Downloaders (download_prices/fetch_ptc_csv) untested live (ercot.com/powertochoose.org blocked in sandbox); manual-download fallback documented in errors. |
 | discovery: Chariot host fix + Ambit automation | #4 | DONE | Two REP-discovery fixes 2026-07-24. **Chariot** silently lost ALL 11 EFLs to 404s: its cards carry RELATIVE hrefs (`/Home/EFl?productId=...`) and the marketing site hands off to `signup.chariotenergy.com`, but the extractor resolved them against `homepage` (`chariotenergy.com`). Nothing caught it at discovery time because a bad base only surfaces later as a failed download. New `RepConfig.efl_base` / `link_base` property separates the *navigation* host from the *relative-link* host; Chariot sets `efl_base="https://signup.chariotenergy.com/"`. Verified live: 5/5 real PDFs (the Shine/PowerBank buyback plans). **Ambit** gained a real `render()`: the recorded note that its "WAF blocks Playwright" was WRONG -- Azure Front Door answers `Blocked by WAF` *probabilistically* (measured: plain httpx 3/6, Playwright 3/3), and what actually hid the plans was a qualification funnel (ZIP -> Get Started -> House -> Accept -> See Plans -> **radio** "No. I already live here." -> See Plans). Built from the user's `playwright codegen`; validated live at 14 plans / 2 buyback, matching the manual capture. It IS flaky (success and a card-wait timeout minutes apart), so `_run_rep_discovery` now falls back to the newest manual capture when a live render raises (`_newest_capture`) -- a bad night degrades to the old behavior instead of dropping every buyback plan. Ambit's EFL download is **also fixed**: the `/PDFGenerator` link the "See Plan Details" panel exposes is only a *viewer page* -- it returns the Next.js 404 shell (text/html, 8 KB) to httpx, to `ctx.request` with 45 funnel cookies, AND to a real in-browser navigation. Watching the popup's own network traffic showed its JS calling a backend endpoint, `/api/getdocument`, and wrapping the result in a `blob:` (same shape as Direct Energy). That endpoint serves `application/pdf` to plain httpx with no session at all, so `download_discovered` needs no browser. Every query parameter is renamed between the two (`formType`/`comProdId`/`lang`/`custClass` -> `docType`/`productid`/`language`/`classification`) and `efldate` must be full ISO 8601 (`...T00:00:00`), not a bare date. Validated end-to-end: both buyback EFLs download, parse (base $9.95, 12.7c, buyback fixed 3.5c energy_only) and come out `needs_review=False`. Ambit is now fully automated -- no manual capture required. 403 tests green. |
@@ -961,9 +971,9 @@ Compare, Export -- see §9 for what each does.
 
 Data files (all gitignored, all local-only):
 
-- `data/IntervalData*.csv` or `data/GreenButton*.xml` -- your SMT/Green Button
-  interval export(s). Upload via the **Usage** page (writes into `data/` and
-  reloads automatically), or drop the file(s) in by hand before launching.
+- `data/IntervalData*.csv` -- your SmartMeter Texas interval export(s). Upload
+  via the **Usage** page (writes into `data/` and reloads automatically), or
+  drop the file(s) in by hand before launching. Several may coexist.
   `data/intervals.parquet` is an auto-managed cache; delete it to force a
   re-parse.
 - `data/ercot/` -- ERCOT RTM settlement price files (XLSX or 12301 CSV), only

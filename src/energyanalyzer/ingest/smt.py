@@ -1,9 +1,14 @@
-"""Ingest SmartMeter Texas (SMT) interval CSV and NAESB Green Button XML
-exports into the canonical interval frame described in ARCHITECTURE.md §4.
+"""Ingest SmartMeter Texas (SMT) interval CSV exports into the canonical
+interval frame described in ARCHITECTURE.md §4.
+
+SMT's CSV is the only supported export. Green Button XML was accepted until
+2026-09 and was dropped: each file carries a single flow direction, so it could
+not describe a solar home's import and export together, and mixing it with CSVs
+raised precedence questions the richer format does not pose -- the CSV names
+both channels and marks estimated against actual readings.
 
 Public API:
     load_smt_csv(path) -> (df, QualityReport)
-    load_greenbutton_xml(paths) -> (df, QualityReport)
     load_intervals(data_dir=Path("data")) -> (df, QualityReport)
     QualityReport
 """
@@ -11,7 +16,6 @@ Public API:
 from __future__ import annotations
 
 import json
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
@@ -223,118 +227,6 @@ def load_smt_csv(path: Union[str, Path]) -> tuple:
 
 
 # --------------------------------------------------------------------------- #
-# Green Button (NAESB ESPI) XML
-# --------------------------------------------------------------------------- #
-def _local_tag(elem: ET.Element) -> str:
-    tag = elem.tag
-    return tag.split("}", 1)[-1] if "}" in tag else tag
-
-
-def _find_all(root: ET.Element, tagname: str) -> list:
-    return [e for e in root.iter() if _local_tag(e) == tagname]
-
-
-def _file_channel(root: ET.Element, path: Path, warnings: list) -> str:
-    """Inspect the file's ReadingType entries to figure out whether this file
-    carries the import (flowDirection=1) or export (flowDirection=19) channel."""
-    flow_dirs = set()
-    for rt in _find_all(root, "ReadingType"):
-        for fd in _find_all(rt, "flowDirection"):
-            if fd.text is not None:
-                flow_dirs.add(fd.text.strip())
-
-    if not flow_dirs:
-        warnings.append(f"{path.name}: no flowDirection found; assuming import (flowDirection=1)")
-        return "import_kwh"
-    if len(flow_dirs) > 1:
-        warnings.append(
-            f"{path.name}: multiple flowDirection values {sorted(flow_dirs)} found; using first"
-        )
-    flow = sorted(flow_dirs)[0]
-    if flow == "19":
-        return "export_kwh"
-    if flow == "1":
-        return "import_kwh"
-    warnings.append(f"{path.name}: unrecognized flowDirection={flow!r}; assuming import")
-    return "import_kwh"
-
-
-def _read_greenbutton_file(path: Path, warnings: list) -> tuple:
-    """Returns (channel_col, Series[value_wh-derived kwh] indexed by UTC start)."""
-    tree = ET.parse(path)
-    root = tree.getroot()
-    col = _file_channel(root, path, warnings)
-
-    starts = []
-    values_wh = []
-    for ir in _find_all(root, "IntervalReading"):
-        tp_list = _find_all(ir, "timePeriod")
-        start_el = _find_all(tp_list[0], "start") if tp_list else _find_all(ir, "start")
-        val_el = _find_all(ir, "value")
-        if not start_el or not val_el or start_el[0].text is None or val_el[0].text is None:
-            continue
-        starts.append(int(start_el[0].text))
-        values_wh.append(float(val_el[0].text))
-
-    if not starts:
-        warnings.append(f"{path.name}: no IntervalReading elements found")
-        return col, pd.Series(dtype=float)
-
-    idx = pd.to_datetime(pd.Series(starts), unit="s", utc=True)
-    s = pd.Series([v / 1000.0 for v in values_wh], index=pd.DatetimeIndex(idx), name=col)
-    return col, s
-
-
-def load_greenbutton_xml(paths) -> tuple:
-    """Load one or more NAESB ESPI Green Button Atom XML files and merge them
-    into the canonical frame. A file may carry only one channel (import or
-    export); the missing channel is filled with 0.0 and noted."""
-    if isinstance(paths, (str, Path)):
-        paths = [paths]
-    paths = [Path(p) for p in paths]
-    if not paths:
-        raise ValueError("load_greenbutton_xml requires at least one path")
-
-    report = QualityReport(source=", ".join(str(p) for p in paths))
-    series_lists: dict = {}
-
-    for path in paths:
-        col, s = _read_greenbutton_file(path, report.warnings)
-        if s.empty:
-            continue
-        series_lists.setdefault(col, []).append(s)
-
-    if not series_lists:
-        raise ValueError(f"no interval readings found in any of {paths}")
-
-    result_cols = {}
-    for col, series_list in series_lists.items():
-        combined = pd.concat(series_list).sort_index()
-        dup_mask = combined.index.duplicated(keep="first")
-        n_dup = int(dup_mask.sum())
-        if n_dup:
-            report.warnings.append(f"{col}: collapsed {n_dup} duplicate interval timestamp(s)")
-        report.duplicate_count += n_dup
-        combined = combined[~dup_mask]
-        result_cols[col] = combined
-        report.rows_per_channel[col] = int(len(combined))
-
-    df = pd.DataFrame(result_cols)
-    for col in CANONICAL_COLUMNS:
-        if col not in df.columns:
-            df[col] = 0.0
-            report.warnings.append(
-                f"channel {col} missing from all Green Button file(s); filled with 0.0"
-            )
-    df = df[list(CANONICAL_COLUMNS)].sort_index().fillna(0.0)
-    df = df[~df.index.duplicated(keep="first")]
-
-    _finalize_report(df, report)
-    validate_intervals(df)
-    return df, report
-
-
-# --------------------------------------------------------------------------- #
 # Convenience loader with parquet caching
 # --------------------------------------------------------------------------- #
 def _source_manifest(source_paths: list) -> list:
@@ -362,23 +254,20 @@ def _read_manifest(cache_path: Path):
 
 
 def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
-    """Load the canonical interval frame from `data_dir`, preferring
-    IntervalData*.csv, falling back to GreenButton*.xml. Caches the result to
-    `<data_dir>/intervals.parquet`, reusing it only while the set of source
-    files is unchanged (see `_source_manifest`).
+    """Load the canonical interval frame from the IntervalData*.csv exports in
+    `data_dir`. Caches to `<data_dir>/intervals.parquet`, reusing it only while
+    the set of source files is unchanged (see `_source_manifest`).
 
-    Multiple exports are merged: overlapping intervals are deduplicated with
-    the alphabetically-first file winning, which is how a re-download of the
-    same period (carrying revised meter readings) supersedes the older copy.
-    The merged span can therefore exceed 12 months -- see
-    `core.models.describe_billing_window`, which is what decides the window a
-    first-year cost is actually computed over."""
+    Several exports merge cleanly, so a partial "since last time" download can
+    sit beside a full year: intervals both cover are deduplicated, never summed,
+    and the most recently downloaded file supplies the surviving reading. The
+    merged span can therefore exceed 12 months -- see
+    `core.models.describe_billing_window`, which decides the window a first-year
+    cost is actually computed over."""
     data_dir = Path(data_dir)
     cache_path = data_dir / "intervals.parquet"
 
-    csv_paths = sorted(data_dir.glob("IntervalData*.csv"))
-    xml_paths = sorted(data_dir.glob("GreenButton*.xml"))
-    source_paths = csv_paths if csv_paths else xml_paths
+    source_paths = sorted(data_dir.glob("IntervalData*.csv"))
 
     if not source_paths:
         if cache_path.exists():
@@ -388,9 +277,16 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
             _finalize_report(df, report)
             report.warnings.append("loaded from cache; no source files found in data_dir")
             return df, report
+        stranded = sorted(data_dir.glob("*.xml"))
+        hint = (
+            f" Found {len(stranded)} XML file(s) there; Green Button is no longer read. "
+            "Export the interval CSV from smartmetertexas.com instead -- it carries both "
+            "the consumption and surplus-generation channels, which Green Button does not."
+            if stranded
+            else ""
+        )
         raise FileNotFoundError(
-            f"No IntervalData*.csv or GreenButton*.xml found in {data_dir}, "
-            f"and no cache at {cache_path}"
+            f"No IntervalData*.csv found in {data_dir}, and no cache at {cache_path}.{hint}"
         )
 
     manifest = _source_manifest(source_paths)
@@ -401,43 +297,40 @@ def load_intervals(data_dir: Union[str, Path] = Path("data")) -> tuple:
         _finalize_report(df, report)
         return df, report
 
-    if csv_paths:
-        # Merge oldest download first so the NEWEST one wins any interval both
-        # cover. SMT re-exports carry revised readings (an estimate settling to
-        # an actual, a correction), so the later pull is the better number --
-        # and a partial "since last time" export is expected to overwrite the
-        # tail of the previous one. Ordering by mtime rather than by filename
-        # because the filenames SMT produces carry no reliable sequence.
-        #
-        # Deduplicating BEFORE sorting is deliberate: pandas' sort_index is not
-        # stable for a mix of unique and duplicated keys, so which file survived
-        # an overlap used to depend on the sort's internals rather than on any
-        # rule -- the older export won or lost by luck.
-        merge_order = sorted(csv_paths, key=lambda p: p.stat().st_mtime)
-        frames = []
-        report = QualityReport(source=", ".join(str(p) for p in merge_order))
-        for p in merge_order:
-            d, r = load_smt_csv(p)
-            frames.append(d)
-            report.warnings.extend(r.warnings)
-            report.blank_count += r.blank_count
-            report.estimated_count += r.estimated_count
-            report.duplicate_count += r.duplicate_count
-            for k, v in r.rows_per_channel.items():
-                report.rows_per_channel[k] = report.rows_per_channel.get(k, 0) + v
-        if len(frames) > 1:
-            df = pd.concat(frames)
-            superseded = int(df.index.duplicated(keep="last").sum())
-            df = df[~df.index.duplicated(keep="last")].sort_index()
-            if superseded:
-                report.warnings.append(
-                    f"{superseded} interval(s) appeared in more than one export; kept the "
-                    f"reading from the most recently downloaded file ({merge_order[-1].name})"
-                )
-        else:
-            df = frames[0]
+    # Merge oldest download first so the NEWEST one wins any interval both
+    # cover. SMT re-exports carry revised readings (an estimate settling to
+    # an actual, a correction), so the later pull is the better number --
+    # and a partial "since last time" export is expected to overwrite the
+    # tail of the previous one. Ordering by mtime rather than by filename
+    # because the filenames SMT produces carry no reliable sequence.
+    #
+    # Deduplicating BEFORE sorting is deliberate: pandas' sort_index is not
+    # stable for a mix of unique and duplicated keys, so which file survived
+    # an overlap used to depend on the sort's internals rather than on any
+    # rule -- the older export won or lost by luck.
+    merge_order = sorted(source_paths, key=lambda p: p.stat().st_mtime)
+    frames = []
+    report = QualityReport(source=", ".join(str(p) for p in merge_order))
+    for p in merge_order:
+        d, r = load_smt_csv(p)
+        frames.append(d)
+        report.warnings.extend(r.warnings)
+        report.blank_count += r.blank_count
+        report.estimated_count += r.estimated_count
+        report.duplicate_count += r.duplicate_count
+        for k, v in r.rows_per_channel.items():
+            report.rows_per_channel[k] = report.rows_per_channel.get(k, 0) + v
+    if len(frames) > 1:
+        df = pd.concat(frames)
+        superseded = int(df.index.duplicated(keep="last").sum())
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+        if superseded:
+            report.warnings.append(
+                f"{superseded} interval(s) appeared in more than one export; kept the "
+                f"reading from the most recently downloaded file ({merge_order[-1].name})"
+            )
     else:
-        df, report = load_greenbutton_xml(xml_paths)
+        df = frames[0]
 
     validate_intervals(df)
     _finalize_report(df, report)

@@ -73,7 +73,7 @@ with col1:
     except FileNotFoundError as exc:
         st.info("No interval data loaded yet.")
         render_missing_data_help(exc, title="How to load your usage data")
-        st.caption("Go to the **Usage** page to upload a SmartMeter Texas CSV or Green Button XML.")
+        st.caption("Go to the **Usage** page to upload a SmartMeter Texas interval CSV.")
 
 # --------------------------------------------------------------------------- #
 # Plans

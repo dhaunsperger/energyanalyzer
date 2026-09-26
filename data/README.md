@@ -8,8 +8,12 @@ the files below yourself (or let the app's Usage page uploader do it).
 data/
   IntervalData.csv     ← SmartMeter Texas 15-min interval export (CSV report
                           with both Consumption and Surplus Generation rows).
-                          Any file matching IntervalData*.csv is picked up.
-  GreenButton*.xml     ← optional alternative: SMT Green Button XML export(s)
+                          Any file matching IntervalData*.csv is picked up, so
+                          a partial "since last time" export can sit beside a
+                          full year: overlapping intervals are deduplicated,
+                          never summed, and the newest download wins.
+                          (Green Button XML is not read -- it carries only one
+                          flow direction, so it cannot cover solar export.)
   intervals.parquet    ← cache, created automatically
   ercot/               ← ERCOT price history for real-time-wholesale plans:
                           "Historical RTM Load Zone and Hub Prices" XLSX

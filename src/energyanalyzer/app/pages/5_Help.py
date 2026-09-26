@@ -120,7 +120,9 @@ with pages_tab:
     with st.expander("Usage — load and review your interval data"):
         st.markdown(
             """
-- **Upload** a SmartMeter Texas (SMT) interval **CSV** export, or a NAESB **Green Button XML**.
+- **Upload** a SmartMeter Texas (SMT) interval **CSV** export. Several exports can
+  sit side by side: overlapping intervals are deduplicated, never summed, and the
+  most recently downloaded file supplies the surviving reading.
   Multiple files merge automatically; click **Save & reload** to persist them into `data/`.
 - **Data quality** flags gaps, duplicates, and coverage so you know whether a full year is present.
 - Charts: **monthly import/export**, an **hour-of-day × month** net-power heatmap, and the

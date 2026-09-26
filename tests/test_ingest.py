@@ -9,7 +9,6 @@ import pytest
 
 from energyanalyzer.ingest.smt import (
     QualityReport,
-    load_greenbutton_xml,
     load_intervals,
     load_smt_csv,
 )
@@ -74,58 +73,6 @@ def make_smt_csv(
             )
     path = tmp_path / filename
     path.write_text("\n".join(lines) + "\n")
-    return path
-
-
-def make_greenbutton_xml(
-    tmp_path: Path,
-    start_epoch: int,
-    n_intervals: int,
-    value_wh: float,
-    flow_direction: int,
-    filename: str,
-    prefixed_ns: bool = False,
-) -> Path:
-    """Write a minimal single-channel Green Button Atom XML file."""
-    readings = []
-    for i in range(n_intervals):
-        s = start_epoch + i * 900
-        if prefixed_ns:
-            readings.append(
-                f"<espi:IntervalReading><espi:timePeriod><espi:duration>900</espi:duration>"
-                f"<espi:start>{s}</espi:start></espi:timePeriod>"
-                f"<espi:value>{value_wh}</espi:value></espi:IntervalReading>"
-            )
-        else:
-            readings.append(
-                f"<IntervalReading><timePeriod><duration>900</duration>"
-                f"<start>{s}</start></timePeriod>"
-                f"<value>{value_wh}</value></IntervalReading>"
-            )
-    readings_xml = "".join(readings)
-
-    if prefixed_ns:
-        content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:espi="http://naesb.org/espi">
-<entry><title>ReadingType</title>
-<content><espi:ReadingType><espi:flowDirection>{flow_direction}</espi:flowDirection></espi:ReadingType></content>
-</entry>
-<entry><title>IntervalBlock</title>
-<content><espi:IntervalBlock>{readings_xml}</espi:IntervalBlock></content>
-</entry>
-</feed>"""
-    else:
-        content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:espi="http://naesb.org/espi">
-<entry><title>ReadingType</title>
-<content><ReadingType xmlns="http://naesb.org/espi"><flowDirection>{flow_direction}</flowDirection></ReadingType></content>
-</entry>
-<entry><title>IntervalBlock</title>
-<content><IntervalBlock xmlns="http://naesb.org/espi">{readings_xml}</IntervalBlock></content>
-</entry>
-</feed>"""
-    path = tmp_path / filename
-    path.write_text(content)
     return path
 
 
@@ -217,59 +164,24 @@ def test_dst_springforward_day(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Green Button XML: single-channel merge
+# load_intervals: merges exports, caches to parquet, reuses cache
 # --------------------------------------------------------------------------- #
-def test_greenbutton_single_channel_merge(tmp_path):
-    start_epoch = 1751328000  # 2025-07-01T00:00:00Z per spec's literal epoch=UTC handling
-    n = 8
-    import_path = make_greenbutton_xml(
-        tmp_path, start_epoch, n, value_wh=500.0, flow_direction=1, filename="import.xml"
-    )
-    export_path = make_greenbutton_xml(
-        tmp_path,
-        start_epoch,
-        n,
-        value_wh=125.0,
-        flow_direction=19,
-        filename="export.xml",
-        prefixed_ns=True,
-    )
+def test_load_intervals_merges_exports_and_caches(tmp_path):
+    import os
+    import time
 
-    df, report = load_greenbutton_xml([import_path, export_path])
-
-    assert len(df) == n
-    assert df["import_kwh"].sum() == pytest.approx(n * 0.5)
-    assert df["export_kwh"].sum() == pytest.approx(n * 0.125)
-    assert report.rows_per_channel == {"import_kwh": n, "export_kwh": n}
-    assert not df.index.has_duplicates
-    assert str(df.index.tz) == "UTC"
-    assert df.index.min() == pd.Timestamp(start_epoch, unit="s", tz="UTC")
-
-
-def test_greenbutton_missing_channel_filled_and_noted(tmp_path):
-    start_epoch = 1751328000
-    path = make_greenbutton_xml(
-        tmp_path, start_epoch, 4, value_wh=400.0, flow_direction=1, filename="import_only.xml"
-    )
-    df, report = load_greenbutton_xml([path])
-
-    assert (df["export_kwh"] == 0.0).all()
-    assert any("export_kwh" in w and "missing" in w for w in report.warnings)
-
-
-# --------------------------------------------------------------------------- #
-# load_intervals: prefers CSV, caches to parquet, reuses cache
-# --------------------------------------------------------------------------- #
-def test_load_intervals_prefers_csv_and_caches(tmp_path):
-    make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
-    make_greenbutton_xml(
-        tmp_path, 1751328000, 96, value_wh=999.0, flow_direction=1, filename="GreenButton.xml"
-    )
+    older = make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalData.csv")
+    # A second export covering the same day with a different reading, named so
+    # that filename order cannot be what decides the winner.
+    newer = make_smt_csv(tmp_path, "07/01/2025", kind="normal", filename="IntervalDataNEW.csv")
+    newer.write_text(newer.read_text().replace("0.500", "0.900"))
+    now = time.time()
+    os.utime(older, (now - 600, now - 600))
+    os.utime(newer, (now, now))
 
     df, report = load_intervals(data_dir=tmp_path)
-    assert len(df) == 96
-    # CSV import value (0.5/interval) should win over the XML's 999 Wh stub
-    assert df["import_kwh"].iloc[0] == pytest.approx(0.5)
+    assert len(df) == 96, "the overlap is deduplicated, never summed"
+    assert df["import_kwh"].iloc[0] == pytest.approx(0.9), "newest download wins"
 
     cache_path = tmp_path / "intervals.parquet"
     assert cache_path.exists()
@@ -277,23 +189,31 @@ def test_load_intervals_prefers_csv_and_caches(tmp_path):
     # Unchanged source set -> the cache is reused.
     df_again, report_again = load_intervals(data_dir=tmp_path)
     assert "cache" in report_again.source
-    assert len(df_again) == 96
-    assert df_again["import_kwh"].iloc[0] == pytest.approx(0.5)
+    assert df_again["import_kwh"].iloc[0] == pytest.approx(0.9)
 
     # Removing a source CHANGES the source set, so the cache is rebuilt from
-    # what remains (here the XML's 999 Wh) rather than replaying a frame built
-    # from a file the user deleted. Deleting a superseded export is exactly how
-    # a stale window used to survive: every remaining file is older than the
-    # cache, so a newest-mtime check saw nothing to do.
-    (tmp_path / "IntervalData.csv").unlink()
+    # what remains. Deleting a superseded export is exactly how a stale window
+    # used to survive: every remaining file is older than the cache, so a
+    # newest-mtime check saw nothing to do.
+    newer.unlink()
     df2, _ = load_intervals(data_dir=tmp_path)
-    assert df2["import_kwh"].iloc[0] == pytest.approx(0.999)
+    assert df2["import_kwh"].iloc[0] == pytest.approx(0.5)
 
     # With no sources left at all, the cache is the only thing to serve.
-    (tmp_path / "GreenButton.xml").unlink()
+    older.unlink()
     df3, report3 = load_intervals(data_dir=tmp_path)
     assert "cache" in report3.source
     assert len(df3) == 96
+
+
+def test_green_button_xml_is_not_read_and_says_so(tmp_path):
+    """Dropping an XML in should fail loudly, not look like an empty folder."""
+    (tmp_path / "GreenButton.xml").write_text("<feed/>")
+    with pytest.raises(FileNotFoundError) as excinfo:
+        load_intervals(data_dir=tmp_path)
+    message = str(excinfo.value)
+    assert "Green Button is no longer read" in message
+    assert "smartmetertexas.com" in message
 
 
 def test_load_intervals_raises_without_source_or_cache(tmp_path):
