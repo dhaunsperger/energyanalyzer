@@ -535,3 +535,64 @@ def test_the_current_plan_always_keeps_its_own_row():
     )}
     kept, _ = app_common.group_plan_siblings(["rival", app_common.CURRENT_PLAN_ID], by_id)
     assert app_common.CURRENT_PLAN_ID in kept
+
+
+# --------------------------------------------------------------------------- #
+# Sources disagreeing must not delete both copies
+# --------------------------------------------------------------------------- #
+def test_delisted_cover_does_not_retire_the_index_row(tmp_path):
+    """When one source still lists a plan and another no longer does, keep one.
+
+    Regression for 2026-09-26: Power to Choose stopped listing Direct Solar
+    Unlimited 12, so reconcile flagged the real plan delisted; supersede then
+    deleted the meterplan.com row that had listed the same plan minutes
+    earlier. Net effect -- the real copy sat in review, the index row was gone,
+    and a candidate worth ~$1,500/yr disappeared from the ranking entirely.
+    Same pattern took out Twelve Hour Power 24 and Reliant Solar Payback Match.
+    """
+    plans_dir = tmp_path / "plans"
+    drafts_dir = plans_dir / "drafts"
+    plans_dir.mkdir()
+    drafts_dir.mkdir()
+
+    _write(plans_dir, _mk("Direct Energy", "Direct Solar Unlimited", 12,
+                          "meterplan", "mp_direct_energy_direct_solar_unlimited_12mo"))
+    _write(plans_dir, _mk("Direct Energy", "Direct Solar Unlimited 12", 12,
+                          "efl:Direct.pdf", "direct_energy_direct_solar_unlimited_12_12mo"))
+
+    kept: list = []
+    removed = app_common.supersede_meterplan_plans(
+        plans_dir,
+        drafts_dir,
+        delisted_ids={"direct_energy_direct_solar_unlimited_12_12mo"},
+        kept_out=kept,
+    )
+
+    assert removed == [], "a delisted cover must not retire the row that still lists it"
+    assert kept == [
+        ("mp_direct_energy_direct_solar_unlimited_12mo",
+         "direct_energy_direct_solar_unlimited_12_12mo")
+    ]
+    assert (plans_dir / "mp_direct_energy_direct_solar_unlimited_12mo.yaml").exists()
+
+
+def test_supersede_still_retires_when_the_cover_is_healthy(tmp_path):
+    """The ordinary case is unchanged: a live real plan retires its synthetic."""
+    plans_dir = tmp_path / "plans"
+    drafts_dir = plans_dir / "drafts"
+    plans_dir.mkdir()
+    drafts_dir.mkdir()
+
+    _write(plans_dir, _mk("Gexa Energy", "Solar Buyback", 12,
+                          "meterplan", "mp_gexa_energy_solar_buyback_12mo"))
+    _write(plans_dir, _mk("Gexa Energy", "Gexa Solar Buyback 12", 12,
+                          "efl:Gexa.pdf", "gexa_energy_gexa_solar_buyback_12_12mo"))
+
+    kept: list = []
+    removed = app_common.supersede_meterplan_plans(
+        plans_dir, drafts_dir, delisted_ids={"something_else"}, kept_out=kept
+    )
+
+    assert [r[0] for r in removed] == ["mp_gexa_energy_solar_buyback_12mo"]
+    assert kept == []
+    assert not (plans_dir / "mp_gexa_energy_solar_buyback_12mo.yaml").exists()

@@ -429,7 +429,10 @@ def _covered_by_real(synthetic, candidates) -> Optional[object]:
 
 
 def supersede_meterplan_plans(
-    plans_dir: Path = PLANS_DIR, drafts_dir: Path = DRAFTS_DIR
+    plans_dir: Path = PLANS_DIR,
+    drafts_dir: Path = DRAFTS_DIR,
+    delisted_ids: Optional[set] = None,
+    kept_out: Optional[list] = None,
 ) -> list[tuple]:
     """Delete synthetic meterplan.com plans (`source="meterplan"`, no EFL PDF)
     that a real/authoritative plan now covers, and return the removals as a list
@@ -449,6 +452,7 @@ def supersede_meterplan_plans(
     are flagged (the index doesn't publish free-hour windows or RTW formulas)
     they never promote and never leave the queue on their own.
     """
+    delisted = set(delisted_ids or ())
     try:
         current_plans = load_plans(plans_dir)
     except Exception:  # noqa: BLE001 -- defensive; degrade to "supersede nothing"
@@ -460,6 +464,18 @@ def supersede_meterplan_plans(
         if mp_plan.id == CURRENT_PLAN_ID:
             continue
         match = next((ap for ap in auth_plans if _plan_supersedes(mp_plan, ap)), None)
+        if match is not None and match.id in delisted:
+            # The sources disagree: meterplan.com listed this plan minutes ago,
+            # and the source behind `match` did not, so `match` was flagged
+            # delisted earlier in this very run. Retiring the synthetic now
+            # would leave NEITHER copy in the ranking -- the real one is in
+            # review, the index row deleted -- which is how Direct Solar
+            # Unlimited 12, Twelve Hour Power 24 and Reliant Solar Payback
+            # Match 12 all vanished on 2026-09-26. Keep the row that says the
+            # plan still exists and let the human settle it.
+            if kept_out is not None:
+                kept_out.append((mp_plan.id, match.id))
+            continue
         if match is not None:
             (Path(plans_dir) / f"{mp_plan.id}.yaml").unlink(missing_ok=True)
             removed.append((mp_plan.id, match.id))
@@ -489,6 +505,10 @@ def supersede_meterplan_plans(
         if draft_plan.id == CURRENT_PLAN_ID:
             continue
         match = next((ap for ap in auth_plans if _plan_supersedes(draft_plan, ap)), None)
+        if match is not None and match.id in delisted:
+            if kept_out is not None:
+                kept_out.append((draft_plan.id, match.id))
+            continue
         if match is not None:
             path.unlink(missing_ok=True)
             removed.append((draft_plan.id, match.id))
@@ -2438,9 +2458,25 @@ def finish_refresh(
     # we now have a real/authoritative plan for the same underlying plan -- from
     # a parsed EFL (PTC, REP discovery, or Meter's own /plans page) or a manual
     # entry -- the synthetic row is redundant and is removed (logged).
-    for mp_id, match_id in supersede_meterplan_plans(plans_dir, drafts_dir):
+    # Pass this run's delistings: a covering plan that was just flagged as no
+    # longer listed must not retire the index row that still lists it.
+    kept_vs_delisted: list = []
+    for mp_id, match_id in supersede_meterplan_plans(
+        plans_dir,
+        drafts_dir,
+        delisted_ids=set(reconciled.get("delisted") or ()),
+        kept_out=kept_vs_delisted,
+    ):
         summary["meterplan_superseded"].append(mp_id)
         notes.append(f"Superseded synthetic meterplan plan {mp_id} with real plan {match_id}.")
+    for mp_id, match_id in kept_vs_delisted:
+        summary.setdefault("meterplan_kept_over_delisted", []).append(mp_id)
+        notes.append(
+            f"Kept synthetic meterplan plan {mp_id}: the real plan that covers it "
+            f"({match_id}) was flagged delisted this run, so the two sources disagree "
+            "about whether the plan still exists. Retiring it would leave neither in "
+            "the ranking. Check the retailer's site and delete whichever is wrong."
+        )
     # Rows for plans a fully-scraped REP doesn't actually sell (stale index).
     # Both directories: a synthetic promoted before we started surveying its REP
     # directly is otherwise never re-examined and stays in the ranking forever.
