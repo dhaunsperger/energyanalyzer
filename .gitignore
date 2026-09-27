@@ -2,6 +2,11 @@
 data/*
 !data/README.md
 
+# ERCOT settlement-point prices: public market data (RTMLZHBSPP reports +
+# parquet cache), not private user data -- tracked so a cloud session without
+# local file access can still price RTW-indexed plans.
+!data/ercot/
+
 # Frozen benchmark archive: the plan YAMLs, tariff, and README are tracked,
 # but the interval usage CSV is private user data (same reason as data/) —
 # keep it local-only. The benchmark test skips gracefully when it's absent.
