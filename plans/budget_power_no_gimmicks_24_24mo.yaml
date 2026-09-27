@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 4f93c8fdf5c64b2f65e5a271c534c6b6cbfd9a057ac709c7516eb29c851ad113
+source_sha256: 2b2326f4ceb34374fd6361f344b4f0abaa4b434ec99a87517e279299874bb019
 enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN24000133&Promo=PTC
 notes: ''
 needs_review: false

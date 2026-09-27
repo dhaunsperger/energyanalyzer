@@ -28,7 +28,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_Shine_12.pdf
 retrieved: '2026-09-26'
-source_sha256: 2c5c50a9caad08c4913a3aaa5a602dabc6b40d160431c3e907f7551c994cbf2f
+source_sha256: 2667e20ddb27187d027e0c91c5f9f70b5ab7b957ae8f61463dc2a3e246fb8c45
 notes: ''
 needs_review: false
 excludes_solar: false

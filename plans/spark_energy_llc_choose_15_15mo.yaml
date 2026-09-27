@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Choose_15.pdf
 retrieved: '2026-09-26'
-source_sha256: e903b9de09f529acd4300246faec9c2acf21d5a0b86ae4c6809d7121d5163975
+source_sha256: 9c13930d0ae7268d5378a31862e69fe61e5ba5e37b793e92654dcc1b1cd17921
 enroll_url: https://www.sparkenergy.com/products-and-services/?PromotionCode=PTC
 notes: ''
 needs_review: false

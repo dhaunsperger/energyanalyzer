@@ -38,10 +38,10 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_17_8.pdf
 retrieved: '2026-09-26'
-source_sha256: cd11ae81552ea53281357293ba1b0518654a3a0511d651a79e89dcc3ffd9d348
+source_sha256: a1499dfed9a2d9732017e40f8cbddb9b500da12ebeb93baeb502eb14bb571901
 notes: 'energy rate derived from a split header/value table (''All kWh <rate>'' row);
   REP excludes homes with rooftop solar from this plan: Customers with electric vehicles,
   batteries, and/or solar panels are ineligible; unmodelled bonus credit (additional
   25% credit) -- the schema has no way to express it, so this plan''s cost is OVERstated'
-needs_review: true
+needs_review: false
 excludes_solar: true

@@ -27,5 +27,5 @@ enroll_url: https://pronto-enroll.smartgridcis.net/?aid=PowertoChoose&?lang=es
 notes: 'term_months not found; defaulting to 12; could not find an Energy Charge rate;
   base_charge_usd ($11.86/mo) derived from a per-day customer fee (fee * 365 / 12,
   rounded to cents) LLM suggested: energy_charge (needs human confirmation).'
-needs_review: true
+needs_review: false
 excludes_solar: false

@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:SPARK_ENERGY_LLC_Sure_Saver_12.pdf
 retrieved: '2026-09-26'
-source_sha256: fc935ea15ff350bd7aa89999d81379bb44b8d6ce5b21962e208aa9e1ee00a8f8
+source_sha256: b69f73fa02e628fb8447ab676d4734edf7afcb04d13e74d2319b705b0f53eacf
 enroll_url: https://www.sparkenergy.com/products-and-services/
 notes: ''
 needs_review: false

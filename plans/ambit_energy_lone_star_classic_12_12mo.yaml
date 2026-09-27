@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Classic_12.pdf
 retrieved: '2026-09-26'
-source_sha256: fd713fa6fca35631bb619e43161d94d4eec9179f4fe492d918e9cc32daa96647
+source_sha256: 022a8017e9217b1d80b11f253ac2d8a052905d28ef72f1ea010833ce99ebc062
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

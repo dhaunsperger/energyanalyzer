@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 37.2
 source: efl:Texans_Choice_Power_LLC_Texas_Instant_12.pdf
 retrieved: '2026-09-26'
-source_sha256: 41e24b8ca5a73fc5bd8979d6cfcae0be43b1356b451caae73d7f4a8044d16d16
+source_sha256: 043c261286c67ad1e0621b76aa215b96868afa53c882745d4894e2ef7df6b2ec
 enroll_url: https://signup.texanschoicepower.com/
 notes: ''
 needs_review: false

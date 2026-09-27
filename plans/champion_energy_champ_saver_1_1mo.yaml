@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 24.7
 source: efl:Champion_Energy_Champ_Saver-1.pdf
-retrieved: '2026-09-25'
-source_sha256: c188d4b8a62ef2ebd8405ee4acb3f3b12924f91df09867c8c2068b6b8547eb3d
+retrieved: '2026-09-26'
+source_sha256: 32ad9a5894779b9a151e17c0a6f8c42977515d71cf66244a588472691645440f
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false

@@ -1,12 +1,12 @@
-id: octopus_energy_octopus_lite_12_12mo
-retailer: Octopus Energy
-name: Octopus Lite 12
+id: reliant_energy_reliant_solar_payback_match_12_plan_12mo
+retailer: Reliant Energy
+name: Reliant Solar Payback Match 12 plan
 term_months: 12
 tdu: ONCOR
-base_charge_usd: 0.0
+base_charge_usd: 9.99
 energy_rates:
-- rate_ckwh: 24.5
-  label: 'Average price per kWh: 24.5¢'
+- rate_ckwh: 11.6206
+  label: ''
   tdu_exempt: false
 buyback:
   kind: rtw
@@ -25,9 +25,9 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
-source: efl:Octopus_Energy_Octopus_Lite_12.pdf
+source: efl:Reliant_Energy_Reliant_Solar_Payback_Match_12_plan.pdf
 retrieved: '2026-09-26'
-notes: 'could not find an Energy Charge rate LLM suggested: energy_charge (needs human
-  confirmation).'
-needs_review: true
+source_sha256: 529955c7a76226daf3a911e220a1fe2ef7a7034776d1086cd99900057f9a5208
+notes: ''
+needs_review: false
 excludes_solar: false

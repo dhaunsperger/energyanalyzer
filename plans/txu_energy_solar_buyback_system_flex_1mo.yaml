@@ -24,7 +24,7 @@ rate_type: variable
 renewable_pct: 100.0
 source: efl:TXU_Energy_Solar_Buyback_System_Flex.pdf
 retrieved: '2026-09-26'
-source_sha256: 7ce4b2bfaca234a8951dff5d928f06e56204bd6f8fcfe26b1df09d2e0d29d1cd
+source_sha256: d003ea277f8a68a34bc9903e530cd31edefc47b96c968bd0767b2a50b9b32414
 notes: ''
 needs_review: false
 excludes_solar: false

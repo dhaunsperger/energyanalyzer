@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_Simple_Switch_3.pdf
 retrieved: '2026-09-26'
-source_sha256: dacea95effb1c3593ecafec1dff0877e18ecc4367927893d1e298e6637514953
+source_sha256: 718725cbe830d19c96310c3c37639347c48f08819ee52486ffa0fc26569d6435
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

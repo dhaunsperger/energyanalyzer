@@ -27,5 +27,7 @@ source_sha256: 5e3c1d2989f777eb8480a399f6d146f6314b01e521dccda191fa261f4c480541
 enroll_url: https://neccoopenergy.com/residential-service/
 notes: energy rate derived from a 'Base Charge / Per kWh Charge' labeled provider
   row; base charge derived from the same split 4-column Energy/Base/TDU charge row
-needs_review: false
+  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
+  this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

@@ -27,7 +27,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_36_Month_Usage_Bill_Credit.pdf
 retrieved: '2026-09-26'
-source_sha256: a5c05c6963344835e9b634615de4ea58303ee48de47a7838493890463f027979
+source_sha256: 2cd9a611e29da068a7009a1b65f747d760e78aa756986fc965d0d4017377da58
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

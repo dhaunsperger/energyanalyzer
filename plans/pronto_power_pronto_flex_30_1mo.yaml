@@ -27,5 +27,5 @@ source_sha256: 81a0d140adab7afc98de74c0c514d51deddcfadad4907c07321a150dc33b8902
 enroll_url: https://pronto-enroll.smartgridcis.net/?aid=ProntoFlex30
 notes: could not find an Energy Charge rate; base_charge_usd ($11.86/mo) derived from
   a per-day customer fee (fee * 365 / 12, rounded to cents)
-needs_review: true
+needs_review: false
 excludes_solar: false

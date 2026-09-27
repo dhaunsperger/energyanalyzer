@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_36_Choice.pdf
 retrieved: '2026-09-26'
-source_sha256: a03e80a28c83c887c954309ce1fb9a3689bee0bce6659f8e5b6211e881b6e7ca
+source_sha256: a12e9e91936a22a04d27164f0ad0caaefb93ab85fa10da4125a44786ad2db93f
 enroll_url: https://shop.greenmountainenergy.com/texas/home-energy-solutions/products/?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WA0TEZ&sid=APTC_1726590650&utm_campaign=PTC&utm_medium=PTC_&utm_source=PowerToChoose
 notes: ''
 needs_review: false

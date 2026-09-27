@@ -22,7 +22,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:AE_TEXAS_Smart_Secure_9.pdf
 retrieved: '2026-09-26'
-source_sha256: 846b6742f801024282c24623634e02c1089d43a58fd697780c19ec586a3d7bd2
+source_sha256: f13086a2f723128ccd14cae900c8431020258b9e89a53a83374469f2568ec378
 enroll_url: https://enroll.aetexasco.com/Enrollment/Default.aspx?&promoCode=AETXPTC1
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line

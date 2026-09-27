@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_24_Plan.pdf
 retrieved: '2026-09-26'
-source_sha256: 69b0331416d73a1c16d88dfe4550c88ec5b6a1e80ec115fd7bda11e19817613b
+source_sha256: bccaf7859413c82b9a253bf1ae2395888488d9718a11b6dccc03f172787a9279
 enroll_url: https://shop.reliant.com/plans-for-you/?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=APTC_1686089562&utm_source=None&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_
 notes: ''
 needs_review: false

@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:CIRRO_ENERGY_Smart_Simple_11.pdf
 retrieved: '2026-09-26'
-source_sha256: 5e1ede60147d82a75bb79585235eec28f24d86df510d9055e783b0de8b454232
+source_sha256: 6c1a6ee66025ad2c84724b108ad1365df6d0acaf1303c7c248f9737adb07c5b0
 enroll_url: https://www.cirroenergy.com/lp/ptcZipCodeSearch?tdsp_code=D0004&promo_code=WA198B&txtPromocode=WA198B&fromLP=ptc&sid=APTC_1685677096&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_18.pdf
 retrieved: '2026-09-26'
-source_sha256: 7c4acdd49a0fad0989ad004a36cc79d2cc5a70af4ec6e4a0674c723973362c0b
+source_sha256: f3d6306ae22a160ec7dca564156c55bb26c78ed923c1cf12529d38f988290a73
 enroll_url: http://www.reliant.com/public/startOEProcess.htm?tdspCodeCCS=D0004&fromLP=ptc&txtPromocode=WF3713&sid=A3P_1562314131
 notes: ''
 needs_review: false

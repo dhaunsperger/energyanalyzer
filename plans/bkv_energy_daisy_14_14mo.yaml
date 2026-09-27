@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_14.pdf
 retrieved: '2026-09-26'
-source_sha256: 206b558caadfec2a34831b9e98aa25296d6c09a10fd095c6d2800d04a53ccf8a
+source_sha256: e415770d2a4c82dfa6ce7955bc0f72819916afb70fc300d5bd29afdc00e7a3c9
 enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
 notes: ''
 needs_review: false

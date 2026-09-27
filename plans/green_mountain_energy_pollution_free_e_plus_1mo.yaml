@@ -25,6 +25,7 @@ source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus.pdf
 retrieved: '2026-09-25'
 source_sha256: 09ab5f2c0ede6ac527d42f919d5789877077e0537d994a847dacdab83f2c70ef
 notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
-  offer this plan. It may have left the market.
+  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
+  -- the source was reached and did not offer this plan. It may have left the market.
 needs_review: true
 excludes_solar: false

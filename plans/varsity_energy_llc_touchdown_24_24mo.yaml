@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 24.1
 source: efl:VARSITY_ENERGY_LLC_TOUCHDOWN_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 4ff8521b02ae5de62e12f97872535f6bdcadcff89f1ab2cd56a05d573ce7ceee
+source_sha256: 8526f0cf1efa1c3963c502f05128848e190a364fd5325430866a51e8dd83bef7
 enroll_url: https://signup.varsityenergy.com/Home/index?ProductCode=RN24000025&Promo=PTC
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan

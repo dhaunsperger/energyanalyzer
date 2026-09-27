@@ -1,11 +1,11 @@
-id: payless_power_ptc_12_month_prepaid_12mo
+id: payless_power_ptc_6_month_prepaid_6mo
 retailer: Payless Power
-name: PTC 12 Month - Prepaid
-term_months: 12
+name: PTC 6 Month - Prepaid
+term_months: 6
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
-- rate_ckwh: 9.9
+- rate_ckwh: 9.7
   label: ''
   tdu_exempt: false
 buyback:
@@ -20,9 +20,9 @@ etf_usd: 49.0
 etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
-source: efl:PAYLESS_POWER_PTC_12_Month_-_Prepaid.pdf
+source: efl:PAYLESS_POWER_PTC_6_Month_-_Prepaid.pdf
 retrieved: '2026-09-26'
-source_sha256: 350b7c738d0cae379dcccffe01551887c9c119f420f4b07b589a3a65a6694d83
+source_sha256: b685c5188672512d165535a311500c52abc42ce602fd64bcfab2ca795acd4088
 enroll_url: https://account.paylesspower.com/enroll/487447
 notes: base_charge_usd ($0.00/mo) derived from a per-day customer fee (fee * 365 /
   12, rounded to cents)
