@@ -2085,9 +2085,18 @@ def _octopus_render(page: object, zip_code: str) -> None:
     NOTE: the solar/EV/thermostat qualification checkboxes from the codegen are
     intentionally omitted -- they use obfuscated styled-component classes that
     drift across deploys, and they don't gate which plans (or EFLs) appear
-    (buyback is bundled in all plans but Flex regardless). Not yet validated
-    against the live site; the "please enter your address" / "Alternatively"
-    link+button names may need tuning."""
+    (buyback is bundled in all plans but Flex regardless).
+
+    Validated live 2026-09-27, fixing two bugs that had this stuck on a July
+    capture for two months:
+      1. The ESI-ID entry point is a plain <a>here</a> inside "...you can enter
+         it here.", not a button named "Alternatively, if you know..." (that
+         selector never matched anything, live or in the codegen it came from).
+      2. After confirming the matched address, the real plan cards
+         (data-cy="product-title") take far longer than the caller's default
+         8s settle to replace the loading skeleton -- measured ~15-19s. The
+         extra wait below is internal to this render() specifically because
+         of that, rather than raising the shared default for every REP."""
     secret = _load_rep_secret("octopus")
     esiid = secret.get("esiid")
     if not esiid:
@@ -2106,12 +2115,15 @@ def _octopus_render(page: object, zip_code: str) -> None:
 
     page.get_by_role("textbox", name="Zip code").fill(zip_code)  # type: ignore[attr-defined]
     page.get_by_role("button", name="Explore our plans").click()  # type: ignore[attr-defined]
+    page.wait_for_timeout(2500)  # type: ignore[attr-defined]
     _try(lambda: page.get_by_role("link", name="please enter your address or").click(timeout=8000))  # type: ignore[attr-defined]
-    _try(lambda: page.get_by_role("button", name="Alternatively, if you know").click(timeout=8000))  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("link", name="here").click(timeout=8000))  # type: ignore[attr-defined]
     page.get_by_role("textbox", name="Enter your ESI ID Number").fill(esiid)  # type: ignore[attr-defined]
     page.get_by_role("button", name="Get a quote").click()  # type: ignore[attr-defined]
+    page.wait_for_timeout(2000)  # type: ignore[attr-defined]
     if address_button:
         _try(lambda: page.get_by_role("button", name=address_button).click(timeout=10000))  # type: ignore[attr-defined]
+    page.wait_for_timeout(19000)  # type: ignore[attr-defined]
 
 
 OCTOPUS = RepConfig(
