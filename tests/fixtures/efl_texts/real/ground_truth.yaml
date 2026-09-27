@@ -224,3 +224,27 @@ GREEN_MOUNTAIN_Renewable_Rewards_Solar_Credit_12.txt:
   base_charge_usd: 29.95
   energy_rates: [{rate_ckwh: 11.3, window: null}]
   buyback: {kind: fixed, rate_ckwh: 6.3}
+
+RELIANT_Free_Overnight_12.txt:
+  # Label asterisks point at the footnote defining the window; the night
+  # delivery row wraps around its amount in extraction.
+  evidence: "Daytime Energy Charge 18.5982c / Nighttime Energy Charge* $0.00 / Nighttime Delivery Charges* $0.00 / *Nighttime Charge applies to usage from 9:00 PM to 6:00 AM every day"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates:
+    - {rate_ckwh: 0.0, tdu_exempt: true, window: {hours: [21, 22, 23, 0, 1, 2, 3, 4, 5]}}
+    - {rate_ckwh: 18.5982, window: null}
+  buyback: {kind: none}
+
+TESLA_Dynamic_Plan_Oncor_Sep_2026.txt:
+  # Rate rows are "<Name> Hours (<range>) <rate>c/kWh" with no "Energy Charge"
+  # wording. The $25/mo Home Charging Fee is an OPTIONAL per-EV add-on, so the
+  # plan's own base charge is $0 (the parser adds the fee only when the premise
+  # sets ev_home_charging_kwh_month).
+  evidence: "Off-Peak Hours (9pm-6pm) 8.3c/kWh / Peak Hours (6pm-9pm) 11.7c/kWh / Energy Sellback Rate? 90% of Real-time Market Price"
+  term_months: 1
+  base_charge_usd: 0.0
+  energy_rates:
+    - {rate_ckwh: 11.7, window: {hours: [18, 19, 20]}}
+    - {rate_ckwh: 8.3, window: null}
+  buyback: {kind: rtw}

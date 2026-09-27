@@ -708,3 +708,84 @@ def test_zero_plan_live_scrape_is_reported_as_empty_not_ok(discovery_dirs, monke
     assert rep["status"] == "empty"
     assert rep["plans_found"] == 0
     assert result.get("coverage", {}) == {}
+
+
+def test_partial_render_keeps_its_plans_but_is_not_coverage(discovery_dirs, monkeypatch):
+    """A render that says it missed part of the site must not delist anything.
+
+    Real case, 2026-09-25/26: the Tesla tab sweep returned only Backup and
+    Drive 12M. With status "ok" and a non-empty plan list Tesla earned delisting
+    authority, and Fixed -- still on sale -- was marked "may have left the
+    market". The plans a partial render DID find are still real and still
+    flow to download; only its authority to prune is withheld.
+    """
+    efl_dir, drafts_dir, plans_dir, snapshot_dir = discovery_dirs
+    monkeypatch.setattr(rd_module, "REP_CONFIGS", {"tesla": _render_config("tesla", "Tesla Electric")})
+    html = rd_module.mark_partial_render("<html>two tabs</html>", "Tesla tab(s) not opened: With Powerwall")
+    monkeypatch.setattr(
+        rd_module,
+        "fetch_rendered_html",
+        lambda c, z, headless=True, snapshot_dir=None, check_robots=True: (html, snapshot_dir / "t.html"),
+    )
+    monkeypatch.setattr(
+        rd_module,
+        "discover",
+        lambda h, c: [_plan("Tesla Electric", "Backup"), _plan("Tesla Electric", "Drive 12M")],
+    )
+    downloaded: dict = {}
+
+    def _fake_download(plans, dest, headless=True, buyback_only=True, progress_callback=None, **kw):
+        downloaded["names"] = [p.plan_name for p in plans]
+        return {"downloaded": [], "skipped": [], "failed": [], "filtered_out": 0}
+
+    monkeypatch.setattr(rd_module, "download_discovered", _fake_download)
+
+    result = app_common._run_rep_discovery(
+        "78665", efl_dir=efl_dir, drafts_dir=drafts_dir, plans_dir=plans_dir, snapshot_dir=snapshot_dir
+    )
+
+    rep = result["reps"]["tesla"]
+    assert rep["status"] == "ok" and rep["partial"] is True
+    assert "PARTIAL: Tesla tab(s) not opened: With Powerwall" in rep["detail"]
+    assert downloaded["names"] == ["Backup", "Drive 12M"]
+    assert result["coverage"] == {}
+
+
+def test_tesla_render_reports_a_tab_it_could_not_open():
+    """The sweep keeps going past a missing tab, but says so in the HTML."""
+
+    class _Locator:
+        def __init__(self, page, name):
+            self.page, self.name = page, name
+
+        @property
+        def first(self):
+            return self
+
+        def fill(self, *a, **k):
+            pass
+
+        def click(self, *a, **k):
+            if self.name == "With Powerwall":
+                raise TimeoutError("no such tab")
+            self.page.current = self.name
+
+    class _Page:
+        current = ""
+
+        def get_by_role(self, role, name=None, exact=False):
+            return _Locator(self, name)
+
+        def wait_for_timeout(self, ms):
+            pass
+
+        def content(self):
+            return (
+                '<a href="https://digitalassets-energy.tesla.com/x/TE_DRIVE_12M_PLAN_ONCOR_SEP_2026.pdf">EFL</a>'
+                if self.current == "With Vehicle"
+                else "<html></html>"
+            )
+
+    html = rd_module._tesla_render(_Page(), "78665")
+    assert rd_module.partial_render_reason(html) == "Tesla tab(s) not opened: With Powerwall"
+    assert [p.plan_name for p in rd_module.extract_tesla(html, rd_module.TESLA)] == ["Drive 12M"]

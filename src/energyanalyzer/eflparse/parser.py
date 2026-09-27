@@ -378,7 +378,17 @@ _TDU_ZERO_AFTER = re.compile(
     re.I,
 )
 _TDU_ZERO_BEFORE = re.compile(
-    _FREE_PERIOD + r"[a-z \-]{0,20}delivery charges?\s*[:]?\s*" + _ZERO_AMOUNT,
+    _FREE_PERIOD + r"[a-z \-]{0,20}delivery charges?\**\s*[:]?\s*" + _ZERO_AMOUNT,
+    re.I,
+)
+# The same row when the label wraps around its amount. Reliant Free Overnight's
+# "Oncor Electric Delivery Nighttime Delivery Charges* $0.00 per kWh" comes out
+# of the PDF as "Oncor Electric Delivery Nighttime $0.00 per kWh Delivery
+# Charges*": the amount lands between the period and "Delivery Charges". Anchored
+# on the TDU's own "<TDU> ... Delivery <period>" label and a zero PER KWH so a
+# stray $0.00 elsewhere on the line cannot satisfy it.
+_TDU_ZERO_WRAPPED = re.compile(
+    r"delivery\s+" + _FREE_PERIOD + r"\s*" + _ZERO_AMOUNT + r"\s*per\s*kwh\s*delivery\s+charges?",
     re.I,
 )
 # Prose form (Ambit): "TDU Per kWh Delivery Charges will be credited for usage
@@ -426,7 +436,7 @@ def _free_window_waives_tdu(text: str) -> tuple[bool, str]:
     denial = _TDU_APPLIES_ANYWAY.search(flat)
     if denial:
         return False, ""
-    for pattern in (_TDU_ZERO_BEFORE, _TDU_ZERO_AFTER, _TDU_CREDITED, _TDU_NOT_BILLED):
+    for pattern in (_TDU_ZERO_BEFORE, _TDU_ZERO_WRAPPED, _TDU_ZERO_AFTER, _TDU_CREDITED, _TDU_NOT_BILLED):
         m = pattern.search(flat)
         if m:
             return True, m.group(0).strip()[:150]
@@ -546,6 +556,11 @@ _HEADER_TRAILING_JUNK = re.compile(
     re.I,
 )
 _HEADER_CONTACT_PREFIX = re.compile(r"^[A-Za-z]{1,2}:\s")
+# A licence line sitting between the retailer and the plan name. Tesla's header
+# runs "Tesla Energy Ventures, LLC dba Tesla" / "PUCT Certificate Number: 10296"
+# / "Tesla Electric Dynamic Plan - Oncor", and without this the certificate
+# line was read as the plan name.
+_HEADER_CERT_LINE = re.compile(r"^PUCT?\s*(?:Cert(?:ificate|ification)?|License)\b", re.I)
 _HEADER_TAGLINE = re.compile(r"^(?:We[’']re Here To Help!?|Adding Header)\s*$", re.I)
 _HEADER_DATE_LINE = re.compile(
     r"^(?:Date:?\s*)?\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$"
@@ -576,6 +591,7 @@ def _header_line_or_none(raw: str) -> Optional[str]:
         or _HEADER_EMAIL.search(s)
         or _HEADER_URL.search(s)
         or _HEADER_TDU_ONLY_LINE.match(s)
+        or _HEADER_CERT_LINE.match(s)
         or s in ("®", "™")
     ):
         return None
@@ -639,6 +655,10 @@ def _scan_efl_header(text: str) -> tuple[Optional[str], Optional[str], str, str]
 # and meterplan.com is published by Meter Energy.
 _RETAILER_ALIASES = {
     "light energy": "Meter Energy",
+    # "Tesla Energy Ventures, LLC dba Tesla" -- the EFL names the dba itself,
+    # and Tesla sells these plans as Tesla Electric (its plans page, and the
+    # name discovery records for every plan it finds there).
+    "tesla energy ventures": "Tesla Electric",
 }
 
 
@@ -1245,6 +1265,56 @@ def _extract_tou_table(text: str) -> Optional[list[dict]]:
     return rows
 
 
+# A rate table whose rows are named periods with the hours in parentheses and
+# no "Energy Charge" wording at all -- Tesla Electric's layout:
+#   "Off-Peak Hours (9pm-6pm) 8.3 ¢/kWh 84% 95%"
+#   "Peak Hours (6pm-9pm) 11.7 ¢/kWh 16% 5%"
+# (Fixed: "Standard Hours (4am-12am)" / "Wind Hours (12am-4am)"). The trailing
+# percentages are the EFL's usage-share estimates, not rates, so the rate is
+# pinned to the "¢/kWh" right after the parenthesis.
+_NAMED_HOURS_ROW_RE = re.compile(
+    r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z\- ]{0,30}?)\s+Hours\s*\(([^)\n]{3,40})\)\s*"
+    r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*/\s*kWh",
+    re.I,
+)
+
+
+def _extract_named_hours_rows(text: str) -> Optional[list[dict]]:
+    """Rows of a '<Name> Hours (<range>) <rate>¢/kWh' table, in the shape
+    `_extract_tou_table` returns, or None.
+
+    Only accepted when the windows are unambiguous: at least two rows, every
+    range parses, and together they tile the day exactly once. The row covering
+    the most hours becomes the catch-all -- for Tesla that is "Off-Peak" or
+    "Standard", the period the EFL defines as everything else.
+    """
+    rows = []
+    for m in _NAMED_HOURS_ROW_RE.finditer(text or ""):
+        hours = parse_time_range(m.group(2))
+        if not hours:
+            return None
+        rows.append(
+            {
+                "label": m.group(1).strip().lower(),
+                "rate_ckwh": float(m.group(3)),
+                "hours": hours,
+                "weekdays": [],
+                "evidence": _snippet(m),
+            }
+        )
+    if len(rows) < 2:
+        return None
+    covered = [h for r in rows for h in r["hours"]]
+    if sorted(covered) != list(range(24)):
+        return None
+    default = max(rows, key=lambda r: len(r["hours"]))
+    for r in rows:
+        r["is_default"] = r is default
+        if r["is_default"]:
+            r["hours"] = []
+    return rows
+
+
 _SUFFIXED_TIER_RE = re.compile(
     r"Energy\s*Charge\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*per\s*kWh\s*"
     r"[–—-]\s*([A-Za-z][A-Za-z ]{2,20}?)(?=[\s.,]|$)",
@@ -1304,8 +1374,11 @@ def _extract_brand_energy_tiers(text: str) -> list[dict]:
     # cents and its night tier in dollars on the very same list. Only matching
     # cents found one tier, which is not a schedule, so the whole plan fell
     # through to the flat-rate reader and modeled the DAY rate around the clock.
+    # A footnote marker may trail the label: Reliant Free Overnight prints
+    # "Nighttime Energy Charge* $0.00 per kWh", the asterisk pointing at the
+    # footnote that defines the hours.
     pat = re.compile(
-        r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\s*[:\-]?\s*"
+        r"(?:^|\n)[ \t]*([A-Za-z][A-Za-z0-9&.'\- ]{0,60}?)\s+Energy\s*Charge\**\s*[:\-]?\s*"
         r"(?:\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:¢|cents?)?)\s*per\s*kWh",
         re.I,
     )
@@ -2165,11 +2238,62 @@ def _attachable_buyback_policy(
     return None
 
 
+# Tesla Electric answers the buyback question in its own disclosure row, which
+# none of the labels above match:
+#   Dynamic: "What is my Energy Sellback Rate? 90% of Real-time Market Price"
+#   Drive:   "What is my Energy Sellback Rate? Vehicle Energy Exports: 90% of the
+#             Real-Time Market Price / kWh Other Energy Exports: 3¢ / kWh"
+# The answer is cut at the next question or section so a later row's numbers
+# can't be read as the rate.
+_SELLBACK_ANSWER_RE = re.compile(
+    r"Energy\s+Sellback\s+Rate\s*\??\s*(.{0,220}?)(?=\?|Does\s+REP|Renewable\s+Content|$)",
+    re.I | re.S,
+)
+_OTHER_EXPORTS_RE = re.compile(
+    r"Other\s+Energy\s+Exports?\s*:?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I
+)
+_PCT_OF_RTM_RE = re.compile(
+    r"(\d{1,3}(?:\.\d+)?)\s*%\s*of\s*(?:the\s*)?Real[-\s]*Time\s*Market", re.I
+)
+
+
+def _extract_sellback_answer(text: str) -> Optional[tuple[dict, float, str]]:
+    """Read a 'What is my Energy Sellback Rate?' disclosure, or None.
+
+    A split answer prices vehicle-to-grid exports separately from everything
+    else; for a home exporting solar (or a Powerwall) the "Other Energy
+    Exports" rate is the one that applies, so it wins over the vehicle rate.
+    """
+    flat = " ".join((text or "").split())
+    m = _SELLBACK_ANSWER_RE.search(flat)
+    if not m:
+        return None
+    answer = m.group(1).strip()
+    evidence = f"Energy Sellback Rate: {answer[:150]}"
+    other = _OTHER_EXPORTS_RE.search(answer)
+    if other:
+        return {"kind": "fixed", "rate_ckwh": float(other.group(1))}, 0.9, evidence
+    pct = _PCT_OF_RTM_RE.search(answer)
+    if pct:
+        rtw = {"multiplier": float(pct.group(1)) / 100.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
+        return {"kind": "rtw", "rtw": rtw}, 0.9, evidence
+    rate = _rate_ckwh_from_snippet(answer)
+    if rate is not None:
+        return {"kind": "fixed", "rate_ckwh": rate}, 0.85, evidence
+    return None
+
+
 def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, float, str]:
     """Returns (buyback_dict, confidence, evidence). Scans every buyback-ish
     label occurrence (skipping the ones that are just part of a "Plan Name:"
     / "Product Name:" heading) and takes the first that yields a usable
     rate or an rtw/1:1 signal."""
+    sellback = _extract_sellback_answer(text)
+    if sellback is not None:
+        buyback, conf, ev = sellback
+        buyback["offset_scope"] = _buyback_offset_scope(text)
+        return buyback, conf, ev
+
     candidates = []
     for m in _BUYBACK_LABEL.finditer(text):
         preceding = text[max(0, m.start() - 25) : m.start()].lower()
@@ -2294,6 +2418,49 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
 
 
 # --------------------------------------------------------------------------- #
+# Optional EV home-charging add-on (Tesla Electric)
+# --------------------------------------------------------------------------- #
+# Tesla prices free overnight car charging as an opt-in per vehicle:
+#   "Home Charging Fee: $ 25 /month /Tesla EV"
+#   "What are Eligible Hours for Unlimited Vehicle Charging? 12 am (midnight) - 6 am"
+# The two lines can come out of the PDF interleaved ("...Unlimited Vehicle 12 am
+# (midnight) - 6 am Charging?"), so the hours are read from flattened text.
+_HOME_CHARGING_FEE_RE = re.compile(
+    r"Home\s+Charging\s+Fee\s*:?\s*\$\s*(\d+(?:\.\d+)?)\s*/\s*month", re.I
+)
+_EV_ELIGIBLE_HOURS_RE = re.compile(
+    r"Eligible\s+Hours\s+for\s+Unlimited\s+Vehicle\s*(?:Charging\s*\??\s*)?(.{0,60})", re.I
+)
+# The EFL's average-price formula takes the car's eligible kWh out of the
+# delivery term as well as the energy term -- "(Standard Hours Energy Consumption
+# - Eligible Vehicle charging during Eligible Hours) X (Standard Hours Rate + TDU
+# Delivery Charge)" -- i.e. the REP pays delivery on them too.
+_EV_COVERS_DELIVERY_RE = re.compile(
+    r"Eligible\s+Vehicle\s+charging\s+during\s+Eligible\s+Hours\s*\)\s*X\s*\([^)]*TDU\s+Delivery",
+    re.I,
+)
+
+
+def _extract_home_charging(text: str) -> Optional[dict]:
+    """The EV add-on's fee, free-charging hours and delivery treatment, or None
+    when the EFL offers no such add-on (or its hours can't be read)."""
+    flat = " ".join((text or "").split())
+    fee = _HOME_CHARGING_FEE_RE.search(flat)
+    hours_m = _EV_ELIGIBLE_HOURS_RE.search(flat)
+    if not fee or not hours_m:
+        return None
+    hours = parse_time_range(re.sub(r"\(\s*midnight\s*\)", "", hours_m.group(1), flags=re.I))
+    if not hours:
+        return None
+    return {
+        "fee_usd": float(fee.group(1)),
+        "hours": hours,
+        "covers_delivery": bool(_EV_COVERS_DELIVERY_RE.search(flat)),
+        "evidence": f"{fee.group(0)}; eligible hours {hours_m.group(1).strip()[:40]}",
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Main entry points
 # --------------------------------------------------------------------------- #
 def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
@@ -2323,7 +2490,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     rate_type = record("rate_type", _extract_rate_type(text)) or "fixed"
 
     # --- energy charge / free windows / TOU -------------------------------
-    tou_rows = _extract_tou_table(text)
+    tou_rows = _extract_tou_table(text) or _extract_named_hours_rows(text)
     free_win = _extract_free_window(text) or _extract_credited_window(text)
     energy_rates: list[dict] = []
     flat_ckwh: Optional[float] = None
@@ -2710,6 +2877,43 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             confidence["tdu_free_window"] = 0.9
             evidence["tdu_free_window"] = exempt_ev
 
+    # --- optional EV home-charging add-on --------------------------------#
+    # Whether it is worth its fee depends on the home, not the plan, so it is
+    # attached only when the premise says how much the car can charge in the
+    # window (data/config.yaml: ev_home_charging_kwh_month). Otherwise the plan
+    # is priced without it -- the fee is optional, so that IS the price for a
+    # home without a car -- and the note says what was left out.
+    ev_free: Optional[dict] = None
+    home_charging = _extract_home_charging(text)
+    if home_charging is not None:
+        from energyanalyzer.core.config import ev_home_charging_kwh_month  # noqa: PLC0415
+
+        cap = ev_home_charging_kwh_month()
+        hc_desc = (
+            f"${home_charging['fee_usd']:g}/mo per EV, free charging "
+            f"{home_charging['hours'][0]:02d}:00-{(home_charging['hours'][-1] + 1) % 24:02d}:00"
+            + (", delivery included" if home_charging["covers_delivery"] else "")
+        )
+        if cap:
+            ev_free = {
+                "window": {"hours": home_charging["hours"]},
+                "monthly_kwh_cap": cap,
+                "label": "Home Charging (EV)",
+                "covers_delivery": home_charging["covers_delivery"],
+            }
+            base_charge = round(float(base_charge or 0.0) + home_charging["fee_usd"], 2)
+            notes.append(
+                f"EV Home Charging add-on modeled ({hc_desc}; capped at {cap:g} kWh/mo from "
+                "ev_home_charging_kwh_month); its fee is included in base_charge_usd"
+            )
+        else:
+            notes.append(
+                f"optional EV Home Charging add-on NOT modeled ({hc_desc}) -- set "
+                "ev_home_charging_kwh_month in data/config.yaml to price it for this home"
+            )
+        confidence["home_charging"] = 0.85
+        evidence["home_charging"] = home_charging["evidence"]
+
     # --- assemble id -------------------------------------------------------#
     plan_id = slugify(f"{retailer}_{plan_name}_{term_months}mo")
 
@@ -2733,6 +2937,8 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
     }
     if renewable_pct is not None:
         plan_dict["renewable_pct"] = renewable_pct
+    if ev_free is not None:
+        plan_dict["ev_free_charging"] = ev_free
 
     needs_review = any(confidence.get(k, 0.0) < 0.8 for k in LOAD_BEARING_KEYS if k in confidence)
     if any("multiple differing" in n for n in notes):

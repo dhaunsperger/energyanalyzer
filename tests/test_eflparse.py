@@ -14,6 +14,7 @@ from energyanalyzer.eflparse.parser import (
     _weekdays_from_snippet,
     parse_efl_text,
     parse_time_range,
+    plan_fields,
     save_draft,
 )
 
@@ -1285,7 +1286,7 @@ def test_corpus_all_real_fixtures_present_and_schema_valid():
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 27
+    assert len(real_files) == 29
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)
@@ -1987,3 +1988,102 @@ def test_money_helper_strips_separators():
     assert _money("1,000") == 1000.0
     assert _money("1,250.50") == 1250.50
     assert _money("4.95") == 4.95
+
+
+class TestCorpusTeslaDynamicOncor:
+    """Tesla Electric Dynamic (Oncor, Sep 2026). Before these readers existed it
+    parsed as a $0/kWh plan named "PUCT Certificate Number: 10296" with no
+    buyback -- every load-bearing field wrong or missing."""
+
+    NAME = "TESLA_Dynamic_Plan_Oncor_Sep_2026.txt"
+
+    def test_identity_skips_the_certificate_line(self):
+        p = _real_draft(self.NAME).plan_dict
+        assert p["retailer"] == "Tesla Electric"
+        assert p["name"] == "Tesla Electric Dynamic Plan - Oncor"
+
+    def test_named_hours_rows_become_a_tou_schedule(self):
+        rates = _real_draft(self.NAME).plan_dict["energy_rates"]
+        assert rates[0]["rate_ckwh"] == 11.7
+        assert rates[0]["window"] == {"hours": [18, 19, 20]}
+        assert rates[-1] == {"label": "off-peak", "rate_ckwh": 8.3, "window": None}
+
+    def test_sellback_is_ninety_percent_of_real_time(self):
+        bb = _real_draft(self.NAME).plan_dict["buyback"]
+        assert bb["kind"] == "rtw"
+        assert bb["rtw"]["multiplier"] == pytest.approx(0.9)
+        assert bb["rtw"]["floor_ckwh"] == 0.0
+
+    def test_home_charging_is_left_out_without_a_premise_ev(self):
+        p = _real_draft(self.NAME).plan_dict
+        assert p["base_charge_usd"] == 0.0
+        assert "ev_free_charging" not in p
+        assert "Home Charging add-on NOT modeled" in p["notes"]
+
+    def test_home_charging_is_priced_when_the_premise_has_an_ev(self, monkeypatch):
+        monkeypatch.setenv("EA_EV_HOME_CHARGING_KWH_MONTH", "200")
+        p = _real_draft(self.NAME).plan_dict
+        assert p["base_charge_usd"] == 25.0
+        ev = p["ev_free_charging"]
+        assert ev["window"] == {"hours": [0, 1, 2, 3, 4, 5]}
+        assert ev["monthly_kwh_cap"] == 200.0
+        # The EFL's formula subtracts the car's kWh from (rate + TDU delivery).
+        assert ev["covers_delivery"] is True
+        Plan.model_validate(plan_fields(p))
+
+    def test_promotes_without_review(self):
+        assert _real_draft(self.NAME).plan_dict["needs_review"] is False
+
+
+class TestCorpusReliantFreeOvernight12:
+    """Reliant Free Overnight 12 (Oncor, 09/01/2026). The asterisks on
+    "Nighttime Energy Charge*" / "Nighttime Delivery Charges*" defeated both the
+    tier reader and the TDU-relief reader, so the plan came out as 18.6c around
+    the clock -- no free window at all."""
+
+    NAME = "RELIANT_Free_Overnight_12.txt"
+
+    def test_free_nights_window_with_delivery_waived(self):
+        rates = _real_draft(self.NAME).plan_dict["energy_rates"]
+        night, day = rates
+        assert night["rate_ckwh"] == 0.0
+        assert night["window"] == {"hours": [21, 22, 23, 0, 1, 2, 3, 4, 5]}
+        assert night["tdu_exempt"] is True
+        assert day["rate_ckwh"] == pytest.approx(18.5982)
+        assert day["window"] is None
+
+    def test_promotes_without_review(self):
+        p = _real_draft(self.NAME).plan_dict
+        assert p["needs_review"] is False
+        assert p["etf_usd"] == 150.0
+
+
+def test_split_sellback_takes_the_non_vehicle_rate():
+    """Tesla Drive / Fixed price vehicle-to-grid exports separately. A home
+    exporting solar is paid the "Other Energy Exports" rate, not the vehicle's
+    90%-of-market rate."""
+    from energyanalyzer.eflparse.parser import _extract_sellback_answer
+
+    got = _extract_sellback_answer(
+        "What is my Energy Sellback Rate? Vehicle Energy Exports: 90% of the\n"
+        "Real-Time Market Price / kWh\nOther Energy Exports: 3¢ / kWh\n"
+        "Does REP purchase excess distributed renewable Yes.\ngeneration?"
+    )
+    assert got is not None
+    assert got[0] == {"kind": "fixed", "rate_ckwh": 3.0}
+
+
+def test_named_hours_rows_must_tile_the_day():
+    """Two rows whose windows overlap or leave a gap are not a schedule the
+    engine can bill unambiguously -- decline rather than guess the gap's rate."""
+    from energyanalyzer.eflparse.parser import _extract_named_hours_rows
+
+    fixed = "Standard Hours (4am-12am) 13.0 ¢/kWh\nWind Hours (12am-4am) 7.7 ¢/kWh\n"
+    rows = _extract_named_hours_rows(fixed)
+    assert rows is not None
+    wind = next(r for r in rows if r["label"] == "wind")
+    assert wind["hours"] == [0, 1, 2, 3] and not wind["is_default"]
+    assert next(r for r in rows if r["label"] == "standard")["is_default"]
+
+    gap = "Peak Hours (6pm-9pm) 11.7 ¢/kWh\nOff-Peak Hours (10pm-6pm) 8.3 ¢/kWh\n"
+    assert _extract_named_hours_rows(gap) is None

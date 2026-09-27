@@ -89,8 +89,8 @@ def _apply_ev_free_charging(
     inside ``ev.window`` each billing month (chronologically), at those kWh's
     own rate. Returns ``(reduced_energy_charge, freed_kwh)`` per interval.
 
-    Only the energy charge is reduced -- TDU delivery on those kWh still
-    applies. Requires df to carry the ``add_local_columns`` helpers and an
+    Only the energy charge is reduced here; the caller relieves TDU delivery on
+    ``freed_kwh`` when ``ev.covers_delivery`` is set. Requires df to carry the ``add_local_columns`` helpers and an
     ``energy_charge`` column, and to be time-sorted (the canonical UTC frame is).
     """
     window_kwh = df["import_kwh"].where(ev.window.mask(df), 0.0)
@@ -187,7 +187,7 @@ def simulate(
     df = df.copy()
     df["energy_charge"] = df["import_kwh"] * energy_rate
     # Free EV charging: waive the energy charge on capped in-window import kWh
-    # each month (TDU still applies). Reduces energy_charge before it's summed.
+    # each month. Reduces energy_charge before it's summed.
     if plan.ev_free_charging is not None:
         df["energy_charge"], df["ev_free_kwh"] = _apply_ev_free_charging(
             df, plan.ev_free_charging
@@ -196,6 +196,11 @@ def simulate(
         df["ev_free_kwh"] = 0.0
     df["export_credit_raw"] = df["export_kwh"] * buyback_rate
     df["tdu_import_kwh"] = df["import_kwh"].where(~tdu_exempt, 0.0)
+    # ...and the delivery charge on those same kWh, when the REP pays it. Only
+    # where delivery was still owed: a kWh already TDU-exempt can't be relieved
+    # twice.
+    if plan.ev_free_charging is not None and plan.ev_free_charging.covers_delivery:
+        df["tdu_import_kwh"] -= df["ev_free_kwh"].where(~tdu_exempt, 0.0)
 
     uses_rtw = energy_rtw or buyback_rtw
     estimated_fraction = gap.fraction if (uses_rtw and gap is not None and gap.filled) else 0.0

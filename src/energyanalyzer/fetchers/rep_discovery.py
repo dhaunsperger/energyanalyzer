@@ -59,7 +59,7 @@ import threading
 import time
 import unicodedata
 from dataclasses import dataclass
-from html import unescape
+from html import escape, unescape
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
@@ -2759,6 +2759,29 @@ def extract_tesla(html: str, config: RepConfig) -> list[DiscoveredPlan]:
     return plans
 
 
+# A render that got SOME plans but knows it missed part of the site says so in
+# the HTML it returns -- the only channel from a render() back to the caller,
+# and one that survives into the saved snapshot, so a later fallback to that
+# capture is marked partial too. The caller withholds delisting authority from
+# a partial render: finding Backup and Drive 12M is not evidence that Fixed and
+# Dynamic left the market when the tab that lists them never opened.
+_PARTIAL_RENDER_META = "ea-partial-render"
+_PARTIAL_RENDER_RE = re.compile(
+    rf'<meta name="{_PARTIAL_RENDER_META}" content="([^"]*)"', re.I
+)
+
+
+def mark_partial_render(html: str, reason: str) -> str:
+    """Tag rendered HTML as an incomplete survey of the site (see above)."""
+    return f'{html}\n<meta name="{_PARTIAL_RENDER_META}" content="{escape(reason, quote=True)}">'
+
+
+def partial_render_reason(html: str) -> Optional[str]:
+    """Why a render was incomplete, or None if it claims to be complete."""
+    m = _PARTIAL_RENDER_RE.search(html or "")
+    return unescape(m.group(1)) if m else None
+
+
 def _tesla_render(page: object, zip_code: str) -> Optional[str]:
     """Tesla nav flow, from a `playwright codegen` recording: ZIP -> View Plans,
     then click each plan tab and collect its HTML.
@@ -2773,17 +2796,30 @@ def _tesla_render(page: object, zip_code: str) -> Optional[str]:
     page.wait_for_timeout(6_000)
 
     parts: list[str] = []
-    for tab in ("With Powerwall", "With Vehicle", "None"):
+    missed: list[str] = []
+    for tab in _TESLA_TABS:
         try:
             page.get_by_role("tab", name=tab, exact=True).first.click(timeout=15_000)
             page.wait_for_timeout(3_000)
             parts.append(page.content())
         except Exception:  # noqa: BLE001 -- not every tab is offered everywhere
             logger.info("Tesla: tab %r not available (continuing)", tab)
+            missed.append(tab)
     joined = "\n".join(parts) if parts else page.content()
     if not _TESLA_EFL_URL_RE.search(joined):
         raise RuntimeError("Tesla: no Electricity Facts Label PDF link found after the tab sweep")
+    if missed:
+        # Keep what the other tabs gave, but don't let it pass for the whole
+        # catalog. Continuing silently here is how Fixed was marked "may have
+        # left the market" on 2026-09-25 while Tesla was still selling it.
+        joined = mark_partial_render(joined, f"Tesla tab(s) not opened: {', '.join(missed)}")
     return joined
+
+
+# The plan tabs on /tesla-electric/view-plans. Fixed and Dynamic -- the plans a
+# home with its own Powerwall and solar buys -- are listed under "With
+# Powerwall"; Drive under "With Vehicle".
+_TESLA_TABS = ("With Powerwall", "With Vehicle", "None")
 
 
 TESLA = RepConfig(

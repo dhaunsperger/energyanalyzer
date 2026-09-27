@@ -1,0 +1,83 @@
+Electricity Facts Label (EFL)
+Reliant Energy Retail Services, LLC
+Reliant Free Overnight 12 plan
+Oncor Electric Delivery service area
+Date: 09/01/2026
+Average monthly use: 500 kWh 1000 kWh 2000 kWh
+Average price per kWh: 17.6 ¢ 17.2 ¢ 16.9 ¢
+Average price calculation is based on usage profile over 12 months of 32% of consumption at nighttime as
+defined below*.
+This price disclosure is based on the following components:
+Base Charge $0.00 per billing cycle
+Oncor Electric Delivery Monthly Charges $4.06 per billing cycle
+Oncor Electric Delivery Daytime Delivery
+6.0295¢ per kWh
+Charges
+Daytime Energy Charge 18.5982¢ per kWh
+Nighttime Energy Charge* $0.00 per kWh
+Oncor Electric Delivery Nighttime
+$0.00 per kWh
+Delivery Charges*
+TDSP Monthly Charges are the fixed charges from the transmission and distribution service provider and
+are passed through without mark-up. TDSP Daytime Delivery Charges include all recurring consumption
+charges from the transmission and distribution service provider and are passed through without mark up.
+Your TDSP, transmission and distribution service provider is Oncor Electric Delivery.
+Electricity
+Some locations may be subject to a special charge that is not included in the total average price shown for
+price
+electric service, such as a charge for underground facilities authorized by their city. For more detail see the
+Oncor service tariff for a listing of cities and authorized charges.
+*Nighttime Charge applies to usage from 9:00 PM to 6:00 AM every day.
+Your average price per kWh each month is determined by using the energy charge above and the
+predetermined formula.
+Price per kWh = (Base Charge + (Monthly billed Daytime kWh usage x Daytime Energy Charge) +
+(Monthly billed Nighttime kWh usage x Nighttime Energy Charge) + ( Oncor Electric Delivery Delivery
+Charges))/ Monthly billed kWh usage.
+This price disclosure is an example based on average service prices - your average price for electricity
+service will vary according to your usage.
+In the event Reliant receives incomplete interval data from your Transmission and Distribution Service
+Provider (TDSP), Reliant may estimate your usage for missing periods based on historical data from your
+meter. A multi-day average of recent interval data will be used to estimate usage for missing intervals and
+the estimates will be used to calculate your monthly bill.
+When there is a difference between the monthly meter read and the monthly total of the actual or estimated
+interval data, the usage difference will be allocated based on your usage profile for that billing period. If
+less than 50% of the interval data is received from the TDSP or is estimated by Reliant, the usage
+difference between the monthly meter read and monthly total of the actual or estimated interval data will be
+applied as 68% at the Daytime Energy Charge and 32% at the Nighttime Energy Charge.
+Other Key
+Terms and
+questions
+See Terms of Service statement for full listing of fees, deposit policy, and other terms.
+R1F00191597366A
+Type of Product Fixed
+Contract Term 12 months
+Yes. $150. Applies through the end of the contract term.
+This fee does not apply if the customer moves, and provides
+Do I have a termination fee or any fees a forwarding address and other evidence that may be
+associated with terminating service? requested to verify that the customer moved.
+Can my price change during the contract
+period? Yes, but only in the limited circumstances described below
+Your price may change only to reflect actual changes in
+TDSP charges, changes to the Electric Reliability Council of
+Texas or Texas Regional Entity administrative fees charged
+to loads, or changes resulting from federal, state or local
+Disclosure If my price can change, how will it change laws or regulatory actions that impose new or modified fees
+and by how much? or costs on us that are beyond our control.
+Chart
+For other fees, please reference these paragraphs in the
+Terms of Service.
+Pricing, Billing, Payment and Payment Arrangement,
+What other fees may I be charged? Customer Care, Alternate Billing and Payment Options
+Is this a pre-pay or pay in advance product? No
+Yes; customers interested in participating in Reliant's
+distributed renewable generation buy-back program will
+Does REP purchase excess distributed need to sign up for a Reliant renewable energy Payback
+renewable generation? product.
+Renewable Content This product is 22% renewable.
+What is the statewide average for renewable
+content? The statewide average for renewable content is: 37%.
+Reliant, PO Box 3765, Houston, TX, 77253
+www.reliant.com, e-mail: service@reliant.com,
+phone: 1-866-RELIANT, 24 hours a day / 7 days a week
+PUCT Certificate Number #10007
+R1F00191597366A

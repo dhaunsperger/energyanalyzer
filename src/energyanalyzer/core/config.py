@@ -80,3 +80,25 @@ def discovery_llm_model(path: Optional[Path] = None) -> str:
     you mean it.
     """
     return str(setting("discovery_llm_model", llm_model(path), "EA_DISCOVERY_LLM_MODEL", path))
+
+
+def ev_home_charging_kwh_month(path: Optional[Path] = None) -> Optional[float]:
+    """kWh per month this home's EV could charge inside a REP's free-charging
+    window, or None if the home has no EV (or hasn't said).
+
+    Premise-specific, like the load zone: the same Tesla Home Charging add-on is
+    worth ~300 kWh/mo to a 240V charger and nothing to a home without a car, and
+    the $25/mo fee only makes sense priced against it. The EFL parser attaches
+    the add-on to a plan only when this is set. It is a CAP on the free kWh in
+    the window, so size it to what the car can actually draw there -- e.g. a
+    120V cord at ~1.2 kW over a six-hour window is ~215 kWh/mo, whatever the
+    car's total monthly charging is.
+    """
+    value = setting("ev_home_charging_kwh_month", None, "EA_EV_HOME_CHARGING_KWH_MONTH", path)
+    if value in (None, ""):
+        return None
+    try:
+        kwh = float(value)
+    except (TypeError, ValueError):
+        return None
+    return kwh if kwh > 0 else None

@@ -145,13 +145,18 @@ class EvFreeCharging(BaseModel):
     ALL usage -- this waives the energy charge on only up to ``monthly_kwh_cap``
     import kWh inside ``window`` each billing month (the estimated EV load, e.g.
     ~271 = 3250 kWh/yr / 12), at whatever rate those kWh would otherwise cost.
-    Usage beyond the cap, or outside the window, is billed normally. Only the
-    energy charge is waived; TDU delivery still applies (a REP can't waive TDU).
+    Usage beyond the cap, or outside the window, is billed normally. By default
+    only the energy charge is waived and TDU delivery still applies on those kWh.
+    Set ``covers_delivery`` when the REP pays the delivery charge too: Tesla's
+    Home Charging covers "retail electricity and recurring charges" on the car's
+    eligible kWh (Terms of Service v.08072026), and its EFL's average-price
+    formula takes those kWh out of BOTH the energy and the delivery term.
     """
 
     window: RateWindow
     monthly_kwh_cap: float  # free import kWh per billing month inside the window
     label: str = "EV free charging"
+    covers_delivery: bool = False  # REP also pays the TDU per-kWh charge on them
 
     @field_validator("monthly_kwh_cap")
     @classmethod

@@ -26,13 +26,16 @@ buyback:
   rollover: true
 # Free ("Unlimited") EV charging during Eligible Hours 12am-6am. Capped at 200
 # kWh/mo to reflect Doug's 120V charging limit (~1-1.2 kW -> ~7 kWh over the 6h
-# window/day). Raise the cap if a 240V circuit is added. Only the energy charge
-# is waived; TDU delivery still applies on those kWh.
+# window/day). Raise the cap if a 240V circuit is added. Tesla pays the
+# delivery charge on those kWh too: Home Charging covers "retail electricity and
+# recurring charges" (Terms of Service v.08072026), and the EFL's average-price
+# formula subtracts the car's kWh from (rate + TDU Delivery Charge).
 ev_free_charging:
   window:
     hours: [0, 1, 2, 3, 4, 5]
   monthly_kwh_cap: 200.0
   label: Unlimited EV charging (12am-6am)
+  covers_delivery: true
 tdu_passthrough: true
 rate_type: fixed
 renewable_pct: 100.0

@@ -144,9 +144,17 @@ Key semantics implementers must honor:
   up to `monthly_kwh_cap` import kWh inside `window` each billing month (the
   estimated car load, e.g. 271 = 3250 kWh/yr ÷ 12), spent chronologically at
   those kWh's own rate. Usage beyond the cap or outside the window is billed
-  normally, and only the energy charge is waived — **TDU delivery still applies**
-  (a REP can't waive TDU). The engine reports the freed kWh as a monthly
+  normally. By default only the energy charge is waived and TDU delivery still
+  applies; `covers_delivery: true` also drops the freed kWh from the TDU
+  volumetric charge, for a REP that pays delivery on the car's kWh itself
+  (Tesla Home Charging: "retail electricity and recurring charges", Terms of
+  Service v.08072026). The engine reports the freed kWh as a monthly
   `ev_free_kwh` column.
+  The EFL parser attaches Tesla's optional Home Charging add-on (fee into
+  `base_charge_usd`, window, `covers_delivery` from the EFL's own average-price
+  formula) **only when `data/config.yaml` sets `ev_home_charging_kwh_month`** —
+  the cap is a property of the home (what the car can draw inside the window),
+  not of the plan, and without a car the fee is simply not bought.
 - **`buyback.kind`**: `none` | `fixed` (flat ¢/kWh) | `rtw` (indexed like
   above) | `windows` (time-of-use export via `rates: list[EnergyRate]`,
   same first-match semantics). "1:1" plans are `fixed` with rate equal to
@@ -956,8 +964,9 @@ Launch: `streamlit run src/energyanalyzer/app/Home.py`.
   TXU footnote excludes EV and battery owners too, so the parser should record
   *which* features disqualify a plan (`excludes_solar` generalises to an
   `excludes: [solar, ev, battery]` list) rather than collapsing them to one
-  boolean. `Plan.ev_free_charging` is already an EV-only feature that is dead
-  weight for a household without one.
+  boolean. `Plan.ev_free_charging` is already an EV-only feature; the parser
+  now gates it on `ev_home_charging_kwh_month`, which is the first of these
+  home-feature settings.
 
 ## 12. Running the app
 

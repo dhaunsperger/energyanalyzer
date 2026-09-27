@@ -938,3 +938,40 @@ def test_billing_window_reported_months_always_match_the_frame():
         kept, window = select_billing_window(_months_frame(months))
         billed = len(simulate(base_plan(), kept, flat_tdu()).monthly)
         assert window.months_used == billed == len(window.months_kept), label
+
+
+def test_ev_free_charging_can_cover_delivery_too():
+    """Tesla's Home Charging pays "retail electricity and recurring charges" on
+    the car's eligible kWh, so with ``covers_delivery`` the freed kWh drop out
+    of the TDU volumetric charge as well as the energy charge."""
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1, 2, 3, 4, 5])
+    tdu = flat_tdu(fixed=10.0, volumetric_ckwh=5.0)
+
+    def bill(covers: bool) -> float:
+        plan = base_plan(
+            energy_rates=[EnergyRate(rate_ckwh=10.0)],
+            tdu_passthrough=True,
+            ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=20.0, covers_delivery=covers),
+        )
+        return simulate(plan, intervals, tdu).monthly.iloc[0]["bill"]
+
+    assert bill(False) - bill(True) == pytest.approx(20 * 0.05)
+
+
+def test_ev_delivery_relief_never_double_counts_a_tdu_exempt_hour():
+    """A free-nights hour that already waives delivery can't be relieved again
+    by the EV allowance landing on it."""
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    window = RateWindow(hours=[0, 1, 2, 3, 4, 5])
+    plan = base_plan(
+        energy_rates=[
+            EnergyRate(rate_ckwh=0.0, window=window, tdu_exempt=True),
+            EnergyRate(rate_ckwh=10.0),
+        ],
+        tdu_passthrough=True,
+        ev_free_charging=EvFreeCharging(window=window, monthly_kwh_cap=20.0, covers_delivery=True),
+    )
+    row = simulate(plan, intervals, flat_tdu(fixed=10.0, volumetric_ckwh=5.0)).monthly.iloc[0]
+    # 48 of the 192 kWh are in the exempt window; delivery is owed on the rest.
+    assert row["tdu"] == pytest.approx(10.0 * month_coverage("2024-01-08", 2) + 0.05 * (192 - 48))

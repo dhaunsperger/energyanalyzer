@@ -907,7 +907,7 @@ def plan_economics_fingerprint(plan) -> str:
             bool(plan.buyback.cash_out),
         ),
         "credits": sorted((c.min_kwh, c.max_kwh, c.credit_usd) for c in plan.bill_credits),
-        "ev": None if ev is None else (_window(ev.window), ev.monthly_kwh_cap),
+        "ev": None if ev is None else (_window(ev.window), ev.monthly_kwh_cap, bool(ev.covers_delivery)),
         "excludes_solar": bool(getattr(plan, "excludes_solar", False)),
     }
     return json.dumps(payload, sort_keys=True, default=str)
@@ -1637,6 +1637,7 @@ def _run_rep_discovery(
             }, []
         label = config.retailer
         logger.info("=== Discovery: %s ===", label)
+        html: Optional[str] = None  # harvesters return plans, not a page
         try:
             if config.harvester is not None:
                 plans = rd.harvest_live(
@@ -1710,6 +1711,11 @@ def _run_rep_discovery(
         if getattr(config, "efl_via_browser", False):
             for p in plans:
                 p.fetch_via_browser = True
+        # A render may know it missed part of the site (a plan tab that would
+        # not open). Its plans are still real, but it is not a full survey.
+        partial = rd.partial_render_reason(html) if html is not None else None
+        if partial:
+            detail = f"{detail} -- PARTIAL: {partial}"
         found = len(plans)
         buyback = sum(1 for p in plans if p.is_buyback)
         # REPs whose EFL URLs aren't httpx-downloadable (Vistra PDFGenerator:
@@ -1740,6 +1746,7 @@ def _run_rep_discovery(
             "plan_names": [p.plan_name for p in plans],
             "live": not str(detail).startswith("from manual capture")
             and "used capture" not in str(detail),
+            "partial": bool(partial),
         }, plans
 
     # Query several REPs at once. `host_of` is the REP key, so each site gets its
@@ -1809,7 +1816,8 @@ def _run_rep_discovery(
     )
 
     # Per-REP coverage: a retailer counts as fully scraped only when its render
-    # was LIVE (not a stale manual capture) and every EFL it offered is in hand.
+    # was LIVE (not a stale manual capture), COMPLETE (the render did not report
+    # skipping part of the site), and every EFL it offered is in hand.
     # Attribution is by URL, since download failures are reported globally.
     dl = result["downloaded"]
     failed_urls = {str(f.get("url") or "") for f in dl.get("failed", [])}
@@ -1819,6 +1827,7 @@ def _run_rep_discovery(
         for rep in result["reps"].values()
         if rep.get("status") == "ok"
         and rep.get("live")
+        and not rep.get("partial")
         and rep.get("plan_names")
         and rep["retailer"] not in incomplete
     }
