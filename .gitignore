@@ -18,6 +18,11 @@ data/ercot/*.manifest.json
 # capture in here has only empty ESIID/address placeholders, no real values.)
 !data/efl/
 
+# Power to Choose snapshots: the PUCT's own public plan-comparison export
+# (REP/product/rate/term/fee columns only -- no ZIP, ESIID, or address in any
+# row), not private user data -- tracked for the same reason as data/efl.
+!data/ptc/
+
 # WSL/Windows "mark of the web" sidecar files a browser download leaves next
 # to the real file -- zero content, never worth tracking.
 *:Zone.Identifier
