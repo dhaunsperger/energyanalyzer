@@ -1792,14 +1792,37 @@ def _green_mountain_render(page: object, zip_code: str) -> None:
     (see rep_discovery_handoff.md). Enters the ZIP gate, dismisses a cookie
     banner if present, and lets the hero carousel settle. The caller
     (`fetch_rendered_html`) handles goto() and the post-render settle wait."""
+
+    def _try(action) -> None:
+        try:
+            action()
+        except Exception:  # noqa: BLE001
+            pass
+
     gate = page.get_by_title("Sustainable electricity for a")  # type: ignore[attr-defined]
     gate.get_by_placeholder("Enter ZIP code").click()
     gate.get_by_placeholder("Enter ZIP code").fill(zip_code)
     gate.get_by_role("button").click()
-    try:
-        page.get_by_role("button", name=re.compile("accept", re.I)).click(timeout=3000)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001
-        pass
+    _try(lambda: page.get_by_role("button", name=re.compile("accept", re.I)).click(timeout=3000))  # type: ignore[attr-defined]
+
+    # Intermittent as of 2026-09-27 (measured: two live runs seconds apart, one
+    # with, one without): the ZIP gate sometimes leads straight to the plans
+    # listing, and sometimes to a 2-step "personalize your experience"
+    # qualifier first -- House/Apartment, then (revealed after House) "moving?",
+    # then (revealed after No) "rent or own?", then a term-length step whose
+    # "Show plans" button is the one that actually reaches the listing. Every
+    # click here is best-effort: on the direct path none of these texts exist
+    # on the page at all, so they no-op harmlessly rather than block it.
+    page.wait_for_timeout(1500)  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_text("House", exact=True).click(timeout=3000))  # type: ignore[attr-defined]
+    page.wait_for_timeout(400)  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_text("No", exact=True).first.click(timeout=2500))  # type: ignore[attr-defined]
+    page.wait_for_timeout(400)  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_text("Own", exact=True).click(timeout=2500))  # type: ignore[attr-defined]
+    page.wait_for_timeout(400)  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="Next").click(timeout=2500))  # type: ignore[attr-defined]
+    page.wait_for_timeout(1000)  # type: ignore[attr-defined]
+    _try(lambda: page.get_by_role("button", name="Show plans").click(timeout=2500))  # type: ignore[attr-defined]
 
 
 GREEN_MOUNTAIN = RepConfig(
