@@ -93,7 +93,7 @@ def test_build_workbook_smoke(intervals, tdu, plans):
     headers = [c.value for c in summary[header_row]]
     assert headers[:3] == ["Retailer", "Plan", "Term (mo)"]
     assert "1st-Year Net Bill" in headers
-    assert "Import ¢/kWh (+TDU)" in headers
+    assert "Paid ¢/kWh (+TDU)" in headers
 
     net_bill_col = headers.index("1st-Year Net Bill") + 1
     plan_col_idx = headers.index("Plan") + 1

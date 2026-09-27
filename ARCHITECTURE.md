@@ -595,7 +595,8 @@ Pages (multipage app, `app/Home.py` + `app/pages/`):
    stamping promoted plans' `retrieved` date (manual/report-seed plans and
    the current plan are never touched by the delete step).
 3. **Compare** — run engine over all plans; ranked table styled like report
-   p.2 (Retailer, Plan, Term, Base $/mo, Import ¢/kWh +TDU, Export ¢/kWh,
+   p.2 (Retailer, Plan, Term, Base $/mo, Paid ¢/kWh +TDU -- energy + per-kWh
+   delivery over billed kWh only, free kWh excluded --, Export ¢/kWh,
    Other details, ETF, 1st-Year Net Bill, Stale?); expandable per-plan
    monthly breakdown chart/table; footnote current TDU rates; RTW plans
    marked ‡; staleness warnings (interval data >35 days old, ERCOT price
