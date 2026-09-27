@@ -2,10 +2,15 @@
 data/*
 !data/README.md
 
-# ERCOT settlement-point prices: public market data (RTMLZHBSPP reports +
-# parquet cache), not private user data -- tracked so a cloud session without
-# local file access can still price RTW-indexed plans.
+# ERCOT settlement-point prices: public market data (the RTMLZHBSPP reports),
+# not private user data -- tracked so a cloud session without local file access
+# can still price RTW-indexed plans.
 !data/ercot/
+# ...but not the per-zone parquet cache derived from them. Its manifest keys on
+# source-file mtimes, which a fresh clone resets, so every checkout rebuilds it
+# on first load and would otherwise leave the tree dirty.
+data/ercot/*.parquet
+data/ercot/*.manifest.json
 
 # Frozen benchmark archive: the plan YAMLs, tariff, and README are tracked,
 # but the interval usage CSV is private user data (same reason as data/) —
