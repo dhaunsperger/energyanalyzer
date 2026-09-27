@@ -1871,7 +1871,10 @@ def _chariot_render(page: object, zip_code: str) -> str:
             pass
 
     _try(lambda: page.get_by_role("button", name="Close").click(timeout=5000))  # type: ignore[attr-defined]
-    page.get_by_role("link", name="Residential").click()  # type: ignore[attr-defined]
+    # exact=True: the homepage also carries a "Residential Electricity" link (to
+    # the same URL) whose name contains this nav item's name as a substring --
+    # a bare name= match trips Playwright's strict mode over two candidates.
+    page.get_by_role("link", name="Residential", exact=True).click()  # type: ignore[attr-defined]
     _try(lambda: page.get_by_text("My home has solar panels.").click(timeout=5000))  # type: ignore[attr-defined]
     _try(lambda: page.get_by_role("button", name="I Understand").click(timeout=5000))  # type: ignore[attr-defined]
     # The ZIP widget id (#zip-form-widget-<hash>) is auto-generated per render,
