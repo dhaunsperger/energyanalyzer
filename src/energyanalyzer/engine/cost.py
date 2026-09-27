@@ -202,6 +202,20 @@ def simulate(
     if plan.ev_free_charging is not None and plan.ev_free_charging.covers_delivery:
         df["tdu_import_kwh"] -= df["ev_free_kwh"].where(~tdu_exempt, 0.0)
 
+    # kWh that cost nothing at all -- no energy charge AND no per-kWh delivery:
+    # a free window that waives delivery, or free EV kWh the REP pays delivery
+    # on. Everything else is a "paid" kWh. Reported so the price of a kWh you
+    # actually pay for can be shown without free kWh diluting it: Tesla Drive
+    # averages 11.3c over all imports but charges 15.5c for every paid one.
+    no_delivery = tdu_exempt | (not plan.tdu_passthrough)
+    free_interval = (energy_rate == 0) & no_delivery
+    ev_covers = plan.ev_free_charging is not None and (
+        plan.ev_free_charging.covers_delivery or not plan.tdu_passthrough
+    )
+    df["free_kwh"] = df["import_kwh"].where(free_interval, 0.0)
+    if ev_covers:
+        df["free_kwh"] += df["ev_free_kwh"].where(~free_interval, 0.0)
+
     uses_rtw = energy_rtw or buyback_rtw
     estimated_fraction = gap.fraction if (uses_rtw and gap is not None and gap.filled) else 0.0
     if estimated_fraction:
@@ -214,6 +228,7 @@ def simulate(
         export_kwh = float(g["export_kwh"].sum())
         energy_cost = float(g["energy_charge"].sum())
         ev_free_kwh = float(g["ev_free_kwh"].sum())
+        paid_kwh = import_kwh - float(g["free_kwh"].sum())
 
         # Monthly FIXED charges (base + TDU's per-month fee) are prorated by how
         # much of the calendar month the data actually covers. A 365-day export
@@ -225,12 +240,10 @@ def simulate(
         # Whole months are unaffected (coverage == 1.0).
         coverage = min(int(g["date"].nunique()) / month.days_in_month, 1.0)
         base = plan.base_charge_usd * coverage
-        tdu_charge = (
-            tdu.fixed_usd_month * coverage
-            + tdu.volumetric_usd_kwh * float(g["tdu_import_kwh"].sum())
-            if plan.tdu_passthrough
-            else 0.0
+        tdu_volumetric = (
+            tdu.volumetric_usd_kwh * float(g["tdu_import_kwh"].sum()) if plan.tdu_passthrough else 0.0
         )
+        tdu_charge = tdu.fixed_usd_month * coverage + tdu_volumetric if plan.tdu_passthrough else 0.0
 
         if plan.buyback.kind == BuybackKind.none:
             credit_earned = 0.0
@@ -276,6 +289,8 @@ def simulate(
                 "credit_used": used,
                 "rollover_out": rollover_out,
                 "bill": bill,
+                "paid_kwh": paid_kwh,
+                "tdu_volumetric": tdu_volumetric,
             }
         )
         rollover = rollover_out
@@ -296,6 +311,11 @@ def simulate(
             "credit_used",
             "rollover_out",
             "bill",
+            # Detail for the per-kWh price (report.excel.plan_paid_ckwh_with_tdu):
+            # import kWh that carried any per-kWh charge, and the per-kWh share
+            # of `tdu` (i.e. without the TDU's fixed monthly fee).
+            "paid_kwh",
+            "tdu_volumetric",
         ],
     )
 

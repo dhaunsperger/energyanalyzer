@@ -33,7 +33,7 @@ from energyanalyzer.engine.cost import rank  # noqa: E402
 from energyanalyzer.report.excel import (  # noqa: E402
     plan_etf_label,
     plan_export_label,
-    plan_import_ckwh_with_tdu,
+    plan_paid_ckwh_with_tdu,
     plan_other_details,
 )
 
@@ -149,7 +149,9 @@ if group_siblings:
 
 st.caption(
     f"Oncor TDU (effective {tdu.effective}): ${tdu.fixed_usd_month:.2f}/mo + "
-    f"{tdu.volumetric_ckwh:.4f}¢/kWh. '*' = import rate not offsettable by export credits "
+    f"{tdu.volumetric_ckwh:.4f}¢/kWh. 'Paid ¢/kWh' = energy + per-kWh delivery for a kWh "
+    "you pay for (free-window and free-EV kWh excluded; base and fixed charges are separate). "
+    "'*' = import rate not offsettable by export credits "
     "(offset_scope=energy_only). '‡' = RTW-indexed rate (ERCOT settlement prices)."
 )
 if any(r.prices_estimated_fraction for r in results):
@@ -162,7 +164,7 @@ if any(r.prices_estimated_fraction for r in results):
 rows = []
 for r in results:
     plan = plans_by_id[r.plan_id]
-    import_ckwh, star = plan_import_ckwh_with_tdu(r.monthly, plan)
+    import_ckwh, star = plan_paid_ckwh_with_tdu(r.monthly, plan)
     rows.append(
         {
             "_plan_id": r.plan_id,
@@ -174,7 +176,7 @@ for r in results:
             + ("~" if r.prices_estimated_fraction else ""),
             "Term (mo)": plan.term_months,
             "Base $/mo": plan.base_charge_usd,
-            "Import ¢/kWh (+TDU)": f"{import_ckwh:.2f}{'*' if star else ''}",
+            "Paid ¢/kWh (+TDU)": f"{import_ckwh:.2f}{'*' if star else ''}",
             "Export ¢/kWh": plan_export_label(plan),
             "Other Details": plan_other_details(plan),
             "ETF": plan_etf_label(plan),

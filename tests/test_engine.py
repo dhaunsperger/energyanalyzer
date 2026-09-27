@@ -975,3 +975,43 @@ def test_ev_delivery_relief_never_double_counts_a_tdu_exempt_hour():
     row = simulate(plan, intervals, flat_tdu(fixed=10.0, volumetric_ckwh=5.0)).monthly.iloc[0]
     # 48 of the 192 kWh are in the exempt window; delivery is owed on the rest.
     assert row["tdu"] == pytest.approx(10.0 * month_coverage("2024-01-08", 2) + 0.05 * (192 - 48))
+
+
+def test_paid_kwh_excludes_only_kwh_that_cost_nothing():
+    """`paid_kwh` drops kWh with neither an energy nor a per-kWh delivery
+    charge: a delivery-waiving free window, and free EV kWh the REP pays
+    delivery on. A free window that still owes delivery is a PAID kWh."""
+    from energyanalyzer.report.excel import plan_paid_ckwh_with_tdu
+
+    intervals = make_intervals("2024-01-08", days=2, import_kwh=1.0, export_kwh=0.0)
+    night = RateWindow(hours=[0, 1, 2, 3, 4, 5])  # 48 of the 192 kWh
+    tdu = flat_tdu(fixed=10.0, volumetric_ckwh=5.0)
+
+    def run(**kw):
+        plan = base_plan(tdu_passthrough=True, **kw)
+        return plan, simulate(plan, intervals, tdu).monthly
+
+    # Flat 10c: every kWh is paid at 10 + 5; the $10 fixed fee is not per-kWh.
+    plan, m = run(energy_rates=[EnergyRate(rate_ckwh=10.0)])
+    assert m["paid_kwh"].sum() == pytest.approx(192)
+    assert plan_paid_ckwh_with_tdu(m, plan)[0] == pytest.approx(15.0)
+
+    # Free nights that waive delivery: those kWh are free, the price is the day's.
+    _, m = run(energy_rates=[EnergyRate(rate_ckwh=0.0, window=night, tdu_exempt=True), EnergyRate(rate_ckwh=20.0)])
+    assert m["paid_kwh"].sum() == pytest.approx(144)
+    # Free nights that still owe delivery: paid, at 5c.
+    _, m = run(energy_rates=[EnergyRate(rate_ckwh=0.0, window=night), EnergyRate(rate_ckwh=20.0)])
+    assert m["paid_kwh"].sum() == pytest.approx(192)
+
+    # Free EV kWh: free only when the REP covers delivery too.
+    for covers, paid in ((True, 192 - 20), (False, 192)):
+        plan, m = run(
+            energy_rates=[EnergyRate(rate_ckwh=9.5)],
+            ev_free_charging=EvFreeCharging(window=night, monthly_kwh_cap=20.0, covers_delivery=covers),
+        )
+        assert m["paid_kwh"].sum() == pytest.approx(paid)
+    # ...and with delivery covered, a paid kWh still costs the full 9.5 + 5.
+    assert plan_paid_ckwh_with_tdu(run(
+        energy_rates=[EnergyRate(rate_ckwh=9.5)],
+        ev_free_charging=EvFreeCharging(window=night, monthly_kwh_cap=20.0, covers_delivery=True),
+    )[1], plan)[0] == pytest.approx(14.5)
