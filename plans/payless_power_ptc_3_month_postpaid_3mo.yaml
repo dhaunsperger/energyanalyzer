@@ -1,7 +1,7 @@
-id: payless_power_ptc_3_month_postpaid_12mo
+id: payless_power_ptc_3_month_postpaid_3mo
 retailer: Payless Power
 name: PTC 3 Month - Postpaid
-term_months: 12
+term_months: 3
 tdu: ONCOR
 base_charge_usd: 0.0
 energy_rates:
@@ -24,7 +24,7 @@ source: efl:PAYLESS_POWER_PTC_3_Month_-_Postpaid.pdf
 retrieved: '2026-09-26'
 source_sha256: bebbcf67546c930ee5c99f2f6c5b858609efdff9d8c0b7a2c4e7d2678bf6fe05
 enroll_url: https://paylesspower.com/?affiliate=487447&planType=2
-notes: term_months not found; defaulting to 12; base charge derived from a generic
-  '<label> Charge ... per month' table-line scan
+notes: base charge derived from a generic '<label> Charge ... per month' table-line
+  scan
 needs_review: false
 excludes_solar: false

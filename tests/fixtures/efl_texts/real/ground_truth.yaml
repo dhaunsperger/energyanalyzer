@@ -248,3 +248,29 @@ TESLA_Dynamic_Plan_Oncor_Sep_2026.txt:
     - {rate_ckwh: 11.7, window: {hours: [18, 19, 20]}}
     - {rate_ckwh: 8.3, window: null}
   buyback: {kind: rtw}
+
+TESLA_Drive_12M_Oncor_2026.txt:
+  # "Energy Charge: 9 .5 ¢/kWh" -- the stray space once read as 5c. The $15/mo
+  # Home Charging Fee is an optional per-EV add-on, not the plan's base charge.
+  evidence: "Energy Charge: 9 .5c/kWh / Contract Term: 12-months / Other Energy Exports: 3c / kWh"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 9.5, window: null}]
+  buyback: {kind: fixed, rate_ckwh: 3.0}
+
+TESLA_Fixed_Oncor_2026.txt:
+  evidence: "Standard Hours (4am-12am) 13c/kWh / Wind Hours (12am-4am) 7.7c/kWh / Energy Sellback Rate? 5c/kWh"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates:
+    - {rate_ckwh: 7.7, window: {hours: [0, 1, 2, 3]}}
+    - {rate_ckwh: 13.0, window: null}
+  buyback: {kind: fixed, rate_ckwh: 5.0}
+
+TESLA_Backup_Oncor_2026.txt:
+  # Not sold to solar homes; pays 0c for solar exports (14c for Powerwall's).
+  evidence: "Energy Charge: 8.0c/kWh / Powerwall Energy Exports: 14.0c / Solar Energy Exports: 0c / onsite solar not eligible"
+  term_months: 12
+  base_charge_usd: 0.0
+  energy_rates: [{rate_ckwh: 8.0, window: null}]
+  buyback: {kind: none}

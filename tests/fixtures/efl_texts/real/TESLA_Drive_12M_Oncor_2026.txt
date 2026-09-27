@@ -1,0 +1,70 @@
+Electricity Facts Label (EFL)
+Tesla Energy Ventures, LLC dba Tesla
+PUCT Certificate Number: 10296
+Tesla Electric Drive Plan (12 Month) – Oncor
+Date: 9-10-2026
+Average Monthly Use 500 kWh 1000 kWh 2000 kWh
+Average Price per kWh (w/ No 16.3 ¢ 15.9 ¢ 15.7 ¢
+Devices):
+Average Price per kWh (w/ Tesla EV*): 10.0 ¢ 12.8 ¢ 14.2 ¢
+The price you pay each month includes the Energy Charge, TDU Delivery Charges, and optional
+monthly Home Charging Fee in effect for your monthly billing cycle.
+Electricity Energy Charge: 9 .5 ¢/kWh
+Price
+Oncor Delivery Charges: 6.0295 ¢/kWh
+Oncor Base Charge: $4.06 /month
+Home Charging Fee: $15 /month /Tesla EV
+Average price is calculated as: [(Total Energy Consumption - Eligible Vehicle charging during Eligible
+Hours) X (Energy Charge + TDU Delivery Charge) + TDU Base Charge + Home Charging Fee] / Total
+Energy Consumption
+*The average price per kWh assumes one (1) Eligible Vehicle that consumes 300 kWh per month
+during Eligible Hours. Your average price per kWh may vary from this estimate based on the number
+of vehicles enrolled or if your actual usage is more or less than the estimated 300 kWh per month.
+This plan is not available to customers with an on-premises Powerwall device.
+This price disclosure is an example based on average prices - your price for electricity service will vary
+based on your actual usage and vehicle charging. For updated TDU Delivery Charges go to
+https://www.puc.texas.gov/industry/electric/rates/tdr.aspx. TDU Delivery Charges will be passed
+through to customers without markup. Some locations may be subject to a TDU Underground
+Facilities and Cost Recovery charge authorized by their city that is not included in the total average
+prices shown. For more details, see your TDU service tariff for a listing of cities and authorized
+charges.
+Other Key
+See Terms of Service for a full listing of fees and other terms.
+Terms /
+Questions
+Type of Product: Fixed Rate Product
+Contract Term: 12-months
+Can my price change during contract Yes
+period?
+Your price may be adjusted to reflect changes in TDU
+charges; changes to the Electric Reliability Council of Texas
+or Texas Regional Entity administrative fees charged to
+Disclosure If my price can change, how will it
+loads; or changes resulting from federal, state or local laws
+Chart change and by how much?
+or regulatory actions that impose new or modified fees or
+costs that are outside our control.
+Please see the “Itemization of Non -Recurring Fees and
+Charges” section of the Terms of Service. These fees are
+What other fees may I be charged?
+not included in the recurring charges.
+Is this a pre-pay or pay in advance No
+product?
+What are Eligible Hours for Unlimited 12 am (midnight) - 12pm (noon)
+Vehicle Charging?
+What is my Energy Sellback Rate? Vehicle Energy Exports: 90% of the Real-Time Market Price / kWh
+Other Energy Exports: 3¢ / kWh
+Does REP purchase excess distributed Yes.
+renewable generation?
+Renewable Content This product is 100% renewable
+The statewide average for renewable 37.2%
+content
+Info
+Internet Address: www.tesla.com
+Email Address: TeslaElectricNA@tesla.com
+Customer Care: 737-280-0600
+Mailing Address: 1 Tesla Rd Austin, TX 78725, USA
+Operating Hours: Monday -- Friday: 9:00 a.m. -- 6:00 p.m. CT
+Closed Saturday - Sunday and holidays.
+EFL_ONCOR_DRIVE_12M_ENGLISH_9_2026
+EFL Version:

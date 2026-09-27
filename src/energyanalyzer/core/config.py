@@ -82,23 +82,49 @@ def discovery_llm_model(path: Optional[Path] = None) -> str:
     return str(setting("discovery_llm_model", llm_model(path), "EA_DISCOVERY_LLM_MODEL", path))
 
 
-def ev_home_charging_kwh_month(path: Optional[Path] = None) -> Optional[float]:
-    """kWh per month this home's EV could charge inside a REP's free-charging
-    window, or None if the home has no EV (or hasn't said).
-
-    Premise-specific, like the load zone: the same Tesla Home Charging add-on is
-    worth ~300 kWh/mo to a 240V charger and nothing to a home without a car, and
-    the $25/mo fee only makes sense priced against it. The EFL parser attaches
-    the add-on to a plan only when this is set. It is a CAP on the free kWh in
-    the window, so size it to what the car can actually draw there -- e.g. a
-    120V cord at ~1.2 kW over a six-hour window is ~215 kWh/mo, whatever the
-    car's total monthly charging is.
-    """
-    value = setting("ev_home_charging_kwh_month", None, "EA_EV_HOME_CHARGING_KWH_MONTH", path)
+def _positive_float(value) -> Optional[float]:
     if value in (None, ""):
         return None
     try:
-        kwh = float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
-    return kwh if kwh > 0 else None
+    return number if number > 0 else None
+
+
+def ev_home_charging_kwh_month(path: Optional[Path] = None) -> Optional[float]:
+    """kWh per month this home's EV charges at home, or None if the home has no
+    EV (or hasn't said).
+
+    Premise-specific, like the load zone: a REP's EV add-on (Tesla Home
+    Charging) is worth a few hundred kWh a month to a car owner and nothing to a
+    home without one, and its monthly fee only makes sense priced against that.
+    The EFL parser attaches the add-on to a plan only when this is set.
+    """
+    return _positive_float(
+        setting("ev_home_charging_kwh_month", None, "EA_EV_HOME_CHARGING_KWH_MONTH", path)
+    )
+
+
+def ev_charger_kw(path: Optional[Path] = None) -> Optional[float]:
+    """The home charger's draw in kW (~1.2-1.4 on a 120V cord, 7-11 on 240V),
+    or None if unstated.
+
+    Caps what fits in a plan's free-charging window: a 120V cord over Tesla
+    Fixed's six-hour window delivers ~215 kWh/mo however much the car uses,
+    while Drive's twelve-hour window fits twice that.
+    """
+    return _positive_float(setting("ev_charger_kw", None, "EA_EV_CHARGER_KW", path))
+
+
+def ev_window_kwh_month(window_hours: int, path: Optional[Path] = None) -> Optional[float]:
+    """The EV's free-charging allowance under a window of `window_hours` a day:
+    its monthly home charging, limited by what the charger can deliver in that
+    window (30.4 days/month). None if the home has no EV."""
+    monthly = ev_home_charging_kwh_month(path)
+    if monthly is None:
+        return None
+    kw = ev_charger_kw(path)
+    if kw is None:
+        return monthly
+    return round(min(monthly, kw * window_hours * 30.4), 1)

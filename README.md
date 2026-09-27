@@ -104,7 +104,7 @@ Two sites need extra setup for discovery:
 |---|---|---|
 | `data/IntervalData.csv` | 12 months of 15-min usage, BOTH channels (Consumption + Surplus Generation) | smartmetertexas.com → Reports → interval CSV. Or upload via the app's Usage page. |
 | `data/ercot/*.xlsx` | Real-time wholesale price history (needed only for RTW plans) | ercot.com, product NP6-785-ER "Historical RTM Load Zone and Hub Prices" — the yearly XLSX file(s) covering your usage window |
-| `data/config.yaml` (EV) | `ev_home_charging_kwh_month:` optional — kWh/month your EV can charge inside a REP's free-charging window (e.g. ~215 on a 120V cord over 12am–6am). Set it and the parser prices Tesla's optional Home Charging add-on into Tesla plans; leave it out and they're priced without it. | Your car's charging history, capped at what your charger can deliver in the window |
+| `data/config.yaml` (EV) | Optional. `ev_home_charging_kwh_month:` your EV's monthly home charging, and `ev_charger_kw:` your charger's draw (~1.2 on a 120V cord). Set them and the parser prices Tesla's optional Home Charging add-on into Tesla plans, capped per plan at what the charger can deliver inside that plan's free window; leave them out and those plans are priced without it. | The car's app (e.g. 12 months of charging ÷ 12) and the charger's rating |
 | `data/config.yaml` | `load_zone:` your ERCOT load zone (default `LZ_NORTH`). **Look yours up — don't assume.** Counties are split across zones (Williamson spans SOUTH/NORTH/AEN/LCRA), and it's premise-specific. Only affects real-time-wholesale plans, but affects all of them. | ESID lookup, e.g. electricityplans.com/texas/esid-lookup/ — enter your address and read "Load Zone" |
 
 ## Coming back after months? Refresh your input files

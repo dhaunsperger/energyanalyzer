@@ -1,0 +1,83 @@
+Electricity Facts Label (EFL)
+Tesla Energy Ventures, LLC dba Tesla
+PUCT Certificate Number: 10296
+Tesla Electric Fixed Plan - Oncor
+Date: 8-10-2026
+Average Monthly Use 500 kWh 1000 kWh 2000 kWh
+Average Price per kWh (w/ No Devices): 19.2 ¢ 18.7 ¢ 18.5 ¢
+Average Price per kWh (w/ Tesla EV*): 13.1 ¢ 15.7 ¢ 17 ¢
+Average Price per kWh (w/ Powerwall &
+11 ¢ 13.9 ¢ 15.4 ¢
+Solar**):
+The price you pay each month includes the Energy Charges, TDU Delivery Charges, optional
+monthly Home Charging Fee, and optional VPP Credit in effect for your monthly billing cycle.
+Electricity
+w/ Powerwall &
+Price Type (Hours) Energy Rate Est. Home Usage
+Solar**
+Standard Hours (4am-12am) 13 ¢/kWh 87% 59%
+Wind Hours (12am-4am) 7.7 ¢/kWh 13% 41%
+Oncor Delivery Charges: 6.0295 ¢/kWh
+Oncor Base Charge: $4.06 /month
+Home Charging Fee: $25 /month /Tesla EV
+VPP Credit**: $33.333 /month /Powerwall
+Average price is calculated as: [((Standard Hours Energy Consumption - Eligible Vehicle charging
+during Eligible Hours) X (Standard Hours Rate + TDU Delivery Charge)) + ((Wind Hours Energy
+Consumption – Eligible Vehicle charging during Eligible Hours) X (Wind Hours Rate + TDU Delivery
+Charge)) + TDU Base Charge + Home Charging Fee - VPP Credit] / Total Energy Consumption
+*Average price per kWh assumes one (1) Eligible Vehicle that consumes 300 kWh per month during
+Eligible Hours. Your average price per kWh may vary from this estimate based on number of vehicles
+enrolled or if your actual usage is more or less than the estimated 300 kWh per month.
+**Requires Powerwall device that is configured to fulfill VPP Program requirements. VPP Credit is
+capped at $100/month or 3 Powerwalls.
+This price disclosure is an example based on average prices your price for electricity service will
+vary based on your actual usage and vehicle charging. For updated TDU Delivery Charges go to
+https://www.puc.texas.gov/industry/electric/rates/tdr.aspx. TDU Delivery Charges will be passed
+through to customers without markup. Some locations may be subject to a TDU Underground
+Facilities and Cost Recovery charge authorized by their city that is not included in the total average
+prices shown. For more details, see your TDU service tariff for a listing of cities and authorized
+charges.
+Key Terms / See Terms of Service for a full listing of fees and other terms.
+Questions
+Type of Product: Fixed Rate Product
+Contract Term: 12-months
+Can my price change during contract Yes
+period?
+If my price can change, how will it change Your price may be adjusted to reflect changes in TDU
+and by how much? charges; changes to the Electric Reliability Council of
+Texas or Texas Regional Entity administrative fees
+Disclosure Chart charged to loads; or changes resulting from federal,
+state or local laws or regulatory actions that impose new
+or modified fees or costs that are outside our control.
+What other fees may I be charged? Please see the “Itemization of Non ­Recurring Fees and
+Charges” section of the Terms of Service. These fees
+are not included in the recurring charges.
+Is this a pre pay or pay in advance No
+product?
+Will I be participating in the Virtual Power If you meet the eligibility criteria for participating in the
+Plant (“VPP”) Pilot Program? VPP Pilot Program, Tesla may use your Enrolled
+Powerwall for providing Grid Services (see VPP
+Program section of the Terms of Service). During the
+VPP Program pilot phase, Tesla will, in its sole
+discretion, reasonably estimate the value that your
+Enrolled Powerwall(s) contributed relative to total VPP
+market settlements from all ADERs for applicable Grid
+Services during the applicable meter read cycle. Your
+VPP Credit will be equal to Tesla’s estimate of your
+relative contribution.
+What are Eligible Hours for Unlimited 12 am (midnight) - 6 am
+Vehicle Charging?
+What is my Energy Sellback Rate? 5 ¢/kWh
+Does REP purchase excess distributed Yes
+renewable generation?
+Renewable Content This product is 100% renewable
+The statewide average for renewable 37.2%
+content
+Internet Address: www.tesla.com
+Email Address: TeslaElectricNA@tesla.com
+Info
+Customer Care: 737-280-0600
+Mailing Address: 1 Tesla Rd Austin, TX 78725, USA
+Operating Hours: Monday - Friday: 9:00 a.m. - 6:00 p.m. CT
+Closed Saturday Sunday and holidays.
+EFL Version: EFL_ONCOR_FIXED_ENGLISH_8_2026

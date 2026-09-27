@@ -3,18 +3,39 @@ retailer: Tesla Electric
 name: Drive 12M
 term_months: 12
 tdu: ONCOR
-base_charge_usd: 0.0
+base_charge_usd: 15.0
 energy_rates:
-- rate_ckwh: 5.0
+- rate_ckwh: 9.5
   label: ''
   tdu_exempt: false
 buyback:
-  kind: none
+  kind: fixed
+  rate_ckwh: 3.0
   rates: []
   offset_scope: all_charges
   rollover: true
   cash_out: false
 bill_credits: []
+ev_free_charging:
+  window:
+    months: []
+    weekdays: []
+    hours:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+    - 11
+  monthly_kwh_cap: 315.0
+  label: Home Charging (EV)
+  covers_delivery: true
 tdu_passthrough: true
 etf_usd: 0.0
 etf_per_month_remaining: false
@@ -22,10 +43,13 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Tesla_Electric_Drive_12M.pdf
-retrieved: '2026-09-26'
+retrieved: '2026-09-27'
 source_sha256: e4661c4764671addb26b69940d9b7664ebd837ed9043edb4cbc1d4125427347a
-notes: 'term_months not found; defaulting to 12; base charge inferred as $0.00: the
-  EFL states its price components in prose and names only an energy charge and TDU
-  delivery charges'
+notes: 'base charge inferred as $0.00: the EFL states its price components in prose
+  and names only an energy charge and TDU delivery charges; EV Home Charging add-on
+  modeled ($15/mo per EV, free charging 00:00-12:00, delivery included; capped at
+  315 kWh/mo from ev_home_charging_kwh_month / ev_charger_kw); its fee is included
+  in base_charge_usd; REP excludes homes with a battery: This plan is not available
+  to customers with an on-premises Powerwall device'
 needs_review: false
 excludes_solar: false

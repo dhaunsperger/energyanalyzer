@@ -42,6 +42,7 @@ def _isolate_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "EA_LLM_URL",
         "EA_DISCOVERY_LLM_MODEL",
         "EA_EV_HOME_CHARGING_KWH_MONTH",
+        "EA_EV_CHARGER_KW",
     ):
         monkeypatch.delenv(var, raising=False)
     yield

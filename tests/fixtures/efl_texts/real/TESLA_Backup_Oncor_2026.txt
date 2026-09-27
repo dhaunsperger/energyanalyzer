@@ -1,0 +1,69 @@
+Electricity Facts Label (EFL)
+Tesla Energy Ventures, LLC dba Tesla
+PUCT Certificate Number: 10296
+Tesla Electric Backup Plan - Oncor
+Date: 9-10-2026
+Average Monthly Use 500 kWh 1000 kWh 2000 kWh
+Average Price per kWh 14.8 ¢ 14.4 ¢ 14.2 ¢
+The price you pay each month includes the Energy Charges, TDU Delivery Charges, and optional
+VPP Credit in effect for your monthly billing cycle.
+Energy Charge: 8.0 ¢/kWh
+Electricity Oncor Delivery Charges: 6 .0295 ¢/kWh
+Price Oncor Base Charge: $ 4.06 /month
+Average price is calculated as: [(Total Energy Consumption) X (Energy Charge + TDU Delivery
+Charge)) + TDU Base Charge] / Total Energy Consumption
+*Requires exactly 2 Powerwall devices that are under an active lease agreement & fulfill VPP
+program product specific terms.
+**Customers with onsite solar generation are not eligible for the Backup Plan.
+This price disclosure is an example based on average prices - your price for electricity service will
+vary based on your actual usage and vehicle charging. For updated TDU Delivery Charges go to
+https://www.puc.texas.gov/industry/electric/rates/tdr.aspx. TDU Delivery Charges will be passed
+through to customers without markup. Some locations may be subject to a TDU Underground
+Facilities and Cost Recovery charge authorized by their city that is not included in the total average
+prices shown. For more details, see your TDU service tariff for a listing of cities and authorized
+charges.
+See Terms of Service for a full listing of fees and other terms.
+Key Terms /
+Questions
+Type of Product: Fixed Rate Product
+Contract Term: 12-months
+Can my price change during contract Yes
+period?
+If my price can change, how will it change Your price may be adjusted to reflect changes in TDU
+and by how much? charges; changes to the Electric Reliability Council of
+Texas or Texas Regional Entity administrative fees
+Disclosure Chart charged to loads; or changes resulting from federal,
+state or local laws or regulatory actions that impose new
+or modified fees or costs that are outside our control.
+What other fees may I be charged? Please see the “Itemization of Non -Recurring Fees and
+Charges” section of the Terms of Service. These fees
+are not included in the recurring charges.
+Is this a pre-pay or pay in advance No
+product?
+Will I be participating in the Virtual Power If you meet the eligibility criteria for participating in the
+Plant (“VPP”) Program? VPP Program, Tesla may use your Enrolled Powerwall
+for providing Grid Services (see VPP Program section
+of the Terms of Service).
+How will I be compensated for VPP If you remain enrolled in the Backup Plan & meet the eligibility
+participation? criteria for participation in the VPP program, you will be
+compensated at a rate of $87 per month. This will appear as a
+credit on your Powerwall lease bill, if you remain in good
+standing. This will not impact the average price per kWh on
+your monthly electricity bill.
+What is my Energy Sellback Rate? Powerwall Energy Exports: 14.0 ¢/kWh
+Solar Energy Exports: 0 ¢/kWh
+You will only be compensated for energy exported from your
+Powerwall to the grid.
+Does REP purchase excess distributed No
+renewable generation?
+Renewable Content This product is 100% renewable
+The statewide average for renewable 37.2%
+content
+Internet Address: www.tesla.com
+Email Address: TeslaElectricNA@tesla.com
+Info
+Customer Care: 737-280-0600
+Mailing Address: 1 Tesla Rd Austin, TX 78725, USA
+Operating Hours: Monday -- Friday: 9:00 a.m. -- 6:00 p.m. CT
+Closed Saturday - Sunday and holidays.
+EFL Version: EFL_ONCOR_BACKUP_ENGLISH_9_2026

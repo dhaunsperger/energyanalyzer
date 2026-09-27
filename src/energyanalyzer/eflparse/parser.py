@@ -354,7 +354,16 @@ _SOLAR_EXCLUSION_RE = re.compile(
     r"not available to|do(?:es)? not qualify)[^.\n]{0,200}",
     re.I,
 )
-_SOLAR_SUBJECT_RE = re.compile(r"rooftop solar|solar panel|distributed generation|net meter", re.I)
+_BATTERY_EXCLUSION_RE = re.compile(
+    r"[^.\n]{0,80}not (?:available|eligible)[^.\n]{0,80}?(?:Powerwall|batter(?:y|ies))[^.\n]{0,40}",
+    re.I,
+)
+_SOLAR_SUBJECT_RE = re.compile(
+    r"rooftop solar|solar panel|distributed generation|net meter"
+    # Tesla Backup: "Customers with onsite solar generation are not eligible"
+    r"|on-?\s*site solar|solar generation",
+    re.I,
+)
 
 # --------------------------------------------------------------------------- #
 # TDU relief during a free window
@@ -722,7 +731,8 @@ def _extract_plan_name(text: str) -> Optional[Extraction]:
 def _extract_term_months(text: str) -> Optional[Extraction]:
     patterns = [
         (
-            re.compile(r"Contract\s*Term\s*[:\-]?\s*(\d+)\s*Months?", re.I),
+            # "12 Months", "12 month", and Tesla's "12-months"
+            re.compile(r"Contract\s*Term\s*[:\-]?\s*(\d+)\s*-?\s*Months?", re.I),
             0.95,
             lambda m: int(m.group(1)),
         ),
@@ -730,6 +740,14 @@ def _extract_term_months(text: str) -> Optional[Extraction]:
             re.compile(r"Month[- ]to[- ]Month", re.I),
             0.9,
             lambda m: 1,
+        ),
+        (
+            # The unit left off entirely -- Payless "PTC 3 Month": "Contract Term 3"
+            # at the end of its line. Defaulting to 12 filed a 3-month teaser as
+            # the cheapest 12-month plan on the market.
+            re.compile(r"Contract\s*Term\s*[:\-]?\s*(\d{1,2})[ \t]*$", re.I | re.M),
+            0.85,
+            lambda m: int(m.group(1)),
         ),
         (
             re.compile(r"Term\s*(?:Length)?\s*[:\-]\s*(\d+)\s*[Mm]o(?:nths?)?\b"),
@@ -2250,7 +2268,13 @@ _SELLBACK_ANSWER_RE = re.compile(
     re.I | re.S,
 )
 _OTHER_EXPORTS_RE = re.compile(
-    r"Other\s+Energy\s+Exports?\s*:?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I
+    r"(?:Other|Solar)\s+Energy\s+Exports?\s*:?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I
+)
+# Backup splits by SOURCE instead: "Powerwall Energy Exports: 14.0 ¢/kWh / Solar
+# Energy Exports: 0 ¢/kWh". The solar rate is the one a solar home's exports
+# earn, so a Solar line wins over any other.
+_SOLAR_EXPORTS_RE = re.compile(
+    r"Solar\s+Energy\s+Exports?\s*:?\s*(\d+(?:\.\d+)?)\s*(?:¢|cents?)", re.I
 )
 _PCT_OF_RTM_RE = re.compile(
     r"(\d{1,3}(?:\.\d+)?)\s*%\s*of\s*(?:the\s*)?Real[-\s]*Time\s*Market", re.I
@@ -2270,9 +2294,12 @@ def _extract_sellback_answer(text: str) -> Optional[tuple[dict, float, str]]:
         return None
     answer = m.group(1).strip()
     evidence = f"Energy Sellback Rate: {answer[:150]}"
-    other = _OTHER_EXPORTS_RE.search(answer)
+    other = _SOLAR_EXPORTS_RE.search(answer) or _OTHER_EXPORTS_RE.search(answer)
     if other:
-        return {"kind": "fixed", "rate_ckwh": float(other.group(1))}, 0.9, evidence
+        rate = float(other.group(1))
+        if rate == 0:
+            return {"kind": "none"}, 0.9, evidence
+        return {"kind": "fixed", "rate_ckwh": rate}, 0.9, evidence
     pct = _PCT_OF_RTM_RE.search(answer)
     if pct:
         rtw = {"multiplier": float(pct.group(1)) / 100.0, "adder_ckwh": 0.0, "floor_ckwh": 0.0}
@@ -2428,8 +2455,10 @@ def _extract_buyback(text: str, energy_ckwh: Optional[float]) -> tuple[dict, flo
 _HOME_CHARGING_FEE_RE = re.compile(
     r"Home\s+Charging\s+Fee\s*:?\s*\$\s*(\d+(?:\.\d+)?)\s*/\s*month", re.I
 )
+# The answer may land before "Vehicle Charging?" too (Drive, Fixed: "...for
+# Unlimited 12 am (midnight) - 12pm (noon) Vehicle Charging?").
 _EV_ELIGIBLE_HOURS_RE = re.compile(
-    r"Eligible\s+Hours\s+for\s+Unlimited\s+Vehicle\s*(?:Charging\s*\??\s*)?(.{0,60})", re.I
+    r"Eligible\s+Hours\s+for\s+Unlimited\s*(?:Vehicle\s*)?(?:Charging\s*\??\s*)?(.{0,60})", re.I
 )
 # The EFL's average-price formula takes the car's eligible kWh out of the
 # delivery term as well as the energy term -- "(Standard Hours Energy Consumption
@@ -2449,7 +2478,8 @@ def _extract_home_charging(text: str) -> Optional[dict]:
     hours_m = _EV_ELIGIBLE_HOURS_RE.search(flat)
     if not fee or not hours_m:
         return None
-    hours = parse_time_range(re.sub(r"\(\s*midnight\s*\)", "", hours_m.group(1), flags=re.I))
+    # "12 am (midnight) - 6 am", "12 am (midnight) - 12pm (noon)"
+    hours = parse_time_range(re.sub(r"\(\s*(?:midnight|noon)\s*\)", "", hours_m.group(1), flags=re.I))
     if not hours:
         return None
     return {
@@ -2463,7 +2493,15 @@ def _extract_home_charging(text: str) -> Optional[dict]:
 # --------------------------------------------------------------------------- #
 # Main entry points
 # --------------------------------------------------------------------------- #
+# A space inside a decimal number, as some PDFs extract: Tesla's "Energy Charge:
+# 9 .5 ¢/kWh" and "Oncor Delivery Charges: 6 .0295¢/kWh". Read as written, the
+# rate became 5c -- Drive 12M entered the database at 5.0c/kWh instead of 9.5c
+# and ranked as one of the cheapest plans in the state.
+_SPLIT_DECIMAL_RE = re.compile(r"(\d) +\.(\d)")
+
+
 def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
+    text = _SPLIT_DECIMAL_RE.sub(r"\1.\2", text or "")
     confidence: dict[str, float] = {}
     evidence: dict[str, str] = {}
     notes: list[str] = []
@@ -2879,16 +2917,17 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
 
     # --- optional EV home-charging add-on --------------------------------#
     # Whether it is worth its fee depends on the home, not the plan, so it is
-    # attached only when the premise says how much the car can charge in the
-    # window (data/config.yaml: ev_home_charging_kwh_month). Otherwise the plan
+    # attached only when the premise says how much the car charges at home
+    # (data/config.yaml: ev_home_charging_kwh_month, limited to what
+    # ev_charger_kw can deliver inside the window). Otherwise the plan
     # is priced without it -- the fee is optional, so that IS the price for a
     # home without a car -- and the note says what was left out.
     ev_free: Optional[dict] = None
     home_charging = _extract_home_charging(text)
     if home_charging is not None:
-        from energyanalyzer.core.config import ev_home_charging_kwh_month  # noqa: PLC0415
+        from energyanalyzer.core.config import ev_window_kwh_month  # noqa: PLC0415
 
-        cap = ev_home_charging_kwh_month()
+        cap = ev_window_kwh_month(len(home_charging["hours"]))
         hc_desc = (
             f"${home_charging['fee_usd']:g}/mo per EV, free charging "
             f"{home_charging['hours'][0]:02d}:00-{(home_charging['hours'][-1] + 1) % 24:02d}:00"
@@ -2904,7 +2943,7 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             base_charge = round(float(base_charge or 0.0) + home_charging["fee_usd"], 2)
             notes.append(
                 f"EV Home Charging add-on modeled ({hc_desc}; capped at {cap:g} kWh/mo from "
-                "ev_home_charging_kwh_month); its fee is included in base_charge_usd"
+                "ev_home_charging_kwh_month / ev_charger_kw); its fee is included in base_charge_usd"
             )
         else:
             notes.append(
@@ -2962,6 +3001,16 @@ def parse_efl_text(text: str, source_name: str = "") -> DraftPlan:
             )
             plan_dict["notes"] = "; ".join(notes)
             break
+
+    # A plan closed to homes with a home battery (Tesla Drive: "This plan is not
+    # available to customers with an on-premises Powerwall device"). There is no
+    # battery setting to rank against yet (ARCHITECTURE.md §11, home features),
+    # so it is recorded, not enforced -- enough that a battery comparison
+    # doesn't pair the two.
+    battery = _BATTERY_EXCLUSION_RE.search(text or "")
+    if battery:
+        notes.append(f"REP excludes homes with a battery: {' '.join(battery.group(0).split())[:160]}")
+        plan_dict["notes"] = "; ".join(notes)
 
     bonus = _BONUS_CREDIT_RE.search(text or "")
     if bonus:

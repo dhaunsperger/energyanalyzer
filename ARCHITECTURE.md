@@ -153,8 +153,10 @@ Key semantics implementers must honor:
   The EFL parser attaches Tesla's optional Home Charging add-on (fee into
   `base_charge_usd`, window, `covers_delivery` from the EFL's own average-price
   formula) **only when `data/config.yaml` sets `ev_home_charging_kwh_month`** —
-  the cap is a property of the home (what the car can draw inside the window),
-  not of the plan, and without a car the fee is simply not bought.
+  the allowance is a property of the home, not the plan, and without a car the
+  fee is simply not bought. The cap is that monthly figure limited by
+  `ev_charger_kw` × window hours × 30.4, so a 120V cord gets ~215 kWh/mo from a
+  6-hour window but all of a ~315 kWh/mo car from a 12-hour one.
 - **`buyback.kind`**: `none` | `fixed` (flat ¢/kWh) | `rtw` (indexed like
   above) | `windows` (time-of-use export via `rates: list[EnergyRate]`,
   same first-match semantics). "1:1" plans are `fixed` with rate equal to

@@ -1286,7 +1286,7 @@ def test_corpus_all_real_fixtures_present_and_schema_valid():
     the "genuinely impossible extraction must still be schema-valid +
     needs_review" guarantee from ARCHITECTURE.md Sec 8."""
     real_files = sorted(REAL_FIXTURES.glob("*.txt"))
-    assert len(real_files) == 29
+    assert len(real_files) == 32
     for path in real_files:
         draft = _real_draft(path.name)
         Plan.model_validate(draft.plan_dict)
@@ -2087,3 +2087,78 @@ def test_named_hours_rows_must_tile_the_day():
 
     gap = "Peak Hours (6pm-9pm) 11.7 ¢/kWh\nOff-Peak Hours (10pm-6pm) 8.3 ¢/kWh\n"
     assert _extract_named_hours_rows(gap) is None
+
+
+class TestCorpusTeslaDrive12M:
+    NAME = "TESLA_Drive_12M_Oncor_2026.txt"
+
+    def test_split_decimal_is_nine_and_a_half_cents(self):
+        """"Energy Charge: 9 .5 ¢/kWh" entered the database as 5.0c."""
+        rates = _real_draft(self.NAME).plan_dict["energy_rates"]
+        assert rates == [{"label": "", "rate_ckwh": 9.5, "window": None}]
+
+    def test_hyphenated_term_and_other_exports_sellback(self):
+        p = _real_draft(self.NAME).plan_dict
+        assert p["term_months"] == 12
+        assert "term_months not found" not in p["notes"]
+        assert p["buyback"]["kind"] == "fixed" and p["buyback"]["rate_ckwh"] == 3.0
+
+    def test_twelve_hour_ev_window_fits_the_whole_car(self, monkeypatch):
+        monkeypatch.setenv("EA_EV_HOME_CHARGING_KWH_MONTH", "315")
+        monkeypatch.setenv("EA_EV_CHARGER_KW", "1.2")
+        p = _real_draft(self.NAME).plan_dict
+        ev = p["ev_free_charging"]
+        assert ev["window"] == {"hours": list(range(12))}  # 12 am (midnight) - 12pm (noon)
+        assert ev["monthly_kwh_cap"] == 315.0  # 1.2 kW x 12 h x 30.4 = 438 > 315
+        assert p["base_charge_usd"] == 15.0
+
+
+class TestCorpusTeslaFixed:
+    NAME = "TESLA_Fixed_Oncor_2026.txt"
+
+    def test_wind_and_standard_hours(self):
+        rates = _real_draft(self.NAME).plan_dict["energy_rates"]
+        assert rates[0]["rate_ckwh"] == 7.7 and rates[0]["window"] == {"hours": [0, 1, 2, 3]}
+        assert rates[-1]["rate_ckwh"] == 13.0 and rates[-1]["window"] is None
+
+    def test_sellback_and_promotes(self):
+        p = _real_draft(self.NAME).plan_dict
+        assert p["buyback"]["kind"] == "fixed" and p["buyback"]["rate_ckwh"] == 5.0
+        assert p["needs_review"] is False
+
+    def test_six_hour_ev_window_is_limited_by_the_charger(self, monkeypatch):
+        monkeypatch.setenv("EA_EV_HOME_CHARGING_KWH_MONTH", "315")
+        monkeypatch.setenv("EA_EV_CHARGER_KW", "1.2")
+        ev = _real_draft(self.NAME).plan_dict["ev_free_charging"]
+        assert ev["monthly_kwh_cap"] == pytest.approx(1.2 * 6 * 30.4, abs=0.1)
+
+
+class TestCorpusTeslaBackup:
+    NAME = "TESLA_Backup_Oncor_2026.txt"
+
+    def test_onsite_solar_is_excluded(self):
+        assert _real_draft(self.NAME).plan_dict.get("excludes_solar") is True
+
+    def test_solar_exports_earn_nothing(self):
+        """Powerwall exports pay 14c, solar exports 0c -- a solar home's buyback
+        is the solar line."""
+        assert _real_draft(self.NAME).plan_dict["buyback"]["kind"] == "none"
+
+
+def test_drive_records_that_it_is_closed_to_powerwall_homes():
+    p = _real_draft(TestCorpusTeslaDrive12M.NAME).plan_dict
+    assert "excludes homes with a battery" in p["notes"]
+    assert "on-premises Powerwall" in p["notes"]
+    # ...but it is not a solar exclusion.
+    assert not p.get("excludes_solar")
+
+
+def test_contract_term_without_a_unit():
+    """Payless "PTC 3 Month" prints "Contract Term 3" -- no "months". The
+    12-month default made a 3-month teaser the cheapest "12-month" plan."""
+    from energyanalyzer.eflparse.parser import _extract_term_months
+
+    got = _extract_term_months("TERMS\nContract Term 3\nDo I have a termination fee")
+    assert got is not None and got[0] == 3
+    # A number further along the line is not a bare term.
+    assert _extract_term_months("Contract Term 3 year warranty") is None
