@@ -34,15 +34,25 @@ CURRENT_PLAN_ID = "pulse_current"
 # logic conceptually, kept local here to avoid a Streamlit import from
 # report/).
 # --------------------------------------------------------------------------- #
-def plan_import_ckwh_with_tdu(monthly: pd.DataFrame, plan: Plan) -> tuple[float, bool]:
-    """Effective average import ¢/kWh for the year, energy + TDU combined.
+def plan_paid_ckwh_with_tdu(monthly: pd.DataFrame, plan: Plan) -> tuple[float, bool]:
+    """What a kWh you actually pay for costs, ¢/kWh: energy charge + per-kWh
+    TDU delivery, averaged over the year's PAID import kWh.
+
+    Free kWh (a free window that also waives delivery, free EV charging the REP
+    pays delivery on) are left out of the denominator rather than averaged in,
+    and fixed monthly charges (base, the TDU's customer charge) are left out of
+    the numerator -- both have their own columns. Averaging over ALL imports
+    hid the real price: Tesla Drive showed 11.33c beside Spark Choose 3's 10.21c
+    while charging 15.53c against 9.82c for every kWh actually billed.
+
     Returns (value, star) where star marks offset_scope == energy_only (the
     report's '*' = "not offsettable by credits")."""
-    total_import = float(monthly["import_kwh"].sum())
-    if total_import <= 0:
-        return 0.0, plan.buyback.offset_scope == "energy_only"
-    total = float(monthly["energy_cost"].sum()) + float(monthly["tdu"].sum())
-    return (total / total_import) * 100.0, plan.buyback.offset_scope == "energy_only"
+    star = plan.buyback.offset_scope == "energy_only"
+    paid = float(monthly["paid_kwh"].sum())
+    if paid <= 0:
+        return 0.0, star
+    total = float(monthly["energy_cost"].sum()) + float(monthly["tdu_volumetric"].sum())
+    return (total / paid) * 100.0, star
 
 
 def plan_export_label(plan: Plan) -> str:
@@ -153,7 +163,7 @@ def _write_summary(
         "Plan",
         "Term (mo)",
         "Base $/mo",
-        "Import ¢/kWh (+TDU)",
+        "Paid ¢/kWh (+TDU)",
         "Export ¢/kWh",
         "Other Details",
         "ETF",
@@ -195,7 +205,7 @@ def _write_summary(
             row += 1
             continue
 
-        import_ckwh, star = plan_import_ckwh_with_tdu(r.monthly, plan)
+        import_ckwh, star = plan_paid_ckwh_with_tdu(r.monthly, plan)
         import_label = f"{import_ckwh:.2f}{'*' if star else ''}"
 
         ws.write(row, 0, plan.retailer, text_fmt)
