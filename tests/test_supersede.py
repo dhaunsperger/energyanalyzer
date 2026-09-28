@@ -196,12 +196,20 @@ def _mkplan(path, **kw):
     path.write_text(_y.safe_dump(d, sort_keys=False))
 
 
-def test_synthetic_is_not_promoted_when_a_real_draft_covers_it(tmp_path):
+def test_synthetic_is_not_promoted_when_a_real_draft_covers_it(tmp_path, monkeypatch):
     """The inversion this guards against: simple meterplan rows come out
     needs_review=False, so an unverified third-party rate could auto-promote
     into the rankings while the authoritative EFL for the SAME plan sat in the
     draft queue. Supersede alone doesn't help -- it only fires once the real
-    plan is promoted, which may never happen."""
+    plan is promoted, which may never happen.
+
+    finish_refresh() calls prune_stale_meterplan_rows() with no coverage
+    override, which falls back to reading the REAL data/rep_discovery/
+    discovery_coverage.json on disk -- so without this patch, the test's
+    result depends on whatever the machine's last live discovery run found
+    for "TXU Energy" (flaky: fails for real whenever that coverage doesn't
+    happen to list "Solar Buyback" under this exact name)."""
+    monkeypatch.setattr(app_common, "_read_discovery_coverage", lambda *a, **k: {})
     plans, drafts = tmp_path / "plans", tmp_path / "plans" / "drafts"
     drafts.mkdir(parents=True)
     _mkplan(drafts / "mp_txu_energy_solar_buyback_12mo.yaml", retailer="TXU Energy",
