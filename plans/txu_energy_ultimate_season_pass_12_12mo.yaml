@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Ultimate_Season_Pass_12.pdf
 retrieved: '2026-09-26'
-source_sha256: 455f4a4ff6bbec81ba9fc546654c38c0f9f404a4342774d0e5941275d6c983ef
+source_sha256: 4363aa19213dd8eb5299822e697324cf3594b47579be8cb096acd893768a79e8
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

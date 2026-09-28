@@ -27,7 +27,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Reliant_Energy_Reliant_Solar_Payback_Match_12_plan.pdf
 retrieved: '2026-09-26'
-source_sha256: 529955c7a76226daf3a911e220a1fe2ef7a7034776d1086cd99900057f9a5208
+source_sha256: 419f11e0c9b1870a6f858447b192103a50f6df03db3c1feef55ce52daef65603
 notes: ''
 needs_review: false
 excludes_solar: false

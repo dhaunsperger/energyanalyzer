@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Basics_PTC_-_36.pdf
 retrieved: '2026-09-26'
-source_sha256: 4cd6d706c1982defdb5243469aab383a638918cfac0a89c9acaf266d60709494
+source_sha256: e73b43428b89073e120576a8c5c6c3870cb3a913db3216d995cad7a058c080bf
 enroll_url: https://amigoenergy.com/lp/ptc/?utm_source=powertochoose&utm_medium=referral&utm_campaign=LT
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

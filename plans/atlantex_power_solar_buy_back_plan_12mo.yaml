@@ -26,7 +26,7 @@ signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Atlantex_Power_Solar_Buy_Back_Plan.pdf
 retrieved: '2026-09-26'
-source_sha256: 020df6d4416d18b26f9d02adb7ddb385478d485c7adfe110d657c617d1cc32f8
+source_sha256: 68961b11522e80f44644f08764db7b04734a669852313b2cf4a4031a6c8f8271
 notes: energy rate derived from a generic '<label> Charge ... per kWh' table-line
   scan; base charge derived from a generic '<label> Charge ... per month' table-line
   scan

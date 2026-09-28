@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Choice_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 7c9711dd70a9481666ef348e5a5a13f9bfee4e9037906c1f65a084d4e33e62bc
+source_sha256: a02a64e9914198a1b761cb5694130058bc5ba09bb5e27f71ff31616a350de74a
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN24000016&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

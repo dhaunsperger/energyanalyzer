@@ -37,7 +37,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Bright_Nights_8.pdf
 retrieved: '2026-09-26'
-source_sha256: 5041815c264d62670f5be3877c3a6d6756cd5a3c19a5baf1d2dc59fc10ce7f33
+source_sha256: 0c1a2cc9e18f0c1cfad30f344c36d27ce09b5fb9f1b6163aead8bdce78fa90dc
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RNR08000025&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

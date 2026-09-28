@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:TARA_ENERGY_Sustainable_Home_Bundle_-_3.pdf
 retrieved: '2026-09-26'
-source_sha256: e848e9913a45f72227cb86c0c77ec4f6eb46f83b21a07d1c71e2c7eb3375b383
+source_sha256: 06508305d6a5499a017a9b82875f885ccf39046d86f475a7eda7e734e9c730c8
 enroll_url: https://taraenergy.com/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

@@ -23,7 +23,7 @@ rate_type: variable
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Freedom.pdf
 retrieved: '2026-09-26'
-source_sha256: 6ba8eb7c82e257f81aa8d0b3a3a39e15f606171dcde84ac7a8e71e7925a80cba
+source_sha256: 06ccf1ec678edb25143d041c8f69812e1a1dc2c9716ce809cef66855292e5714
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN01000001&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

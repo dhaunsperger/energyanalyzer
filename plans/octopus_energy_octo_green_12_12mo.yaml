@@ -28,6 +28,7 @@ renewable_pct: 100.0
 source: efl:Octopus_Energy_Octo_Green_12.pdf
 retrieved: '2026-09-26'
 notes: 'could not find an Energy Charge rate LLM suggested: energy_charge (needs human
-  confirmation).'
-needs_review: false
+  confirmation). Not listed by its source on 2026-09-26 -- the source was reached
+  and did not offer this plan. It may have left the market.'
+needs_review: true
 excludes_solar: false

@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:Discount_Power_Saver_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 502a340c4d5fc0a3e8030b8dced4254a33712c5761e5b063ea68c0b889310848
+source_sha256: 20b3ed2f5ff6df256d451e40c19784aa5a8decc5382100f79f2cae2c97994162
 enroll_url: https://shop.discountpowertx.com/offer-selection/?txtPromocode=WQ4131&tdspCode=D0004&language=es&fromLP=ptc&sid=APTC_1686090020&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

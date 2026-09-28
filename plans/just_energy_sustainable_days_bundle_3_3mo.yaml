@@ -37,7 +37,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Days_Bundle_-_3.pdf
 retrieved: '2026-09-26'
-source_sha256: 682ebf39c5c6ced9ed3343168a72b1b31ef43f4e5b91d93968e36443a3de2517
+source_sha256: bf06c45f6e8cc5eb5c97f8db8b3280da584a40f59a1624ec7bfd258fbc924b9c
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'

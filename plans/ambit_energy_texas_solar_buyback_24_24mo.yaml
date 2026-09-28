@@ -24,7 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Ambit_Energy_Texas_Solar_Buyback_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 46b034ab25c9746709c2b9cbf726191aac9d3fe5bb294d3732161c57d46b1fbe
+source_sha256: 9a16671911f8d50acdb13d3c1079d203efd6a8cda9c0451a86d44d92a3dab11e
 notes: ''
 needs_review: false
 excludes_solar: false

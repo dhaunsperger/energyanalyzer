@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 22.0
 source: efl:JUST_ENERGY_Sustainable_Living_Bundle_-_3.pdf
 retrieved: '2026-09-26'
-source_sha256: 14ad5f69b0fd702ac31e07285e590bad32e2fd99030fbb5b2469e3347d7208a7
+source_sha256: 3505006da98fc5ca0a682cb7323429e8c354756953566336c9f91fe204586c8b
 enroll_url: https://justenergy.com/affiliatepartner/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: itemized price-components list has no REP base/customer
   charge line'

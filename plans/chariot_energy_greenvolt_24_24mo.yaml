@@ -24,7 +24,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_GreenVolt_24.pdf
 retrieved: '2026-09-26'
-source_sha256: 47e046a97ac27f46526ef12e09f1a3cdbd412cded27d8017a0acfb49875b41ca
+source_sha256: 08fe258169d6abe5d6a2557a24abf683a8c79f95347dde8eb2d676875e0338e4
 notes: ''
 needs_review: false
 excludes_solar: false

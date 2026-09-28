@@ -36,7 +36,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Free_Weekends-24.pdf
 retrieved: '2026-09-26'
-source_sha256: 3f8faf893cc32919a32144e5caba65394dabb650168e75b39f1781d23316a2b0
+source_sha256: 42ecb0bb4238b81a3a19ec61d1229aa85f3d3e7d4c389d7e6baf71d1eae1cabc
 notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
 excludes_solar: false

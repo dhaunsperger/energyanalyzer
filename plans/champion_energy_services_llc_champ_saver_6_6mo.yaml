@@ -27,7 +27,7 @@ rate_type: fixed
 renewable_pct: 24.7
 source: efl:CHAMPION_ENERGY_SERVICES_LLC_Champ_Saver-6.pdf
 retrieved: '2026-09-26'
-source_sha256: dec44df7f62e182683bc66318df0859fe8a0e92baffe48ed39a088177e8f59f8
+source_sha256: b40f4d4d99a44e90d22cfe563dd3112c21226f40f223bc5444d88d3039c4a9d5
 enroll_url: https://www.championenergyservices.com/Residential/Sign-Up?promo=powertochoose
 notes: energy rate derived from a split 4-column Energy/Base/TDU charge row; base
   charge derived from the same split 4-column Energy/Base/TDU charge row

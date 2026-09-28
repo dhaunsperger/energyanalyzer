@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_ENERGY_Smart_1000_Select_12.pdf
 retrieved: '2026-09-26'
-source_sha256: 437c18f145fb15e29bb3c2c3ec5f5a00da07ac9dd39e9185a837d92e1c6c752c
+source_sha256: 45531b42a3db04171b6017082d215729b91b822087e55d5ed26ed93d5ef771a5
 enroll_url: https://www.txu.com/ptc
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false

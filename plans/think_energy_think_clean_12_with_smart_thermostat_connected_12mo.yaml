@@ -23,7 +23,7 @@ rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_12_with_Smart_Thermostat_Connected.pdf
 retrieved: '2026-09-26'
-source_sha256: db85e5098c4a99219e3b5dfe776f2e92533fa59e5f85e803453b3684c7a7ca16
+source_sha256: 0511706ac06a82da1931a3aa4931656cc0704014ca550d259fd02f454608c5fb
 enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false
