@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Reliant_Energy_Reliant_Solar_Payback_Match_12_plan.pdf
-retrieved: '2026-09-26'
-source_sha256: 419f11e0c9b1870a6f858447b192103a50f6df03db3c1feef55ce52daef65603
+retrieved: '2026-09-27'
+source_sha256: 8ca8ab06c457ddcb6dcd2e6cbb34924bf6593f92822f57219f7ccfc8c2f4634e
 notes: ''
 needs_review: false
 excludes_solar: false

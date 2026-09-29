@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 5.85
 source: efl:AP_GAS_ELECTRIC_TX_LLC_TrueClassic_24.pdf
-retrieved: '2026-09-26'
-source_sha256: 46517e330d52fba99e2725842b1905aea0ffa17d0f8936edff62746d055ab5db
+retrieved: '2026-09-27'
+source_sha256: ee41f10f3ac82f488cbbf11755af394f8d31a9afb504510bbaf55619427692a2
 enroll_url: https://www.apge.com/enroll#/offer?offerCode=SRBTX_AEC_NA_NA_RES_FPR_SD0_T24_NEW&deploymentName=TX%20State%20Rate%20Board
 notes: ''
 needs_review: false

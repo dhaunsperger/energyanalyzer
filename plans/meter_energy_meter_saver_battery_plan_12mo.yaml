@@ -26,6 +26,8 @@ source: efl:Meter_Energy_saver_battery_12mo_oncor.pdf
 retrieved: '2026-09-26'
 source_sha256: 645e99eb8c1a8c83cd2d603c837c8b1f748f57b3872a07465e0bcfaf8aee42b1
 notes: 'base charge inferred as $0.00: the EFL states its price components in prose
-  and names only an energy charge and TDU delivery charges'
-needs_review: false
+  and names only an energy charge and TDU delivery charges Not listed by its source
+  on 2026-09-27 -- the source was reached and did not offer this plan. It may have
+  left the market.'
+needs_review: true
 excludes_solar: false

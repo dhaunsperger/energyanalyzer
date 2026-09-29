@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:TXU_Energy_Simple_Value_24.pdf
-retrieved: '2026-09-26'
-source_sha256: 5893d16a474fe7807f6d60c63ee21c581b03ec8868874aafa22a8741e8d1e723
+retrieved: '2026-09-27'
+source_sha256: c43ad10f9d250a033e3970090f7b6681659afe83fb3c16cd02e4ef97b40c3586
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

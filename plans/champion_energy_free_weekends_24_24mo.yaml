@@ -35,8 +35,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:Champion_Energy_Free_Weekends-24.pdf
-retrieved: '2026-09-26'
-source_sha256: 42ecb0bb4238b81a3a19ec61d1229aa85f3d3e7d4c389d7e6baf71d1eae1cabc
+retrieved: '2026-09-27'
+source_sha256: b0fea855b0e03f9b796f4f9eeb4cb8bbe5ce033bb9148784f1933df98e308d8e
 notes: base charge derived from the same split 4-column Energy/Base/TDU charge row
 needs_review: false
 excludes_solar: false

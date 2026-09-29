@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Ambit_Energy_Texas_Solar_Buyback_12.pdf
-retrieved: '2026-09-26'
-source_sha256: 49997aa3e01d5649918ed129715076e5dabe8ae0125aae913ce0448cf04aa60c
+retrieved: '2026-09-27'
+source_sha256: 78d035c7bbfc871cf2f7a317b792e77ebac6c7534b4db22f2c60f17091d39027
 notes: ''
 needs_review: false
 excludes_solar: false

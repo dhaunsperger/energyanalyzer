@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Summer_Break_12.pdf
-retrieved: '2026-09-26'
-source_sha256: 619e4522d680bf0ffd31d3658832d35cf8a9fa7baecc1637907a404d8b79b05d
+retrieved: '2026-09-27'
+source_sha256: f074466fda1871817194c900b6b460d6fcf70747dd4624cd61ebe2f227ff9f44
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

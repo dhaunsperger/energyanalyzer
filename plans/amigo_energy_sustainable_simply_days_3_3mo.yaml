@@ -36,8 +36,8 @@ signup_fee_usd: 49.99
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:AMIGO_ENERGY_Sustainable_Simply_Days_-_3.pdf
-retrieved: '2026-09-26'
-source_sha256: 1568646c4eda05221bb8de4c744b6ae61a3ba6534e1fab372b4fb6c1dd1c4685
+retrieved: '2026-09-27'
+source_sha256: 7d7c1695050eed6c0ed106d83665f5a404496cb1011746083108c9aaa4d595f8
 enroll_url: https://amigoenergy.com/lp/ptcsl/?utm_source=powertochoose&utm_medium=referral&utm_campaign=ST
 notes: 'base charge inferred as $0.00: the EFL''s bulleted price-component list has
   no recurring REP monthly charge (only the TDSP''s)'

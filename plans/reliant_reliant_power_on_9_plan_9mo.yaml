@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:RELIANT_Reliant_Power_On_9_Plan.pdf
-retrieved: '2026-09-26'
-source_sha256: 74cb349253e404e3753f44e562387dfb3d73fd3ee8e25a3cba9a04689ed0c91b
+retrieved: '2026-09-27'
+source_sha256: 00257b87f8989e498ec261f4d76b5ebfdc41be7cc091f3fecfbac8c2600ebb1e
 enroll_url: https://shop.reliant.com/plans-for-you/?tdspCodeCCS=D0005&fromLP=ptc&txtPromocode=WF3713&sid=APTC_1686089562&utm_source=None&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_
 notes: ''
 needs_review: false

@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_GreenVolt_36.pdf
-retrieved: '2026-09-26'
-source_sha256: e9ad9344284847610085283accb0ce15f38c3c2b66b117811d36ef4ce5c7a010
+retrieved: '2026-09-27'
+source_sha256: b2136d7a0605f33d2bd1a08069afa98a61b561fc3b2539aef1bd5d0ba7e68e52
 notes: ''
 needs_review: false
 excludes_solar: false

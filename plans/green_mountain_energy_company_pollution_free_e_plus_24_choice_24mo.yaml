@@ -21,8 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:GREEN_MOUNTAIN_ENERGY_COMPANY_Pollution_Free_e-Plus_24_Choice.pdf
-retrieved: '2026-09-26'
-source_sha256: 59cdf9a0c604e9faeef7665ea14ce5feeceb609d1b20d426527f17340f506c32
+retrieved: '2026-09-27'
+source_sha256: c649e8dc7aeb9a78fb20e4781e4c9ef89409f879b3a178ac04262c9aa8223388
 enroll_url: https://www.greenmountainenergy.com/gmec-lnd-tx-ptc/?txtPromocode=WA0TEZ&sid=APTC_1686090168&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

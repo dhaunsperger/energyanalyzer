@@ -38,8 +38,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Ambit_Energy_Free_Clear_Nights_12.pdf
-retrieved: '2026-09-26'
-source_sha256: 6ddab8cd03bdc7d93f1b89e292a06dca6e420cb1db0d77b005a28d9ffca4339d
+retrieved: '2026-09-27'
+source_sha256: fbf04be63ff22099609fdfd15ab4fa7aa82dd54a92637d7cd45fe81c135d4426
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row);
   TDU delivery charge waived during the free window (Delivery Charges will be credited
   for usage during the night)

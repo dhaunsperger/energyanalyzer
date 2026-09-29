@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:CHARIOT_ENERGY_Chariot_Freedom.pdf
-retrieved: '2026-09-26'
-source_sha256: 06ccf1ec678edb25143d041c8f69812e1a1dc2c9716ce809cef66855292e5714
+retrieved: '2026-09-27'
+source_sha256: ff70eba8cec0146d6e9b04c6398ebec9efd984722095875a361b330bdac3bb61
 enroll_url: https://signup.chariotenergy.com//Home/index?ProductCode=RN01000001&Promo=GqAtunAVIGY=
 notes: ''
 needs_review: false

@@ -26,8 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 24.7
 source: efl:CONSTELLATION_NEWENERGY_INC_12_Month_A_C_Protect_Plus_for_2_Units.pdf
-retrieved: '2026-09-26'
-source_sha256: 9034963662ce223dfe98da7db29abd91f3c72f6e476b61f11939c70c72b087ef
+retrieved: '2026-09-27'
+source_sha256: 287b226a4cb79af9ffaa43e13f168dde5d62a768b34984ef8c4db1f3506bd570
 enroll_url: https://www.constellation.com/content/constellation/en/campaigns/powertochoose.html?UTM_source=powertochoose.org&UTM_medium=referral
 notes: ''
 needs_review: false

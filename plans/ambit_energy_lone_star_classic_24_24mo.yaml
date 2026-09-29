@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 3.0
 source: efl:Ambit_Energy_Lone_Star_Classic_24.pdf
-retrieved: '2026-09-26'
-source_sha256: 930bf6de262d38f39e469eeaa675319cb1a699d6ad3f375d6758ee3073449672
+retrieved: '2026-09-27'
+source_sha256: 06230486f35aed533e028a66456e5e2d62fd7c4712944679037612272391dbee
 notes: energy rate derived from a split header/value table ('All kWh <rate>' row)
 needs_review: false
 excludes_solar: false

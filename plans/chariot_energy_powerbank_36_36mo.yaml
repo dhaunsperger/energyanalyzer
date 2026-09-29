@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_PowerBank_36.pdf
-retrieved: '2026-09-26'
-source_sha256: 8e3a24e94a81deaa28bfb5b590d14032334e0358f11d4044b4e61bf7a4e769fa
+retrieved: '2026-09-27'
+source_sha256: 275eb33e3eff5e5cfc366b0cb1f8b7f5a23f066ca2782cff3640bda3264f2723
 notes: ''
 needs_review: false
 excludes_solar: false

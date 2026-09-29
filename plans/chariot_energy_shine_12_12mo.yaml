@@ -27,8 +27,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Chariot_Energy_Shine_12.pdf
-retrieved: '2026-09-26'
-source_sha256: 77b7ea6578567c09c45d6d4586d9463115a1a81e280057ccc2e1c5531f55dca4
+retrieved: '2026-09-27'
+source_sha256: c7a393447058d97d25de48d980b66bd2b2fa87e11cd96dadcf4804dc78b51ed4
 notes: ''
 needs_review: false
 excludes_solar: false

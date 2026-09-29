@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 22.0
 source: efl:CIRRO_ENERGY_Smart_Simple_10.pdf
-retrieved: '2026-09-26'
-source_sha256: 48c72c38ace2e16c25bdfdc69515ce00349442aa718be7141dad593da8ccac44
+retrieved: '2026-09-27'
+source_sha256: 067f0d6ff408d43a0e0ab7853f04a9cfe66149a6a8e38470d8ce3dec0e23d639
 enroll_url: https://www.cirroenergy.com/lp/ptcZipCodeSearch?tdsp_code=D0011&promo_code=WA198B&txtPromocode=WA198B&fromLP=ptc&sid=APTC_1685677096&utm_campaign=Power+To+Choose+Listings&utm_medium=PTC_&utm_source=None
 notes: ''
 needs_review: false

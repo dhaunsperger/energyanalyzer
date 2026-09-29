@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 23.8
 source: efl:Budget_Power_No_Gimmicks_24.pdf
-retrieved: '2026-09-26'
-source_sha256: ea92944956d5e24a13ac10304646db99a83bd50de9b2799598422c972e6b91dd
+retrieved: '2026-09-27'
+source_sha256: 6412d1dc3d3ea9f5083e4016d683c3b63d48db68b727787c50b59b33e2ffca8b
 enroll_url: https://signup.budgetpowertx.com/Home/index?ProductCode=RN24000133&Promo=PTC
 notes: ''
 needs_review: false

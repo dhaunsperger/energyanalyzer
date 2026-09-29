@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 29.0
 source: efl:BKV_Energy_Daisy_13.pdf
-retrieved: '2026-09-26'
-source_sha256: b525fc01ccffa745bc4f91179ff2de482bf88d4ea2c2bfd2a2e566663d30143e
+retrieved: '2026-09-27'
+source_sha256: af3b0c2e22302845ae3d94dadf41a3ad86795fbe830f9d91629c8c2a45b9a055
 enroll_url: https://enroll.bkvenergy.com/?promo=PTCALL0001
 notes: ''
 needs_review: false

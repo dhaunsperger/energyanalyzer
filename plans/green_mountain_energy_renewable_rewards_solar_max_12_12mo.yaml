@@ -26,12 +26,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Renewable_Rewards_Solar_Max_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 982a586deb27d79e67dd0402df67dd633b7602dc9158035a49ac95ce9836849b
-notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
-  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
-  -- the source was reached and did not offer this plan. It may have left the market.
-  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
-  this plan. It may have left the market.
-needs_review: true
+retrieved: '2026-09-27'
+source_sha256: 0e12aa0fce3443930f2c531668b656a693b77e03c22af6aef4aa6fc29ffc3513
+notes: ''
+needs_review: false
 excludes_solar: false

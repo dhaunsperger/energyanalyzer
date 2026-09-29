@@ -21,12 +21,8 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_e-Plus_12.pdf
-retrieved: '2026-09-25'
-source_sha256: 1ca551721d257c5af01beacb260d714bf199c5f86b294ce03350e8e8fd360cb4
-notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
-  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
-  -- the source was reached and did not offer this plan. It may have left the market.
-  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
-  this plan. It may have left the market.
-needs_review: true
+retrieved: '2026-09-27'
+source_sha256: fc688e02129baf758f0c99341fc9e7e7ba7513e4b98d0a4db55d4e60c8892482
+notes: ''
+needs_review: false
 excludes_solar: false

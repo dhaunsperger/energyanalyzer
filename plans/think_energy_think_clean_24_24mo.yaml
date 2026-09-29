@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Think_Energy_Think_Clean_24.pdf
-retrieved: '2026-09-26'
-source_sha256: e641eda06b2b5fc9a3735aa19637dd65b9e9af2d6807188b2e1fca703eb4dcd3
+retrieved: '2026-09-27'
+source_sha256: 5aab0eb52b27631c5db9566ac168bd48729a5490bb1ac82333a2e9efaebb6c94
 enroll_url: https://www.thinkenergy.com/?utm_source=rateboard&utm_medium=referral&utm_campaign=texas
 notes: ''
 needs_review: false

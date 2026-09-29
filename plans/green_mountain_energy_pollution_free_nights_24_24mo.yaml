@@ -37,13 +37,9 @@ etf_per_month_remaining: false
 signup_fee_usd: 0.0
 rate_type: fixed
 source: efl:Green_Mountain_Energy_Pollution_Free_Nights_24.pdf
-retrieved: '2026-09-25'
-source_sha256: 3809a78f15be77ef3e35358d8b0949e803e6af9fc80cccca9a863ca6e9e05760
+retrieved: '2026-09-27'
+source_sha256: 644d03e49f602aae8a93a2695d378a6b0931cc135d56fa13c467abc96a636a38
 notes: TDU delivery charge waived during the free window (Nighttime Delivery Charges
-  $0.00) Not listed by its source on 2026-09-26 -- the source was reached and did
-  not offer this plan. It may have left the market. Not listed by its source on 2026-09-26
-  -- the source was reached and did not offer this plan. It may have left the market.
-  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
-  this plan. It may have left the market.
-needs_review: true
+  $0.00)
+needs_review: false
 excludes_solar: false

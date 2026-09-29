@@ -25,6 +25,7 @@ renewable_pct: 100.0
 source: efl:Meter_Energy_earner_battery_12mo_oncor.pdf
 retrieved: '2026-09-26'
 source_sha256: bde1433e1c6ba7f74c73f5576e41b5447396b2739ca3d8e274fed30af21bc977
-notes: ''
-needs_review: false
+notes: Not listed by its source on 2026-09-27 -- the source was reached and did not
+  offer this plan. It may have left the market.
+needs_review: true
 excludes_solar: false

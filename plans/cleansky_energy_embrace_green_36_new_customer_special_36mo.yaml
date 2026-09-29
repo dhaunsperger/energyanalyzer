@@ -22,8 +22,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:CleanSky_Energy_Embrace_Green_36_-_New_Customer_Special.pdf
-retrieved: '2026-09-26'
-source_sha256: fbce5e83bedae9de7117643b1f3e0e5c959e423d1015974a542a02cc13bf40a7
+retrieved: '2026-09-27'
+source_sha256: 83b6844cfc8a54751b6731209ffcec325f5be11fcab83c1fa66374bbc8339007
 enroll_url: https://enroll.cleanskyenergy.com//Home/index?ProductCode=RN00008034&Promo=PTCHOOSETX&Term=36
 notes: ''
 needs_review: false

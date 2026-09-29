@@ -39,12 +39,8 @@ signup_fee_usd: 0.0
 rate_type: fixed
 renewable_pct: 100.0
 source: efl:Green_Mountain_Energy_Solar_All_Nighter_12.pdf
-retrieved: '2026-09-25'
-source_sha256: df5174d4c0daf3cd9cc8a5c583690acb030a4fbc95285659b39842c9e8142329
-notes: Not listed by its source on 2026-09-26 -- the source was reached and did not
-  offer this plan. It may have left the market. Not listed by its source on 2026-09-26
-  -- the source was reached and did not offer this plan. It may have left the market.
-  Not listed by its source on 2026-09-26 -- the source was reached and did not offer
-  this plan. It may have left the market.
-needs_review: true
+retrieved: '2026-09-27'
+source_sha256: 9eb74010f20809035ef7e920e9760eca51fd1620fb68b320837feff9c4f511c6
+notes: ''
+needs_review: false
 excludes_solar: false

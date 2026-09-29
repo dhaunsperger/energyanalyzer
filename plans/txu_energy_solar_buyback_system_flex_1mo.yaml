@@ -23,8 +23,8 @@ signup_fee_usd: 0.0
 rate_type: variable
 renewable_pct: 100.0
 source: efl:TXU_Energy_Solar_Buyback_System_Flex.pdf
-retrieved: '2026-09-26'
-source_sha256: f753fe7550855575a1aa025cf71092f05b0a9b7ed257401985e87dcb634ac377
+retrieved: '2026-09-27'
+source_sha256: 3d8d901e36cc84b7f8408b71dab0838eb0c0755b62a7cd50e6fff1b1a72e61d5
 notes: ''
 needs_review: false
 excludes_solar: false
