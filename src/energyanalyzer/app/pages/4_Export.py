@@ -15,6 +15,7 @@ if str(_SRC_ROOT) not in sys.path:
 
 from energyanalyzer.core.models import select_billing_window  # noqa: E402
 from energyanalyzer.app.common import (  # noqa: E402
+    get_variable_rates,
     CURRENT_PLAN_ID,
     DATA_DIR,
     get_intervals,
@@ -69,7 +70,7 @@ if excluded_plans:
         usable_plans = [p for p in usable_plans if not getattr(p, "excludes_solar", False)]
         st.caption(f"{len(excluded_plans)} plan(s) excluded as ineligible for this home.")
 
-results = rank(usable_plans, intervals, tdu, prices)
+results = rank(usable_plans, intervals, tdu, prices, variable_rates=get_variable_rates())
 for w in getattr(results, "warnings", []):
     st.warning(w)
 

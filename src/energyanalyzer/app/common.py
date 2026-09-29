@@ -705,6 +705,14 @@ def get_plans(directory: Path = PLANS_DIR) -> list[Plan]:
     return _load_plans_cached(str(directory))
 
 
+def get_variable_rates() -> list:
+    """Retailers' published month-to-month rate histories (variable_rates/*.yaml).
+    Small and read per run -- no cache to go stale when a row is appended."""
+    from energyanalyzer.core.plans_io import load_variable_rates
+
+    return load_variable_rates()
+
+
 def get_plans_dict(directory: Path = PLANS_DIR) -> dict[str, Plan]:
     return {p.id: p for p in get_plans(directory)}
 

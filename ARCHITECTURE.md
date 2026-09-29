@@ -62,6 +62,7 @@ ARCHITECTURE.md            ← this file
 pyproject.toml
 plans/*.yaml               ← plan database (human-editable, git-versioned)
 tdu/oncor.yaml             ← versioned TDU delivery tariffs
+variable_rates/*.yaml      ← retailers' published month-to-month rate histories (§6a)
 data/                      ← gitignored: user CSVs, parquet cache, ERCOT prices
 src/energyanalyzer/
   core/models.py           ← DONE (lead). Pydantic schema — THE contract.
@@ -259,11 +260,34 @@ rollover_out  = (pool - used) if rollover else 0
   DataFrame (all components above), `final_rollover_balance`, effective
   avg ¢/kWh. Module: `engine/cost.py`, entry
   `simulate(plan, intervals, tdu, prices=None) -> PlanResult` and
-  `rank(plans, intervals, tdu, prices) -> list[PlanResult]` sorted ascending.
+  `rank(plans, intervals, tdu, prices, variable_rates=None) -> list[PlanResult]`
+  sorted ascending (`variable_rates`: see §6a).
 - Watch the sign conventions: bills in dollars owed; credits reduce.
 - Partial months at series edges: bill them as-is (they're only edge months
   when data isn't exactly 12 calendar months; with our data, Jul 1–Jun 30
   aligns perfectly).
+
+### 6a. Short contracts past their term (`engine/rollover.py`)
+
+A first-year figure for a plan shorter than 12 months must say what the other
+months cost. Texas rolls an expired contract onto the retailer's month-to-month
+product, and 1-month promotional plans say outright that the advertised rate is
+the first bill's only. Carrying that rate through the year put Ranchero's 2.02c
+first in the ranking; its parent Southern Federal's own published Oncor history
+is 11.9-14.3c, which prices the same year at $2,321 instead of $1,104.
+
+`rank(..., variable_rates=load_variable_rates())` therefore bills a short plan
+with fixed energy rates at its contract schedule for its first `term_months`
+months of the window and, for each later month, at the retailer's published
+variable rate in effect mid-month (15th) in that same calendar month. The
+history comes from `variable_rates/<retailer>.yaml` (`VariableRateHistory`:
+brand names + per-TDU dated rates; append rows, never edit). It is applied as
+month-windowed `EnergyRate`s, so `simulate()` is untouched; base charge, bill
+credits and buyback carry over. RTW-indexed plans have no promotional rate to
+expire and are left alone. A short plan whose retailer has no history keeps
+its contract rate all year and gets `PlanResult.rollover = "assumed"`; Compare
+and Excel mark those rows '†' (a best case) and priced ones '§', and Compare
+names the retailers whose histories are missing.
 
 ## 7. ERCOT prices & fetchers (Task 4)
 

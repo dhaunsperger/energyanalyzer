@@ -7,12 +7,13 @@ from pathlib import Path
 
 import yaml
 
-from .models import Plan, TduTariff
+from .models import Plan, TduTariff, VariableRateHistory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLANS_DIR = REPO_ROOT / "plans"
 DRAFTS_DIR = PLANS_DIR / "drafts"
 TDU_DIR = REPO_ROOT / "tdu"
+VARIABLE_RATES_DIR = REPO_ROOT / "variable_rates"
 
 
 def load_plan(path: Path) -> Plan:
@@ -57,3 +58,15 @@ def tdu_for_date(tariffs: list[TduTariff], on: dt.date) -> TduTariff:
 def current_tdu(name: str = "oncor") -> TduTariff:
     """Latest tariff — used for all 12 forward-looking billing months."""
     return load_tdu_tariffs(name)[-1]
+
+
+def load_variable_rates(directory: Path = VARIABLE_RATES_DIR) -> list[VariableRateHistory]:
+    """Every retailer's published month-to-month rate history (variable_rates/*.yaml)."""
+    directory = Path(directory)
+    if not directory.exists():
+        return []
+    out = []
+    for path in sorted(directory.glob("*.yaml")):
+        with open(path) as f:
+            out.append(VariableRateHistory.model_validate(yaml.safe_load(f)))
+    return out

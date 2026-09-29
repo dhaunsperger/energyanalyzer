@@ -55,6 +55,20 @@ def plan_paid_ckwh_with_tdu(monthly: pd.DataFrame, plan: Plan) -> tuple[float, b
     return (total / paid) * 100.0, star
 
 
+def rollover_marker(result) -> str:
+    """'§' = months past a short contract priced at the retailer's published
+    variable rate; '†' = no history on file, contract rate assumed all year."""
+    return {"history": " §", "assumed": " †"}.get(getattr(result, "rollover", None) or "", "")
+
+
+ROLLOVER_FOOTNOTE = (
+    "'§' = shorter than 12 months; the months after the contract are priced at the "
+    "retailer's published month-to-month rate. '†' = shorter than 12 months with no "
+    "published variable rate on file, so the contract rate is assumed to last all year "
+    "-- a best case, not a price."
+)
+
+
 def plan_export_label(plan: Plan) -> str:
     bb = plan.buyback
     if bb.kind == "none":
@@ -154,7 +168,7 @@ def _write_summary(
         f"Oncor TDU (current, effective {tdu.effective}): "
         f"${tdu.fixed_usd_month:.2f}/mo + {tdu.volumetric_ckwh:.4f}¢/kWh. "
         "'*' = import ¢/kWh not offsettable by export credits (offset_scope=energy_only). "
-        "'‡' = RTW-indexed rate (priced from ERCOT settlement prices).",
+        "'‡' = RTW-indexed rate (priced from ERCOT settlement prices). " + ROLLOVER_FOOTNOTE,
         fmts["subtitle"],
     )
 
@@ -213,6 +227,7 @@ def _write_summary(
             plan.name
             + (" ‡" if r.uses_rtw else "")
             + ("~" if getattr(r, "prices_estimated_fraction", 0.0) else "")
+            + rollover_marker(r)
         )
         ws.write(row, 1, name, text_fmt)
         ws.write(row, 2, plan.term_months, text_fmt)

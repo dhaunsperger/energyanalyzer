@@ -16,6 +16,7 @@ if str(_SRC_ROOT) not in sys.path:
 
 from energyanalyzer.core.models import select_billing_window  # noqa: E402
 from energyanalyzer.app.common import (  # noqa: E402
+    get_variable_rates,
     CURRENT_PLAN_ID,
     DATA_DIR,
     get_intervals,
@@ -33,7 +34,9 @@ from energyanalyzer.engine.cost import rank  # noqa: E402
 from energyanalyzer.report.excel import (  # noqa: E402
     plan_etf_label,
     plan_export_label,
+    ROLLOVER_FOOTNOTE,
     plan_paid_ckwh_with_tdu,
+    rollover_marker,
     plan_other_details,
 )
 
@@ -112,7 +115,7 @@ if excluded_plans:
             + (" …" if len(excluded_plans) > 4 else "")
         )
 
-results = rank(usable_plans, intervals, tdu, prices)
+results = rank(usable_plans, intervals, tdu, prices, variable_rates=get_variable_rates())
 for w in getattr(results, "warnings", []):
     st.warning(w)
 
@@ -154,6 +157,17 @@ st.caption(
     "'*' = import rate not offsettable by export credits "
     "(offset_scope=energy_only). '‡' = RTW-indexed rate (ERCOT settlement prices)."
 )
+if any(r.rollover for r in results):
+    st.caption(ROLLOVER_FOOTNOTE)
+    # Name the gap, not just the symbol: every '†' row is one history file away
+    # from a real price, and they are exactly the rows that crowd the top.
+    missing = sorted({plans_by_id[r.plan_id].retailer for r in results[:25] if r.rollover == "assumed"})
+    if missing:
+        st.caption(
+            "No published month-to-month rate on file for: " + ", ".join(missing)
+            + ". Add one as variable_rates/<retailer>.yaml (see southern_federal.yaml) "
+            "to price those plans past their contract."
+        )
 if any(r.prices_estimated_fraction for r in results):
     worst = max(r.prices_estimated_fraction for r in results)
     st.caption(
@@ -173,7 +187,8 @@ for r in results:
             # (ERCOT's archive trails real time); explained in the footnote.
             "Plan": plan.name
             + (" ‡" if r.uses_rtw else "")
-            + ("~" if r.prices_estimated_fraction else ""),
+            + ("~" if r.prices_estimated_fraction else "")
+            + rollover_marker(r),
             "Term (mo)": plan.term_months,
             "Base $/mo": plan.base_charge_usd,
             "Paid ¢/kWh (+TDU)": f"{import_ckwh:.2f}{'*' if star else ''}",

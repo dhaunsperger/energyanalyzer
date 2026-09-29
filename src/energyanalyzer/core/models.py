@@ -8,6 +8,7 @@ works in $/kWh via the `usd_kwh` helpers.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from enum import Enum
 from typing import Literal, Optional
 
@@ -245,6 +246,49 @@ class TduTariff(BaseModel):
         return self.volumetric_ckwh / 100.0
 
 
+class VariableRatePoint(BaseModel):
+    """One published month-to-month energy charge, in effect from `effective`."""
+
+    effective: dt.date
+    energy_ckwh: float
+
+
+class VariableRateHistory(BaseModel):
+    """A retailer's published month-to-month (variable) energy-charge history,
+    per TDU -- what a customer pays once a short contract or a first-month
+    promotional rate ends. Texas REPs must publish it (e.g. Southern Federal's
+    /VariableProducts page), and it is the only honest price for the months a
+    short-term plan leaves uncovered: SoFed's Oncor variable rate ran 11.9-14.3c
+    through 2025-26, while its brand Ranchero advertised 2.02c for month one.
+
+    Stored as YAML in variable_rates/ (see core.plans_io.load_variable_rates).
+    """
+
+    retailers: list[str]  # every brand/legal name that sells at this history
+    source: str = ""
+    retrieved: Optional[dt.date] = None
+    notes: str = ""
+    tdu: dict[str, list[VariableRatePoint]]
+
+    @staticmethod
+    def _key(name: str) -> str:
+        words = re.sub(r"[^a-z0-9 ]+", " ", (name or "").lower()).split()
+        return " ".join(w for w in words if w not in ("llc", "inc", "lp", "dba"))
+
+    def matches(self, retailer: str) -> bool:
+        key = self._key(retailer)
+        return any(key.startswith(self._key(r)) for r in self.retailers if self._key(r))
+
+    def rate_on(self, tdu: str, on: dt.date) -> Optional[float]:
+        """Energy charge (c/kWh) in effect on `on`; the earliest published rate
+        for dates before the history starts; None if no series for this TDU."""
+        series = sorted(self.tdu.get((tdu or "").upper(), []), key=lambda p: p.effective)
+        if not series:
+            return None
+        applicable = [p for p in series if p.effective <= on]
+        return (applicable[-1] if applicable else series[0]).energy_ckwh
+
+
 # --------------------------------------------------------------------------- #
 # Engine results
 # --------------------------------------------------------------------------- #
@@ -263,6 +307,12 @@ class PlanResult(BaseModel):
     # figure leans on estimated prices for that slice -- see prices.ercot.
     prices_estimated_fraction: float = 0.0
     warnings: list[str] = Field(default_factory=list)
+    # How months past a short contract were priced (plans under 12 months):
+    # "history" = at the retailer's published variable rate; "assumed" = no
+    # history on file, so the contract rate was carried through the year (an
+    # optimistic guess the UI must flag); None = not applicable.
+    rollover: Optional[Literal["history", "assumed"]] = None
+    rollover_note: str = ""
 
 
 # --------------------------------------------------------------------------- #

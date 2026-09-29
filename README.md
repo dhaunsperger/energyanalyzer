@@ -144,6 +144,13 @@ the staleness warnings, and the concepts behind the rankings.
   the YAML files in `plans/` directly — the schema is documented in
   `ARCHITECTURE.md` §5.
 
+- **Retailers' month-to-month rate histories** (`variable_rates/*.yaml`): what
+  you pay after a short contract or a first-month promotional rate ends. Plans
+  under 12 months are priced at these for the rest of the year (marked `§`);
+  a retailer with no file keeps its contract rate all year and is marked `†`
+  as a best case. Each REP publishes its history (the EFL usually links it) --
+  copy `southern_federal.yaml` and paste the rows in.
+
 Plan YAMLs in `plans/` are the database — git-versioned, human-editable.
 Hand-entered plans are never touched by refresh; auto-imported ones
 (`source: ptc` / `efl:*` / `meterplan`) are replaced each refresh. A synthetic

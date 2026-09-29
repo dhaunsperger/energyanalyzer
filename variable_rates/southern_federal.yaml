@@ -1,0 +1,39 @@
+# Southern Federal Power's published month-to-month (variable) energy charges.
+# Ranchero Power is a Southern Federal dba ("Southern Federal Power, LLC DBA" on
+# every Ranchero EFL), and its EFLs point customers to the same history.
+#
+# This is what a SoFed/Ranchero customer pays after a 1-month promotional rate
+# ("applied to your first month's bill period and may change on a monthly bill
+# basis") or once a short fixed contract rolls to month-to-month. Energy charge
+# only, c/kWh; base charge and TDU pass-through are billed on top as usual.
+#
+# Append new rows as SoFed publishes them -- don't edit old ones. Each rate is
+# in effect from its date until the next row. SoFed published no March 2026
+# row; the Feb 15 rate is taken to still apply.
+retailers:
+  - Southern Federal Power
+  - Ranchero Power
+source: https://southernfederal.com/variableproducts/ (Oncor table)
+retrieved: 2026-09-29
+tdu:
+  ONCOR:
+    - {effective: 2025-01-15, energy_ckwh: 13.1931}
+    - {effective: 2025-02-15, energy_ckwh: 13.1931}
+    - {effective: 2025-03-18, energy_ckwh: 12.1931}
+    - {effective: 2025-04-15, energy_ckwh: 11.4876}
+    - {effective: 2025-05-15, energy_ckwh: 12.4381}
+    - {effective: 2025-06-15, energy_ckwh: 13.3657}
+    - {effective: 2025-07-15, energy_ckwh: 14.3162}
+    - {effective: 2025-08-15, energy_ckwh: 14.3162}
+    - {effective: 2025-09-15, energy_ckwh: 14.3162}
+    - {effective: 2025-10-15, energy_ckwh: 11.8873}
+    - {effective: 2025-11-15, energy_ckwh: 11.8873}
+    - {effective: 2025-12-15, energy_ckwh: 12.8873}
+    - {effective: 2026-01-15, energy_ckwh: 13.8873}
+    - {effective: 2026-02-15, energy_ckwh: 13.8873}
+    - {effective: 2026-04-15, energy_ckwh: 11.8722}
+    - {effective: 2026-05-15, energy_ckwh: 11.8722}
+    - {effective: 2026-06-15, energy_ckwh: 11.8722}
+    - {effective: 2026-07-15, energy_ckwh: 13.3794}
+    - {effective: 2026-08-15, energy_ckwh: 13.3794}
+    - {effective: 2026-09-15, energy_ckwh: 12.4695}

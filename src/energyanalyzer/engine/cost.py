@@ -21,6 +21,7 @@ from ..core.models import (
     Plan,
     PlanResult,
     TduTariff,
+    VariableRateHistory,
     add_local_columns,
     validate_intervals,
     describe_billing_window,
@@ -353,11 +354,21 @@ def rank(
     intervals: pd.DataFrame,
     tdu: TduTariff,
     prices: pd.Series | None = None,
+    variable_rates: list[VariableRateHistory] | None = None,
 ) -> list[PlanResult]:
     """Simulate every plan and return results sorted ascending by
     first_year_net. Plans whose simulation raises are skipped; the message
     is logged and collected in the returned list's `.warnings` attribute
-    (see RankedResults) rather than aborting the whole ranking."""
+    (see RankedResults) rather than aborting the whole ranking.
+
+    With `variable_rates` (see core.plans_io.load_variable_rates), a plan
+    shorter than 12 months is billed at its contract rate for its term and at
+    its retailer's published month-to-month rate for the rest of the year
+    (engine.rollover). A short plan whose retailer has no history on file keeps
+    its contract rate all year and is marked `rollover="assumed"` so the UI can
+    say that figure is a best case, not a price."""
+    from energyanalyzer.engine.rollover import apply_contract_rollover, history_for, rolls_over
+
     results = RankedResults()
     for plan in plans:
         # A plan that charges nothing for energy in EVERY window is not a cheap
@@ -386,7 +397,21 @@ def rank(
             results.warnings.append(msg)
             continue
         try:
-            results.append(simulate(plan, intervals, tdu, prices))
+            rollover, note, billed = None, "", plan
+            if variable_rates is not None and rolls_over(plan):
+                history = history_for(plan, variable_rates)
+                if history is not None:
+                    billed, note = apply_contract_rollover(plan, intervals, history)
+                    rollover = "history" if note else None
+                else:
+                    rollover = "assumed"
+                    note = (
+                        f"after month {plan.term_months}: no published variable rate on file for "
+                        f"{plan.retailer} -- the contract rate is assumed to continue (best case)"
+                    )
+            result = simulate(billed, intervals, tdu, prices)
+            result.rollover, result.rollover_note = rollover, note
+            results.append(result)
         except ValueError as exc:
             msg = f"skipping plan {plan.id}: {exc}"
             logger.warning(msg)
